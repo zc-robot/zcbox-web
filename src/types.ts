@@ -1,16 +1,15 @@
 export type OccupancyGridMessage = {
   header: {
-    seq: number,
     stamp: {
-      secs: number,
-      nsecs: number,
+      sec: number,
+      nanosec: number,
     },
     frame_id: string,
   },
   info: {
     map_load_time: {
-      secs: number,
-      nsecs: number,
+      sec: number,
+      nanosec: number,
     },
     resolution: number,
     width: number,

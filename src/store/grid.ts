@@ -1,13 +1,14 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit"
 import { OccupancyGridMessage } from "src/types"
 import { RootState } from "."
+import { msg } from "./demo"
 
 export interface GridState {
   message: OccupancyGridMessage | null
 }
 
 const initialState: GridState = {
-  message: null
+  message: msg
 }
 
 export const gridSlice = createSlice({
