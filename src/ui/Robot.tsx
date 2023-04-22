@@ -1,10 +1,7 @@
 import React from "react"
-import { useAppDispatch } from "@/store"
-import { zoom } from "@/store/grid"
-import { Shape } from "react-konva"
+import { Circle, Shape } from "react-konva"
 
-interface RobotState {
-  fill: string,
+interface RobotProp {
   x: number,
   y: number,
   width: number,
@@ -12,15 +9,13 @@ interface RobotState {
   rotation: number,
 }
 
-const Robot: React.FC<RobotState> = ({ x, y, width, scale, rotation }) => {
+const Robot: React.FC<RobotProp> = ({ x, y, width, scale, rotation }) => {
 
-  console.log("rotation", rotation)
   const points = [
-    x - width / 2, y + width,
-    x + width / 2, y + width,
-    x, y - width
+    -width / 2, width,
+    width / 2, width,
+    0, -width
   ]
-
 
   return (
     <>
@@ -42,6 +37,14 @@ const Robot: React.FC<RobotState> = ({ x, y, width, scale, rotation }) => {
           context.stroke()
           context.fillStrokeShape(shape)
         }}
+      />
+      <Circle
+        x={x}
+        y={y}
+        radius={width / 4}
+        fill="red"
+        scaleX={scale}
+        scaleY={scale}
       />
     </>
   )

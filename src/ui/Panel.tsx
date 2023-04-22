@@ -1,16 +1,11 @@
 import React from "react"
-import { useAppDispatch } from "@/store"
-import { zoom } from "@/store/grid"
+import useGridStore from "@/store/grid"
 
 const Panel: React.FC = () => {
-  const dispatch = useAppDispatch()
+  const zoom = useGridStore((state) => state.zoom)
 
-  const zoomInClick = () => {
-    dispatch(zoom(1.1))
-  }
-  const zoomOutClick = () => {
-    dispatch(zoom(0.9))
-  }
+  const zoomInClick = () => zoom(1.1)
+  const zoomOutClick = () => zoom(0.9)
 
   return (
     <div bg-gray-100 h-3rem flex="~ items-center">

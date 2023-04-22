@@ -1,19 +1,18 @@
 import { OccupancyGridMessage, PoseMessage } from "src/types"
 
+// 45 {"x": 0, "y": 0, "z": 0.3826834, "w": 0.9238795}
+// 135 {"x": 0, "y": 0, "z": 0.9238795, "w": 0.3826834}
+// -135 {"x": 0, "y": 0, "z": -0.9238795, "w": 0.3826834}
+// 90 {"x": 0, "y": 0, "z": 0.7071068, "w": 0.7071068}
+// -90 {"x": 0, "y": 0, "z": -0.7071068, "w": 0.7071068}
 export const demoPoseMsg: PoseMessage = {
   "position": {
     "x": -1.9985354065623304,
     "y": -0.4999611716356091,
     "z": 1.0626759643535266e-05
   },
-  "orientation": {
-    "x": 0,
-    "y": 0,
-    "z": 0.3826834,
-    "w": 0.9238795,
-  }
+  "orientation": {"x": 0, "y": 0, "z": 0.7071068, "w": 0.7071068}
 }
-
 
 export const mapMsg: OccupancyGridMessage = {
   "info": { "resolution": 0.05000000074505806, "width": 384, "height": 384, "origin": { "position": { "x": -10.0, "y": -10.0, "z": 0.0 }, "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 } } },

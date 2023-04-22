@@ -1,11 +1,9 @@
-import { useAppSelector } from "@/store"
-import { selectGridInfo, selectMapImageData } from "@/store/grid"
-import { quaternionToAngle } from "@/util/transform"
+import useGridStore, { selectMapImageData } from "@/store/grid"
 import Konva from "konva"
 import { useEffect, useRef, useState } from "react"
 import { Image } from 'react-konva'
 
-interface MapState {
+interface MapProp {
   x: number,
   y: number,
   width?: number,
@@ -16,9 +14,9 @@ interface MapState {
 
 const GridMap: React.FC = () => {
   const imageRef = useRef<Konva.Image>(null)
-  const gridInfo = useAppSelector(selectGridInfo)
-  const imageData = useAppSelector(selectMapImageData)
-  const [mapState, setMapState] = useState<MapState>()
+  const gridInfo = useGridStore((state) => state.gridInfo)
+  const imageData = useGridStore(selectMapImageData)
+  const [mapState, setMapState] = useState<MapProp>()
 
   useEffect(() => {
     const renderMap = async () => {
@@ -35,7 +33,6 @@ const GridMap: React.FC = () => {
         width: width * resolution,
         height: height * resolution,
         data: bitmap,
-        rotation: quaternionToAngle(gridInfo.origin.orientation)
       }
       setMapState(state)
     }
@@ -50,8 +47,7 @@ const GridMap: React.FC = () => {
         x={mapState?.x}
         y={mapState?.y}
         width={mapState?.width}
-        height={mapState?.height}
-        rotation={mapState?.rotation} />
+        height={mapState?.height} />
     </>
   )
 }

@@ -1,10 +1,4 @@
-export type TimeMessage = {
-  sec: number,
-  nanosec: number,
-}
-
 export type MapMetaDataMessage = {
-  map_load_time?: TimeMessage,
   resolution: number,
   width: number,
   height: number,
@@ -36,4 +30,16 @@ export type QuaternionMessage = {
   y: number,
   z: number,
   w: number,
+}
+
+export type NavPoint = {
+  id: string,
+  x: number,
+  y: number,
+  rotation: number,
+}
+
+export type NavPath = {
+  x: number,
+  y: number,
 }

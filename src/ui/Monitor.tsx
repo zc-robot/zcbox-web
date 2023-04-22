@@ -1,15 +1,15 @@
-import { useAppSelector, useAppDispatch } from "@/store"
-import { addWaypoint, selectGridInfo, selectPoseMessage, selectScale, selectWayPoints } from "@/store/grid"
-import { quaternionToAngle } from "@/util/transform"
+import useGridStore from "@/store/grid"
+import { quaternionToCanvasAngle } from "@/util/transform"
 import React, { useEffect, useRef, useState } from "react"
-import { Layer, Stage, Arrow, Circle } from "react-konva"
+import { Layer, Stage } from "react-konva"
 import Konva from "konva"
 import GridMap from "./GridMap"
 import Robot from "./Robot"
+import Waypoint from "./Waypoint"
+import useNavigationStore from "@/store/navigation"
 
-const defaultMargin = { top: 50, right: 50, bottom: 50, left: 50 }
 
-export interface PanelProps {
+export interface MonitorProps {
   width: number,
   height: number,
   margin?: { top: number; right: number; bottom: number; left: number },
@@ -24,15 +24,18 @@ interface ImageState {
   rotation?: number,
 }
 
-const Monitor: React.FC<PanelProps> = ({ width, height }) => {
+const Monitor: React.FC<MonitorProps> = ({ width, height }) => {
   const layerRef = useRef<Konva.Layer>(null)
-  const dispatch = useAppDispatch()
-  const scale = useAppSelector(selectScale)
-  const gridInfo = useAppSelector(selectGridInfo)
-  const poseMsg = useAppSelector(selectPoseMessage)
-  const wayPoints = useAppSelector(selectWayPoints)
   const [layerState, setLayerState] = useState<ImageState>()
   const [robotState, setRobotState] = useState<ImageState>()
+  const [selectedId, setSelectedId] = useState<string>("")
+  const [offset, setOffset] = useState<{ x: number, y: number }>({ x: 0, y: 0 })
+
+  const scale = useGridStore((state) => state.scale)
+  const gridInfo = useGridStore((state) => state.gridInfo)
+  const poseMsg = useGridStore((state) => state.pose)
+  const wayPoints = useNavigationStore((state) => state.wayPoints)
+  const addWaypoint = useNavigationStore((state) => state.addPoint)
 
   useEffect(() => {
     const renderMap = () => {
@@ -51,7 +54,6 @@ const Monitor: React.FC<PanelProps> = ({ width, height }) => {
         y: layerY,
         scale: layerScale,
       }
-      console.log('layer:', lp)
       setLayerState(lp)
 
       if (!poseMsg) return
@@ -59,22 +61,31 @@ const Monitor: React.FC<PanelProps> = ({ width, height }) => {
         x: poseMsg.position.x,
         y: -poseMsg.position.y,
         scale: resolution,
-        rotation: quaternionToAngle(poseMsg.orientation)
+        rotation: quaternionToCanvasAngle(poseMsg.orientation)
       }
+
       setRobotState(ap)
     }
     renderMap()
   }, [gridInfo, poseMsg, scale])
 
-  const handleStageClick = (obj: Konva.KonvaEventObject<MouseEvent>) => {
+  const handleLayerClick = (obj: Konva.KonvaEventObject<MouseEvent>) => {
     const layer = layerRef.current
     if (!layer || !gridInfo) return
-
+    if (selectedId) {
+      setSelectedId("")
+      return
+    }
     const x = (obj.evt.offsetX - layer.x()) * (gridInfo.resolution / scale)
     const y = (obj.evt.offsetY - layer.y()) * (gridInfo.resolution / scale)
 
-    console.log({ x, y })
-    dispatch(addWaypoint({ x, y }))
+    addWaypoint({ x, y })
+  }
+
+  const handleLayerDrag = (obj: Konva.KonvaEventObject<DragEvent>) => {
+    const evt = obj.evt
+
+    setOffset({ x: offset.x + evt.movementX, y: offset.y + evt.movementY })
   }
 
   return (
@@ -84,16 +95,16 @@ const Monitor: React.FC<PanelProps> = ({ width, height }) => {
         height={height}>
         <Layer
           ref={layerRef}
-          x={layerState?.x}
-          y={layerState?.y}
+          x={(layerState?.x ?? 0) + offset.x}
+          y={(layerState?.y ?? 0) + offset.y}
           scaleX={layerState?.scale}
           scaleY={layerState?.scale}
           draggable={true}
-          onClick={handleStageClick}>
+          onDragMove={handleLayerDrag}
+          onClick={handleLayerClick}>
           <GridMap />
           {poseMsg ?
             <Robot
-              fill="green"
               rotation={robotState?.rotation ?? 0}
               x={robotState?.x ?? 0}
               y={robotState?.y ?? 0}
@@ -101,14 +112,14 @@ const Monitor: React.FC<PanelProps> = ({ width, height }) => {
               width={5} />
             : null
           }
-          {wayPoints.map((wp, i) => {
-            return <Circle
-              fill="red"
-              x={wp.position.x}
-              y={wp.position.y}
-              radius={3}
-              scaleX={robotState?.scale}
-              scaleY={robotState?.scale} />
+          {wayPoints.map((wp) => {
+            return <Waypoint
+              id={wp.id}
+              key={wp.id}
+              scale={robotState?.scale ?? 1}
+              width={3}
+              onClick={() => setSelectedId(wp.id)}
+              isSelected={wp.id === selectedId} />
           })}
         </Layer>
       </Stage>

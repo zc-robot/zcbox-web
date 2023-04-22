@@ -1,7 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Provider } from "react-redux"
 import Monitor from "./Monitor"
-import { store } from "@/store"
 import Panel from "./Panel"
 
 const App: React.FC = () => {
@@ -20,14 +18,12 @@ const App: React.FC = () => {
   }, [])
 
   return (
-    <Provider store={store}>
-      <div flex flex-col h-full>
-        <Panel />
-        <div flex-auto ref={monitorRef}>
-          <Monitor width={monitorSize.width} height={monitorSize.height} />
-        </div>
+    <div flex flex-col h-full>
+      <Panel />
+      <div flex-auto ref={monitorRef}>
+        <Monitor width={monitorSize.width} height={monitorSize.height} />
       </div>
-    </Provider>
+    </div>
   )
 }
 

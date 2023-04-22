@@ -12,21 +12,24 @@ export const getMapYRange = (msg: MapMetaDataMessage) => {
 
 // See https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles#Rotation_matrices
 // here we use [x y z] = R * [1 0 0]
-export const quaternionToAngle = (msg: QuaternionMessage) => {
-  const q0 = msg.w
-  const q1 = msg.x
-  const q2 = msg.y
-  const q3 = msg.z
+export const quaternionToCanvasAngle = (msg: QuaternionMessage) => {
+  const sinYaw = 2.0 * (msg.w * msg.z + msg.x * msg.y)
+  const cosYaw = 1.0 - 2.0 * (msg.y * msg.y + msg.z * msg.z)
+  const yaw = Math.atan2(sinYaw, cosYaw)
+  const deg = yaw * 180 / Math.PI
   // Canvas rotation is clock wise and in degrees
-  return -Math.atan2(2 * (q0 * q3 + q1 * q2), 1 - 2 * (q2 * q2 + q3 * q3)) * 180.0 / Math.PI
+  return 90 - deg
 }
 
-export const angleToQuaternion = (angle: number): QuaternionMessage => {
-  const q0 = Math.cos(angle / 2)
-  const q1 = Math.sin(angle / 2)
-  const q2 = 0
-  const q3 = 0
-  return { x: q1, y: q2, z: q3, w: q0 }
+export const canvasAngleToQuaternion = (angle: number): QuaternionMessage => {
+  const radians = (90 - angle) * Math.PI / 180.0
+  const cosHalfAngle = Math.cos(radians / 2.0)
+  const sinHalfAngle = Math.sin(radians / 2.0)
+  const x = 0
+  const y = 0
+  const z = sinHalfAngle
+  const w = cosHalfAngle
+  return { x, y, z, w }
 }
 
 const getColorVal = (value: number) => {
