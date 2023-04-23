@@ -1,8 +1,9 @@
 import { NavPoint } from "@/types"
 import { uid } from "@/util"
-import { create, useStore } from "zustand"
+import { StateCreator, create, useStore } from "zustand"
+import { devtools } from "zustand/middleware"
 
-interface NavigationSlice {
+export interface NavigationSlice {
   wayPoints: NavPoint[]
 
   // Actions
@@ -12,7 +13,7 @@ interface NavigationSlice {
 }
 
 
-const navigationSlice = create<NavigationSlice>((set, get) => ({
+export const navigationSlice: StateCreator<NavigationSlice> = (set, get) => ({
   wayPoints: [],
 
   point: (by: string) => {
@@ -36,17 +37,7 @@ const navigationSlice = create<NavigationSlice>((set, get) => ({
       let newPoints = state.wayPoints.slice()
       const p = newPoints.find((p) => p.id === id)!
       Object.assign(p, point)
-      console.log("updatePoint", newPoints)
       return { wayPoints: newPoints }
     })
   }
-}))
-
-const useNavigationStore = <T>(
-  selector?: (state: NavigationSlice) => T,
-  equals?: (a: T, b: T) => boolean
-) => {
-  return useStore(navigationSlice, selector!, equals)
-}
-
-export default useNavigationStore
+})

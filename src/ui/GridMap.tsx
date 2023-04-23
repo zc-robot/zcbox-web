@@ -1,4 +1,5 @@
-import useGridStore, { selectMapImageData } from "@/store/grid"
+import { useGridStore } from "@/store"
+import { selectMapImageData } from "@/store/grid"
 import Konva from "konva"
 import { useEffect, useRef, useState } from "react"
 import { Image } from 'react-konva'

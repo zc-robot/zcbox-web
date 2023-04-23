@@ -1,4 +1,3 @@
-import useGridStore from "@/store/grid"
 import { quaternionToCanvasAngle } from "@/util/transform"
 import React, { useEffect, useRef, useState } from "react"
 import { Layer, Stage } from "react-konva"
@@ -6,8 +5,8 @@ import Konva from "konva"
 import GridMap from "./GridMap"
 import Robot from "./Robot"
 import Waypoint from "./Waypoint"
-import useNavigationStore from "@/store/navigation"
-
+import { useGridStore, useNavigationStore } from "@/store"
+import Pathway from "./Pathway"
 
 export interface MonitorProps {
   width: number,
@@ -99,8 +98,8 @@ const Monitor: React.FC<MonitorProps> = ({ width, height }) => {
           y={(layerState?.y ?? 0) + offset.y}
           scaleX={layerState?.scale}
           scaleY={layerState?.scale}
-          draggable={true}
-          onDragMove={handleLayerDrag}
+          draggable={false}
+          // onDragMove={handleLayerDrag}
           onClick={handleLayerClick}>
           <GridMap />
           {poseMsg ?
@@ -118,9 +117,22 @@ const Monitor: React.FC<MonitorProps> = ({ width, height }) => {
               key={wp.id}
               scale={robotState?.scale ?? 1}
               width={3}
-              onClick={() => setSelectedId(wp.id)}
+              onSelect={() => setSelectedId(wp.id)}
               isSelected={wp.id === selectedId} />
           })}
+          {wayPoints.length == 2 && (
+            <Pathway
+              key="mid"
+              x={wayPoints[0].x}
+              y={wayPoints[0].y}
+              points={[0, 0, wayPoints[1].x - wayPoints[0].x, wayPoints[1].y - wayPoints[0].y]}
+              scale={robotState?.scale ?? 1}
+              onSelect={() => {
+                console.log("select pathway")
+                setSelectedId("pathway")
+              }}
+              isSelected={selectedId === "pathway"} />
+          )}
         </Layer>
       </Stage>
     </>

@@ -13,6 +13,9 @@ dependencies:
   konva:
     specifier: ^8.4.3
     version: 8.4.3
+  ky:
+    specifier: ^0.33.3
+    version: 0.33.3
   react:
     specifier: ^18.2.0
     version: 18.2.0
@@ -1271,6 +1274,11 @@ packages:
 
   /konva@8.4.3:
     resolution: {integrity: sha512-ARqdgAbdNIougRlOKvkQwHlGhXPRBV4KvhCP+qoPpGoVQwwiJe4Hkdu4HHdRPb9rGUp04jDTAxBzEwBsE272pg==}
+    dev: false
+
+  /ky@0.33.3:
+    resolution: {integrity: sha512-CasD9OCEQSFIam2U8efFK81Yeg8vNMTBUqtMOHlrcWQHqUX3HeCl9Dr31u4toV7emlH8Mymk5+9p0lL6mKb/Xw==}
+    engines: {node: '>=14.16'}
     dev: false
 
   /local-pkg@0.4.3:
