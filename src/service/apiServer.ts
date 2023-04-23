@@ -14,7 +14,7 @@ class ApiServer {
   // get_robot_data
   fetchRobotData = async () => {
     const json = await ky.get(this.domain + "get_robot_data").json()
-    return json as PoseMessage
+    return json as { "robot_pose": PoseMessage }
   }
 }
 

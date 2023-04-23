@@ -35,8 +35,9 @@ export const gridSlice: StateCreator<GridSlice> = (set) => ({
   },
   fetchRobotPose: async () => {
     const msg = await apiServer.fetchRobotData()
+    // TODO: definate Msg interface
     set({
-      pose: msg
+      pose: msg.robot_pose,
     })
   },
   updateGrid: (grid: OccupancyGridMessage | null) => {
