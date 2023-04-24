@@ -34,7 +34,7 @@ export const gridSlice: StateCreator<GridSlice> = (set) => ({
   fetchRobotPose: async () => {
     const msg = await apiServer.fetchRobotData()
     set({
-      pose: msg.robot_post,
+      pose: msg.robot_pose,
     })
   },
   zoom: (scale: number) => {

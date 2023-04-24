@@ -20,7 +20,7 @@ export type OccupancyGridMessage = {
 }
 
 export type RobotInfoMessage = {
-  robot_post: PoseMessage
+  robot_pose: PoseMessage
 }
 
 export type PoseMessage = {
