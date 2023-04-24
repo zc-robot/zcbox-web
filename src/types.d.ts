@@ -1,4 +1,10 @@
-export type MapMetaDataMessage = {
+export type Operation =
+  | "move"
+  | "select"
+  | "waypoint"
+  | "pathway"
+
+export type GridInfoMessage = {
   resolution: number,
   width: number,
   height: number,
@@ -7,11 +13,14 @@ export type MapMetaDataMessage = {
 
 export type OccupancyGridMessage = {
   header?: {
-    stamp: TimeMessage,
     frame_id: string,
   },
-  info: MapMetaDataMessage,
+  info: GridInfoMessage,
   data: number[],
+}
+
+export type RobotInfoMessage = {
+  robot_post: PoseMessage
 }
 
 export type PoseMessage = {
@@ -39,7 +48,10 @@ export type NavPoint = {
   rotation: number,
 }
 
+// NavPath is a bezier line segment between two NavPoints
 export type NavPath = {
-  x: number,
-  y: number,
+  id: string
+  start: NavPoint,
+  end: NavPoint,
+  controls: { x: number, y: number }[],
 }

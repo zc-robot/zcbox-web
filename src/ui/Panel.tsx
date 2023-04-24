@@ -7,7 +7,7 @@ const Panel: React.FC = () => {
   const zoomInClick = () => zoom(1.1)
   const zoomOutClick = () => zoom(0.9)
   const fetchMapGrid = useGridStore((state) => state.fetchMapGrid)
-  const fetchRobotData = useGridStore((state) => state.fetchMapGrid)
+  const fetchRobotData = useGridStore((state) => state.fetchRobotPose)
 
   return (
     <div bg-gray-100 h-3rem flex="~ items-center">

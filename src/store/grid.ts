@@ -1,20 +1,18 @@
-import { MapMetaDataMessage, OccupancyGridMessage, PoseMessage } from "@/types"
+import { GridInfoMessage, PoseMessage } from "@/types"
 import { demoPoseMsg, mapMsg } from "./demo"
 import { mapImageData } from "@/util/transform"
-import { StateCreator, create, useStore } from "zustand"
+import { StateCreator } from "zustand"
 import apiServer from "@/service/apiServer"
 
 export interface GridSlice {
   scale: number,
-  gridInfo: MapMetaDataMessage | null,
+  gridInfo: GridInfoMessage | null,
   mapData: number[],
   pose: PoseMessage | null,
 
   // Actions
   fetchMapGrid: () => Promise<void>,
   fetchRobotPose: () => Promise<void>,
-  updateGrid: (grid: OccupancyGridMessage | null) => void,
-  updatePose: (pose: PoseMessage | null) => void,
   zoom: (scale: number) => void,
 }
 
@@ -35,19 +33,9 @@ export const gridSlice: StateCreator<GridSlice> = (set) => ({
   },
   fetchRobotPose: async () => {
     const msg = await apiServer.fetchRobotData()
-    // TODO: definate Msg interface
     set({
-      pose: msg.robot_pose,
+      pose: msg.robot_post,
     })
-  },
-  updateGrid: (grid: OccupancyGridMessage | null) => {
-    set({
-      gridInfo: grid?.info || null,
-      mapData: grid?.data || []
-    })
-  },
-  updatePose: (pose: PoseMessage | null) => {
-    set({ pose })
   },
   zoom: (scale: number) => {
     set((state) => {

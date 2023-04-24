@@ -33,8 +33,10 @@ const Monitor: React.FC<MonitorProps> = ({ width, height }) => {
   const scale = useGridStore((state) => state.scale)
   const gridInfo = useGridStore((state) => state.gridInfo)
   const poseMsg = useGridStore((state) => state.pose)
-  const wayPoints = useNavigationStore((state) => state.wayPoints)
+  const wayPoints = useNavigationStore((state) => state.points)
   const addWaypoint = useNavigationStore((state) => state.addPoint)
+  const pathways = useNavigationStore((state) => state.paths)
+  const addPathway = useNavigationStore((state) => state.addPath)
 
   useEffect(() => {
     const renderMap = () => {
@@ -117,21 +119,22 @@ const Monitor: React.FC<MonitorProps> = ({ width, height }) => {
               key={wp.id}
               scale={robotState?.scale ?? 1}
               width={3}
-              onSelect={() => setSelectedId(wp.id)}
+              onSelect={() => {
+                if (selectedId && selectedId !== wp.id) {
+                  addPathway(selectedId, wp.id)
+                  setSelectedId("")
+                } else {
+                  setSelectedId(wp.id)
+                }
+              }}
               isSelected={wp.id === selectedId} />
           })}
-          {wayPoints.length == 2 && (
-            <Pathway
-              key="mid"
-              x={wayPoints[0].x}
-              y={wayPoints[0].y}
-              points={[0, 0, wayPoints[1].x - wayPoints[0].x, wayPoints[1].y - wayPoints[0].y]}
-              scale={robotState?.scale ?? 1}
-              onSelect={() => {
-                console.log("select pathway")
-                setSelectedId("pathway")
-              }}
-              isSelected={selectedId === "pathway"} />
+          {pathways.map((path) => <Pathway
+            id={path.id}
+            key={path.id}
+            scale={robotState?.scale ?? 1}
+            onSelect={() => setSelectedId(path.id)}
+            isSelected={selectedId === path.id} />
           )}
         </Layer>
       </Stage>
