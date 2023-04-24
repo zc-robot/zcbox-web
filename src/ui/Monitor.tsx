@@ -5,7 +5,7 @@ import Konva from "konva"
 import GridMap from "./GridMap"
 import Robot from "./Robot"
 import Waypoint from "./Waypoint"
-import { useGridStore, useNavigationStore } from "@/store"
+import { useGridStore, useNavigationStore, useOperationStore } from "@/store"
 import Pathway from "./Pathway"
 
 export interface MonitorProps {
@@ -30,6 +30,8 @@ const Monitor: React.FC<MonitorProps> = ({ width, height }) => {
   const [selectedId, setSelectedId] = useState<string>("")
   const [offset, setOffset] = useState<{ x: number, y: number }>({ x: 0, y: 0 })
 
+  const currentOp = useOperationStore((state) => state.current)
+  const updateOp = useOperationStore((state) => state.update)
   const scale = useGridStore((state) => state.scale)
   const gridInfo = useGridStore((state) => state.gridInfo)
   const poseMsg = useGridStore((state) => state.pose)
@@ -70,22 +72,48 @@ const Monitor: React.FC<MonitorProps> = ({ width, height }) => {
     renderMap()
   }, [gridInfo, poseMsg, scale])
 
+  useEffect(() => {
+    if (currentOp !== "select") {
+      setSelectedId("")
+    }
+  }, [currentOp])
+
   const handleLayerClick = (obj: Konva.KonvaEventObject<MouseEvent>) => {
     const layer = layerRef.current
     if (!layer || !gridInfo) return
-    if (selectedId) {
-      setSelectedId("")
-      return
-    }
-    const x = (obj.evt.offsetX - layer.x()) * (gridInfo.resolution / scale)
-    const y = (obj.evt.offsetY - layer.y()) * (gridInfo.resolution / scale)
 
-    addWaypoint({ x, y })
+    if (currentOp === "select") {
+      if (selectedId) {
+        setSelectedId("")
+        return
+      }
+    } else if (currentOp === "waypoint") {
+      const x = (obj.evt.offsetX - layer.x()) * (gridInfo.resolution / scale)
+      const y = (obj.evt.offsetY - layer.y()) * (gridInfo.resolution / scale)
+      const id = addWaypoint({ x, y })
+      setSelectedId(id)
+      updateOp("select")
+    }
+  }
+
+  const handlePointClick = (id: string) => {
+    if (currentOp === "pathway") {
+      if (!selectedId) {
+        setSelectedId(id)
+      } else if (selectedId && selectedId !== id) {
+        addPathway(selectedId, id)
+        setSelectedId("")
+        updateOp("select")
+      }
+    } else if (currentOp === "select") {
+      setSelectedId(id)
+    }
   }
 
   const handleLayerDrag = (obj: Konva.KonvaEventObject<DragEvent>) => {
-    const evt = obj.evt
+    if (currentOp !== "move") return
 
+    const evt = obj.evt
     setOffset({ x: offset.x + evt.movementX, y: offset.y + evt.movementY })
   }
 
@@ -100,8 +128,8 @@ const Monitor: React.FC<MonitorProps> = ({ width, height }) => {
           y={(layerState?.y ?? 0) + offset.y}
           scaleX={layerState?.scale}
           scaleY={layerState?.scale}
-          draggable={false}
-          // onDragMove={handleLayerDrag}
+          draggable={currentOp === "move"}
+          onDragMove={handleLayerDrag}
           onClick={handleLayerClick}>
           <GridMap />
           {poseMsg ?
@@ -119,14 +147,7 @@ const Monitor: React.FC<MonitorProps> = ({ width, height }) => {
               key={wp.id}
               scale={robotState?.scale ?? 1}
               width={3}
-              onSelect={() => {
-                if (selectedId && selectedId !== wp.id) {
-                  addPathway(selectedId, wp.id)
-                  setSelectedId("")
-                } else {
-                  setSelectedId(wp.id)
-                }
-              }}
+              onSelect={() => handlePointClick(wp.id)}
               isSelected={wp.id === selectedId} />
           })}
           {pathways.map((path) => <Pathway

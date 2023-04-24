@@ -1,5 +1,6 @@
 import { GridInfoMessage, PoseMessage } from "@/types"
-import { demoPoseMsg, mapMsg } from "./demo"
+import demoPoseMsg from "./mock_pose.json"
+import gridMsg from "./mock_grid.json"
 import { mapImageData } from "@/util/transform"
 import { StateCreator } from "zustand"
 import apiServer from "@/service/apiServer"
@@ -18,11 +19,10 @@ export interface GridSlice {
 
 export const gridSlice: StateCreator<GridSlice> = (set) => ({
   scale: 2,
-  gridInfo: mapMsg.info,
-  mapData: mapMsg.data,
+  gridInfo: gridMsg.info,
+  mapData: gridMsg.data,
   pose: demoPoseMsg,
   wayPoints: [],
-
 
   fetchMapGrid: async () => {
     const msg = await apiServer.fetchMap()

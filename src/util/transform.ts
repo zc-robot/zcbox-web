@@ -1,11 +1,11 @@
-import { MapMetaDataMessage, QuaternionMessage } from "src/types"
+import { GridInfoMessage, QuaternionMessage } from "src/types"
 
-export const getMapXRange = (msg: MapMetaDataMessage) => {
+export const getMapXRange = (msg: GridInfoMessage) => {
   const x = msg.origin.position.x
   return [x, x + msg.resolution * msg.width]
 }
 
-export const getMapYRange = (msg: MapMetaDataMessage) => {
+export const getMapYRange = (msg: GridInfoMessage) => {
   const y = msg.origin.position.y
   return [y, y + msg.resolution * msg.height]
 }
@@ -43,7 +43,7 @@ const getColorVal = (value: number) => {
   }
 }
 
-export const mapImageData = (info: MapMetaDataMessage, mapData: number[]) => {
+export const mapImageData = (info: GridInfoMessage, mapData: number[]) => {
   const width = info.width
   const height = info.height
   const map = new Array<number>(width * height)

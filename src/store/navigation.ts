@@ -1,6 +1,6 @@
 import { NavPath, NavPoint } from "@/types"
 import { uid } from "@/util"
-import { StateCreator, create, useStore } from "zustand"
+import { StateCreator } from "zustand"
 
 export interface NavigationSlice {
   points: NavPoint[]
@@ -8,7 +8,7 @@ export interface NavigationSlice {
 
   // Actions
   point: (by: string) => NavPoint
-  addPoint: (point: { x: number, y: number }) => void
+  addPoint: (point: { x: number, y: number }) => string
   updatePoint: (id: string, point: Partial<NavPoint>) => void
   removePoint: (id: string) => void
   path: (by: string) => NavPath
@@ -26,10 +26,11 @@ export const navigationSlice: StateCreator<NavigationSlice> = (set, get) => ({
     return get().points.find((p) => p.id === by)!
   },
   addPoint: (point: { x: number, y: number }) => {
+    const id = uid("point")
     set((state) => {
       let newPoints = state.points.slice()
       const p = {
-        id: uid("point"),
+        id: id,
         x: point.x,
         y: point.y,
         rotation: 0,
@@ -37,6 +38,7 @@ export const navigationSlice: StateCreator<NavigationSlice> = (set, get) => ({
       newPoints.push(p)
       return { points: newPoints }
     })
+    return  id
   },
   updatePoint: (id: string, point: Partial<NavPoint>) => {
     set((state) => {
