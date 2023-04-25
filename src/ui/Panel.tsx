@@ -1,5 +1,5 @@
 import React, { useState } from "react"
-import { useGridStore, useOperationStore } from "@/store"
+import { useGridStore, useNavigationStore, useOperationStore } from "@/store"
 import { useInterval } from "@/util/hooks"
 
 const Panel: React.FC = () => {
@@ -8,12 +8,17 @@ const Panel: React.FC = () => {
   const fetchRobotData = useGridStore((state) => state.fetchRobotPose)
   const currentOp = useOperationStore((state) => state.current)
   const updateOp = useOperationStore((state) => state.update)
+  const submitNavInfo = useNavigationStore((state) => state.submitNavInfo)
 
   const [pollingGrid, setPollingGrid] = useState(false)
   const [pollingRobot, setPollingRobot] = useState(false)
 
   const zoomInClick = () => zoom(1.1)
   const zoomOutClick = () => zoom(0.9)
+
+  const handleSubmitClicked = async () => {
+    await submitNavInfo()
+  }
 
   useInterval(async () => {
     await fetchMapGrid()
@@ -59,9 +64,9 @@ const Panel: React.FC = () => {
         <div panel-item
           onClick={() => setPollingGrid(!pollingGrid)}>
           <div
-          className={pollingGrid
-            ? "i-material-symbols:pause-circle-outline-rounded"
-            : "i-material-symbols:map-outline-rounded"}
+            className={pollingGrid
+              ? "i-material-symbols:pause-circle-outline-rounded"
+              : "i-material-symbols:map-outline-rounded"}
             panel-icon />
         </div>
         <div panel-item
@@ -70,6 +75,12 @@ const Panel: React.FC = () => {
             className={pollingRobot
               ? "i-material-symbols:pause-circle-outline-rounded"
               : "i-material-symbols:smart-toy-outline-rounded"}
+            panel-icon />
+        </div>
+        <div panel-item
+          onClick={handleSubmitClicked}>
+          <div
+            i-material-symbols:upload-rounded
             panel-icon />
         </div>
       </div>

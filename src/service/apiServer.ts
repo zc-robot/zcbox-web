@@ -17,6 +17,11 @@ class ApiServer {
     const json = await this.client.get("get_robot_data").json()
     return json as RobotInfoMessage
   }
+
+  submitNavgationInfo = async (data: object) => {
+    const json = await this.client.post("save_deplyment", { json: data }).json()
+    return json
+  }
 }
 
 export default new ApiServer

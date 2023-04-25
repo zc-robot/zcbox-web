@@ -81,7 +81,6 @@ const Monitor: React.FC<MonitorProps> = ({ width, height }) => {
         scale: resolution,
         rotation: quaternionToCanvasAngle(poseMsg.orientation)
       }
-
       setRobotState(ap)
     }
     renderMap()
@@ -156,13 +155,6 @@ const Monitor: React.FC<MonitorProps> = ({ width, height }) => {
               width={5} />
             : null
           }
-          {wayPoints.map((wp) => <Waypoint
-            key={wp.id}
-            point={wp}
-            scale={robotState?.scale ?? 1}
-            width={3}
-            onSelect={() => handlePointClick(wp.id)}
-            isSelected={wp.id === selectedId} />)}
           {pathways.map((path) => <Pathway
             key={path.id}
             path={path}
@@ -170,6 +162,13 @@ const Monitor: React.FC<MonitorProps> = ({ width, height }) => {
             onSelect={() => setSelectedId(path.id)}
             isSelected={selectedId === path.id} />
           )}
+          {wayPoints.map((wp) => <Waypoint
+            key={wp.id}
+            point={wp}
+            scale={robotState?.scale ?? 1}
+            width={3}
+            onSelect={() => handlePointClick(wp.id)}
+            isSelected={wp.id === selectedId} />)}
         </Layer>
       </Stage>
     </>

@@ -53,5 +53,5 @@ export type NavPath = {
   id: string
   start: NavPoint,
   end: NavPoint,
-  controls: { x: number, y: number }[],
+  controls: NavPoint[],
 }

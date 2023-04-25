@@ -1,5 +1,7 @@
+import apiServer from "@/service/apiServer"
 import { NavPath, NavPoint } from "@/types"
 import { uid } from "@/util"
+import { canvasAngleToQuaternion, dumpNavPoint } from "@/util/transform"
 import { StateCreator } from "zustand"
 
 export interface NavigationSlice {
@@ -15,6 +17,7 @@ export interface NavigationSlice {
   addPath: (start: string, end: string) => void
   updatePath: (id: string, controls: Partial<{ x: number, y: number }[]>) => void
   removePath: (id: string) => void
+  submitNavInfo: () => Promise<void>
 }
 
 
@@ -62,15 +65,26 @@ export const navigationSlice: StateCreator<NavigationSlice> = (set, get) => ({
   },
   addPath: (start: string, end: string) => {
     set((state) => {
+      const id = uid("path")
       let newPaths = state.paths.slice()
-      const startPoint = get().point(start)
-      const endPoint = get().point(end)
+      const startPoint = get().point(start)!
+      const endPoint = get().point(end)!
       const ctrs = [
-        { x: startPoint.x + (endPoint.x - startPoint.x) / 4, y: startPoint.y + (endPoint.y - startPoint.y) / 4 },
-        { x: startPoint.x + (endPoint.x - startPoint.x) * 3 / 4, y: startPoint.y + (endPoint.y - startPoint.y) * 3 / 4 },
+        {
+          id: `${id}-ctrl1`,
+          x: startPoint.x + (endPoint.x - startPoint.x) / 4,
+          y: startPoint.y + (endPoint.y - startPoint.y) / 4,
+          rotation: 0
+        },
+        {
+          id: `${id}-ctrl2`,
+          x: startPoint.x + (endPoint.x - startPoint.x) * 3 / 4,
+          y: startPoint.y + (endPoint.y - startPoint.y) * 3 / 4,
+          rotation: 0
+        },
       ]
       const p = {
-        id: uid("path"),
+        id: id,
         start: startPoint,
         end: endPoint,
         controls: ctrs,
@@ -93,5 +107,26 @@ export const navigationSlice: StateCreator<NavigationSlice> = (set, get) => ({
       newPaths = newPaths.filter((p) => p.id !== id)
       return { paths: newPaths }
     })
-  }
+  },
+  submitNavInfo: async () => {
+    const points = get().points.map((p) => {
+      return dumpNavPoint(p)
+    })
+    const paths = get().paths.map((p) => {
+      const start = get().points.find((point) => point.id === p.start.id)!
+      const end = get().points.find((point) => point.id === p.end.id)!
+      return {
+        id: p.id,
+        from: p.start.id,
+        end: p.end.id,
+        points: [
+          dumpNavPoint(start).position,
+          dumpNavPoint(p.controls[0]).position,
+          dumpNavPoint(p.controls[1]).position,
+          dumpNavPoint(end).position,
+        ],
+      }
+    })
+    await apiServer.submitNavgationInfo({ points, paths })
+  },
 })
