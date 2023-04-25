@@ -7,6 +7,7 @@ import Robot from "./Robot"
 import Waypoint from "./Waypoint"
 import { useGridStore, useNavigationStore, useOperationStore } from "@/store"
 import Pathway from "./Pathway"
+import { useKeyPress } from "@/util/hooks"
 
 export interface MonitorProps {
   width: number,
@@ -37,8 +38,22 @@ const Monitor: React.FC<MonitorProps> = ({ width, height }) => {
   const poseMsg = useGridStore((state) => state.pose)
   const wayPoints = useNavigationStore((state) => state.points)
   const addWaypoint = useNavigationStore((state) => state.addPoint)
+  const removeWaypoint = useNavigationStore((state) => state.removePoint)
   const pathways = useNavigationStore((state) => state.paths)
   const addPathway = useNavigationStore((state) => state.addPath)
+  const removePathway = useNavigationStore((state) => state.removePath)
+
+  useKeyPress(() => {
+    if (!selectedId) return
+
+    if (selectedId.startsWith("point")) {
+      removeWaypoint(selectedId)
+      setSelectedId("")
+    } else if (selectedId.startsWith("path")) {
+      removePathway(selectedId)
+      setSelectedId("")
+    }
+  }, ["Backspace"])
 
   useEffect(() => {
     const renderMap = () => {
@@ -141,18 +156,16 @@ const Monitor: React.FC<MonitorProps> = ({ width, height }) => {
               width={5} />
             : null
           }
-          {wayPoints.map((wp) => {
-            return <Waypoint
-              id={wp.id}
-              key={wp.id}
-              scale={robotState?.scale ?? 1}
-              width={3}
-              onSelect={() => handlePointClick(wp.id)}
-              isSelected={wp.id === selectedId} />
-          })}
+          {wayPoints.map((wp) => <Waypoint
+            key={wp.id}
+            point={wp}
+            scale={robotState?.scale ?? 1}
+            width={3}
+            onSelect={() => handlePointClick(wp.id)}
+            isSelected={wp.id === selectedId} />)}
           {pathways.map((path) => <Pathway
-            id={path.id}
             key={path.id}
+            path={path}
             scale={robotState?.scale ?? 1}
             onSelect={() => setSelectedId(path.id)}
             isSelected={selectedId === path.id} />

@@ -1,21 +1,21 @@
 import { useNavigationStore } from "@/store"
+import { NavPoint } from "@/types"
 import Konva from "konva"
 import { useEffect, useRef } from "react"
 import { Circle, Transformer, Arrow, Group } from "react-konva"
 
 interface WaypointProp {
-  id: string,
+  point: NavPoint,
   width: number,
   scale: number,
   onSelect: () => void,
   isSelected: boolean,
 }
 
-const Waypoint: React.FC<WaypointProp> = ({ id, width, scale, onSelect, isSelected }) => {
+const Waypoint: React.FC<WaypointProp> = ({ point, width, scale, onSelect, isSelected }) => {
 
   const shapeRef = useRef<Konva.Arrow>(null)
   const transformRef = useRef<Konva.Transformer>(null)
-  const point = useNavigationStore((state) => state.point(id))
   const updatePoint = useNavigationStore((state) => state.updatePoint)
 
   const handleSelect = (e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -54,7 +54,7 @@ const Waypoint: React.FC<WaypointProp> = ({ id, width, scale, onSelect, isSelect
               return
             const rotation = node.rotation()
             node.rotate(0)
-            updatePoint(id, {
+            updatePoint(point.id, {
               rotation: rotation,
             })
           }} />

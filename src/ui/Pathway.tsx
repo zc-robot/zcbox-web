@@ -1,4 +1,5 @@
 import { useNavigationStore } from "@/store"
+import { NavPath } from "@/types"
 import Konva from "konva"
 import { useRef } from "react"
 import { Circle, Group, Line } from "react-konva"
@@ -28,15 +29,14 @@ const Anchor: React.FC<AnchorProp> = ({ x, y, scale, onDragMove }) => {
 }
 
 interface PathwayProps {
-  id: string
+  path: NavPath
   scale: number
   onSelect: () => void
   isSelected: boolean
 }
 
-const Pathway: React.FC<PathwayProps> = ({ id, scale, onSelect, isSelected }) => {
+const Pathway: React.FC<PathwayProps> = ({ path, scale, onSelect, isSelected }) => {
   const lineRef = useRef<Konva.Line>(null)
-  const path = useNavigationStore((state) => state.path(id))
   const updatePath = useNavigationStore((state) => state.updatePath)
 
   const points = [
@@ -54,13 +54,13 @@ const Pathway: React.FC<PathwayProps> = ({ id, scale, onSelect, isSelected }) =>
   const handleAnchor1DragMove = (event: Konva.KonvaEventObject<DragEvent>) => {
     points[2] = event.target.x()
     points[3] = event.target.y()
-    updatePath(id, [{ x: points[2], y: points[3] }, { x: points[4], y: points[5] }])
+    updatePath(path.id, [{ x: points[2], y: points[3] }, { x: points[4], y: points[5] }])
   }
 
   const handleAnchor2DragMove = (event: Konva.KonvaEventObject<DragEvent>) => {
     points[4] = event.target.x()
     points[5] = event.target.y()
-    updatePath(id, [{ x: points[2], y: points[3] }, { x: points[4], y: points[5] }])
+    updatePath(path.id, [{ x: points[2], y: points[3] }, { x: points[4], y: points[5] }])
   }
 
   return (

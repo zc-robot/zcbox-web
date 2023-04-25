@@ -1,6 +1,6 @@
 import React, { useState } from "react"
 import { useGridStore, useOperationStore } from "@/store"
-import useInterval from "@/util/interval"
+import { useInterval } from "@/util/hooks"
 
 const Panel: React.FC = () => {
   const zoom = useGridStore((state) => state.zoom)

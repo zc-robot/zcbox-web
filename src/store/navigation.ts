@@ -7,11 +7,11 @@ export interface NavigationSlice {
   paths: NavPath[]
 
   // Actions
-  point: (by: string) => NavPoint
+  point: (by: string) => NavPoint | undefined
   addPoint: (point: { x: number, y: number }) => string
   updatePoint: (id: string, point: Partial<NavPoint>) => void
   removePoint: (id: string) => void
-  path: (by: string) => NavPath
+  path: (by: string) => NavPath | undefined
   addPath: (start: string, end: string) => void
   updatePath: (id: string, controls: Partial<{ x: number, y: number }[]>) => void
   removePath: (id: string) => void
@@ -23,7 +23,7 @@ export const navigationSlice: StateCreator<NavigationSlice> = (set, get) => ({
   paths: [],
 
   point: (by: string) => {
-    return get().points.find((p) => p.id === by)!
+    return get().points.find((p) => p.id === by)
   },
   addPoint: (point: { x: number, y: number }) => {
     const id = uid("point")
@@ -38,7 +38,7 @@ export const navigationSlice: StateCreator<NavigationSlice> = (set, get) => ({
       newPoints.push(p)
       return { points: newPoints }
     })
-    return  id
+    return id
   },
   updatePoint: (id: string, point: Partial<NavPoint>) => {
     set((state) => {
@@ -52,7 +52,9 @@ export const navigationSlice: StateCreator<NavigationSlice> = (set, get) => ({
     set((state) => {
       let newPoints = state.points.slice()
       newPoints = newPoints.filter((p) => p.id !== id)
-      return { points: newPoints }
+
+      let newPaths = state.paths.filter((p) => p.start.id !== id && p.end.id !== id)
+      return { points: newPoints, paths: newPaths }
     })
   },
   path: (by: string) => {

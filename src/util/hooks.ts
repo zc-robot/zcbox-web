@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from "react"
 
-function useInterval(callback: () => void, delay?: number) {
+export const useInterval = (callback: () => void, delay?: number) => {
   const savedCallback = useRef(callback)
 
   // Remember the latest callback if it changes.
@@ -21,4 +21,21 @@ function useInterval(callback: () => void, delay?: number) {
   }, [delay])
 }
 
-export default useInterval
+export const useKeyPress = (callback: (T?: any) => void, keys: string[]) => {
+  const onKeyDown = (event: KeyboardEvent) => {
+    const wasAnyKeyPressed = keys.some((key) => event.key === key);
+
+    if (wasAnyKeyPressed) {
+      event.preventDefault();
+      callback();
+    }
+  };
+
+  useEffect(() => {
+    document.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [onKeyDown]);
+};
