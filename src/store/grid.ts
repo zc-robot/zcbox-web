@@ -7,9 +7,9 @@ import apiServer from "@/service/apiServer"
 
 export interface GridSlice {
   scale: number,
-  gridInfo: GridInfoMessage | null,
+  gridInfo?: GridInfoMessage,
   mapData: number[],
-  pose: PoseMessage | null,
+  pose?: PoseMessage,
 
   // Actions
   fetchMapGrid: () => Promise<void>,

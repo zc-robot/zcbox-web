@@ -1,5 +1,6 @@
-import React from "react"
+import React, { useState } from "react"
 import { useGridStore, useOperationStore } from "@/store"
+import useInterval from "@/util/interval"
 
 const Panel: React.FC = () => {
   const zoom = useGridStore((state) => state.zoom)
@@ -8,8 +9,19 @@ const Panel: React.FC = () => {
   const currentOp = useOperationStore((state) => state.current)
   const updateOp = useOperationStore((state) => state.update)
 
+  const [pollingGrid, setPollingGrid] = useState(false)
+  const [pollingRobot, setPollingRobot] = useState(false)
+
   const zoomInClick = () => zoom(1.1)
   const zoomOutClick = () => zoom(0.9)
+
+  useInterval(async () => {
+    await fetchMapGrid()
+  }, pollingGrid ? 2000 : undefined)
+
+  useInterval(async () => {
+    await fetchRobotData()
+  }, pollingRobot ? 2000 : undefined)
 
   return (
     <div panel-container>
@@ -45,16 +57,20 @@ const Panel: React.FC = () => {
           <div i-material-symbols:zoom-out-rounded panel-icon />
         </div>
         <div panel-item
-          onClick={async () => {
-            await fetchMapGrid()
-          }}>
-          <div i-material-symbols:map-outline-rounded panel-icon />
+          onClick={() => setPollingGrid(!pollingGrid)}>
+          <div
+          className={pollingGrid
+            ? "i-material-symbols:pause-circle-outline-rounded"
+            : "i-material-symbols:map-outline-rounded"}
+            panel-icon />
         </div>
         <div panel-item
-          onClick={async () => {
-            await fetchRobotData()
-          }}>
-          <div i-material-symbols:smart-toy-outline-rounded panel-icon />
+          onClick={() => setPollingRobot(!pollingRobot)}>
+          <div
+            className={pollingRobot
+              ? "i-material-symbols:pause-circle-outline-rounded"
+              : "i-material-symbols:smart-toy-outline-rounded"}
+            panel-icon />
         </div>
       </div>
     </div>

@@ -1,15 +1,5 @@
 import { GridInfoMessage, QuaternionMessage } from "src/types"
 
-export const getMapXRange = (msg: GridInfoMessage) => {
-  const x = msg.origin.position.x
-  return [x, x + msg.resolution * msg.width]
-}
-
-export const getMapYRange = (msg: GridInfoMessage) => {
-  const y = msg.origin.position.y
-  return [y, y + msg.resolution * msg.height]
-}
-
 // See https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles#Rotation_matrices
 // here we use [x y z] = R * [1 0 0]
 export const quaternionToCanvasAngle = (msg: QuaternionMessage) => {
