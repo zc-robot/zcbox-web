@@ -1,9 +1,8 @@
-import { PoseMessage } from "@/types"
-import { GridInfoMessage, NavPoint, PointMessage, QuaternionMessage } from "@/types"
+import type { GridInfoMessage, NavPoint, PoseMessage, QuaternionMessage } from '@/types'
 
 // See https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles#Rotation_matrices
 // here we use [x y z] = R * [1 0 0]
-export const quaternionToCanvasAngle = (msg: QuaternionMessage) => {
+export function quaternionToCanvasAngle(msg: QuaternionMessage) {
   const sinYaw = 2.0 * (msg.w * msg.z + msg.x * msg.y)
   const cosYaw = 1.0 - 2.0 * (msg.y * msg.y + msg.z * msg.z)
   const yaw = Math.atan2(sinYaw, cosYaw)
@@ -12,7 +11,7 @@ export const quaternionToCanvasAngle = (msg: QuaternionMessage) => {
   return 90 - deg
 }
 
-export const canvasAngleToQuaternion = (angle: number): QuaternionMessage => {
+export function canvasAngleToQuaternion(angle: number): QuaternionMessage {
   const radians = (90 - angle) * Math.PI / 180.0
   const cosHalfAngle = Math.cos(radians / 2.0)
   const sinHalfAngle = Math.sin(radians / 2.0)
@@ -23,7 +22,7 @@ export const canvasAngleToQuaternion = (angle: number): QuaternionMessage => {
   return { x, y, z, w }
 }
 
-const getColorVal = (value: number) => {
+function getColorVal(value: number) {
   switch (value) {
     case 100:
       return 0
@@ -34,12 +33,12 @@ const getColorVal = (value: number) => {
   }
 }
 
-export const mapImageData = (info: GridInfoMessage, mapData: number[]) => {
+export function mapImageData(info: GridInfoMessage, mapData: number[]) {
   const width = info.width
   const height = info.height
   const map = new Array<number>(width * height)
-  for (var row = 0; row < height; row++) {
-    for (var col = 0; col < width; col++) {
+  for (let row = 0; row < height; row++) {
+    for (let col = 0; col < width; col++) {
       // determine the index into the map data
       const mapI = col + ((height - row - 1) * width)
       // determine the value
@@ -47,7 +46,7 @@ export const mapImageData = (info: GridInfoMessage, mapData: number[]) => {
       const colorVal = getColorVal(data)
 
       // determine the index into the image data array
-      var i = (col + (row * width)) * 4
+      let i = (col + (row * width)) * 4
       // r
       map[i] = colorVal
       // g
@@ -61,7 +60,7 @@ export const mapImageData = (info: GridInfoMessage, mapData: number[]) => {
   return map
 }
 
-export const dumpNavPoint = (point: NavPoint) => {
+export function dumpNavPoint(point: NavPoint) {
   return {
     id: point.id,
     position: {

@@ -1,9 +1,11 @@
 {
   "name": "zc-web",
-  "private": true,
-  "version": "0.0.0",
   "type": "module",
+  "version": "0.0.0",
+  "private": true,
   "scripts": {
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview"
@@ -14,22 +16,24 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-konva": "18.2.7",
-    "uuid": "^9.0.0",
     "web-vitals": "^3.3.1",
     "zustand": "^4.3.7"
   },
   "devDependencies": {
+    "@antfu/eslint-config-ts": "^0.38.5",
     "@iconify-json/material-symbols": "^1.1.40",
     "@types/node": "^18.16.0",
-    "@types/react": "^18.0.38",
-    "@types/react-dom": "^18.0.11",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
     "@unocss/preset-attributify": "^0.51.8",
     "@unocss/preset-icons": "^0.51.8",
     "@unocss/preset-uno": "^0.51.8",
     "@unocss/transformer-attributify-jsx": "^0.51.8",
     "@vitejs/plugin-react": "^4.0.0",
+    "eslint": "^8.39.0",
+    "eslint-config-ts": "^4.0.1",
     "typescript": "^5.0.4",
     "unocss": "^0.51.8",
-    "vite": "^4.3.1"
+    "vite": "^4.3.2"
   }
 }

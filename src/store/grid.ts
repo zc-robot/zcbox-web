@@ -1,23 +1,23 @@
-import { GridInfoMessage, PoseMessage } from "@/types"
-import demoPoseMsg from "./mock_pose.json"
-import gridMsg from "./mock_grid.json"
-import { mapImageData } from "@/util/transform"
-import { StateCreator } from "zustand"
-import apiServer from "@/service/apiServer"
+import type { StateCreator } from 'zustand'
+import demoPoseMsg from './mock_pose.json'
+import gridMsg from './mock_grid.json'
+import type { GridInfoMessage, PoseMessage } from '@/types'
+import { mapImageData } from '@/util/transform'
+import apiServer from '@/service/apiServer'
 
 export interface GridSlice {
-  scale: number,
-  gridInfo?: GridInfoMessage,
-  mapData: number[],
-  pose?: PoseMessage,
+  scale: number
+  gridInfo?: GridInfoMessage
+  mapData: number[]
+  pose?: PoseMessage
 
   // Actions
-  fetchMapGrid: () => Promise<void>,
-  fetchRobotPose: () => Promise<void>,
-  zoom: (scale: number) => void,
+  fetchMapGrid: () => Promise<void>
+  fetchRobotPose: () => Promise<void>
+  zoom: (scale: number) => void
 }
 
-export const gridSlice: StateCreator<GridSlice> = (set) => ({
+export const gridSlice: StateCreator<GridSlice> = set => ({
   scale: 2,
   gridInfo: gridMsg.info,
   mapData: gridMsg.data,
@@ -40,15 +40,17 @@ export const gridSlice: StateCreator<GridSlice> = (set) => ({
   zoom: (scale: number) => {
     set((state) => {
       const newScale = state.scale * scale
-      if (newScale > 3 || newScale < 0.5) return state
+      if (newScale > 3 || newScale < 0.5)
+        return state
       return { scale: newScale }
     })
   },
 })
 
-export const selectMapImageData = (state: GridSlice) => {
+export function selectMapImageData(state: GridSlice) {
   const { gridInfo, mapData } = state
-  if (!gridInfo) return null
+  if (!gridInfo)
+    return null
   const data = mapImageData(gridInfo, mapData)
   return new ImageData(new Uint8ClampedArray(data), gridInfo.width, gridInfo.height)
 }

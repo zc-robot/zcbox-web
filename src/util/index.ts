@@ -1,3 +1,3 @@
-export const uid = (prefix: string) => {
-  return `${prefix}-${crypto.randomUUID().replaceAll("-", "")}`
+export function uid(prefix: string) {
+  return `${prefix}-${Math.random().toString(36).slice(-6)}`
 }

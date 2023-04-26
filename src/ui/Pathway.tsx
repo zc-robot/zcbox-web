@@ -1,18 +1,17 @@
-import { useNavigationStore } from "@/store"
-import { NavPath } from "@/types"
-import Konva from "konva"
-import { useRef } from "react"
-import { Circle, Group, Line } from "react-konva"
+import type Konva from 'konva'
+import { useRef } from 'react'
+import { Circle, Group, Line } from 'react-konva'
+import type { NavPath } from '@/types'
+import { useNavigationStore } from '@/store'
 
 interface AnchorProp {
-  x: number,
-  y: number,
+  x: number
+  y: number
   scale: number
-  onDragMove: (e: Konva.KonvaEventObject<DragEvent>) => void,
+  onDragMove: (e: Konva.KonvaEventObject<DragEvent>) => void
 }
 
 const Anchor: React.FC<AnchorProp> = ({ x, y, scale, onDragMove }) => {
-
   return (
     <Circle
       x={x}
@@ -37,13 +36,13 @@ interface PathwayProps {
 
 const Pathway: React.FC<PathwayProps> = ({ path, scale, onSelect, isSelected }) => {
   const lineRef = useRef<Konva.Line>(null)
-  const updatePath = useNavigationStore((state) => state.updatePath)
+  const updatePath = useNavigationStore(state => state.updatePath)
 
   const points = [
     path.start.x, path.start.y,
     path.controls[0].x, path.controls[0].y,
     path.controls[1].x, path.controls[1].y,
-    path.end.x, path.end.y
+    path.end.x, path.end.y,
   ]
 
   const handleSelect = (e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -70,7 +69,7 @@ const Pathway: React.FC<PathwayProps> = ({ path, scale, onSelect, isSelected }) 
       <Line
         ref={lineRef}
         hitStrokeWidth={scale * 5}
-        stroke={"black"}
+        stroke={'black'}
         bezier={true}
         lineCap="round"
         lineJoin="round"

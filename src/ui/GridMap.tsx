@@ -1,27 +1,28 @@
-import { useGridStore } from "@/store"
-import { selectMapImageData } from "@/store/grid"
-import Konva from "konva"
-import { useEffect, useRef, useState } from "react"
+import type Konva from 'konva'
+import { useEffect, useRef, useState } from 'react'
 import { Image } from 'react-konva'
+import { selectMapImageData } from '@/store/grid'
+import { useGridStore } from '@/store'
 
 interface MapProp {
-  x: number,
-  y: number,
-  width?: number,
-  height?: number,
-  data?: CanvasImageSource,
-  rotation?: number,
+  x: number
+  y: number
+  width?: number
+  height?: number
+  data?: CanvasImageSource
+  rotation?: number
 }
 
 const GridMap: React.FC = () => {
   const imageRef = useRef<Konva.Image>(null)
-  const gridInfo = useGridStore((state) => state.gridInfo)
+  const gridInfo = useGridStore(state => state.gridInfo)
   const imageData = useGridStore(selectMapImageData)
   const [mapState, setMapState] = useState<MapProp>()
 
   useEffect(() => {
     const renderMap = async () => {
-      if (!gridInfo) return
+      if (!gridInfo)
+        return
 
       const width = gridInfo.width
       const height = gridInfo.height

@@ -1,5 +1,5 @@
-import { Operation } from "@/types"
-import { StateCreator } from "zustand"
+import type { StateCreator } from 'zustand'
+import type { Operation } from '@/types'
 
 export interface OperationSlice {
   current: Operation
@@ -8,12 +8,12 @@ export interface OperationSlice {
   update: (by: Operation) => void
 }
 
-export const operationSlice: StateCreator<OperationSlice> = (set, get) => ({
-  current: "move",
+export const operationSlice: StateCreator<OperationSlice> = set => ({
+  current: 'move',
 
   update: (by: Operation) => {
-    set((state) => {
+    set(() => {
       return { current: by }
     })
-  }
+  },
 })

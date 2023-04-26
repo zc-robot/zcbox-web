@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useRef } from "react"
+import { useEffect, useLayoutEffect, useRef } from 'react'
 
-export const useInterval = (callback: () => void, delay?: number) => {
+export function useInterval(callback: () => void, delay?: number) {
   const savedCallback = useRef(callback)
 
   // Remember the latest callback if it changes.
@@ -12,30 +12,29 @@ export const useInterval = (callback: () => void, delay?: number) => {
   useEffect(() => {
     // Don't schedule if no delay is specified.
     // Note: 0 is a valid value for delay.
-    if (!delay && delay !== 0) {
+    if (!delay && delay !== 0)
       return
-    }
 
     const id = setInterval(() => savedCallback.current(), delay)
     return () => clearInterval(id)
   }, [delay])
 }
 
-export const useKeyPress = (callback: (T?: any) => void, keys: string[]) => {
+export function useKeyPress(callback: (T?: any) => void, keys: string[]) {
   const onKeyDown = (event: KeyboardEvent) => {
-    const wasAnyKeyPressed = keys.some((key) => event.key === key);
+    const wasAnyKeyPressed = keys.includes(event.key)
 
     if (wasAnyKeyPressed) {
-      event.preventDefault();
-      callback();
+      event.preventDefault()
+      callback()
     }
-  };
+  }
 
   useEffect(() => {
-    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('keydown', onKeyDown)
 
     return () => {
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [onKeyDown]);
-};
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [onKeyDown])
+}

@@ -1,22 +1,21 @@
-import { useNavigationStore } from "@/store"
-import { NavPoint } from "@/types"
-import Konva from "konva"
-import { useEffect, useRef } from "react"
-import { Circle, Transformer, Arrow, Group } from "react-konva"
+import type Konva from 'konva'
+import { useEffect, useRef } from 'react'
+import { Arrow, Circle, Group, Transformer } from 'react-konva'
+import type { NavPoint } from '@/types'
+import { useNavigationStore } from '@/store'
 
 interface WaypointProp {
-  point: NavPoint,
-  width: number,
-  scale: number,
-  onSelect: () => void,
-  isSelected: boolean,
+  point: NavPoint
+  width: number
+  scale: number
+  onSelect: () => void
+  isSelected: boolean
 }
 
 const Waypoint: React.FC<WaypointProp> = ({ point, width, scale, onSelect, isSelected }) => {
-
   const shapeRef = useRef<Konva.Arrow>(null)
   const transformRef = useRef<Konva.Transformer>(null)
-  const updatePoint = useNavigationStore((state) => state.updatePoint)
+  const updatePoint = useNavigationStore(state => state.updatePoint)
 
   const handleSelect = (e: Konva.KonvaEventObject<MouseEvent>) => {
     e.cancelBubble = true
@@ -48,14 +47,14 @@ const Waypoint: React.FC<WaypointProp> = ({ point, width, scale, onSelect, isSel
           scaleX={scale}
           scaleY={scale}
           rotation={point.rotation}
-          onTransformEnd={(e) => {
+          onTransformEnd={() => {
             const node = shapeRef.current
             if (!node)
               return
             const rotation = node.rotation()
             node.rotate(0)
             updatePoint(point.id, {
-              rotation: rotation,
+              rotation,
             })
           }} />
         <Circle
