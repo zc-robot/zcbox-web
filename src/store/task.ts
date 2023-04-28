@@ -1,6 +1,6 @@
 import type { StateCreator } from 'zustand'
 import type { NavigationSlice } from './navigation'
-import type { NavTask } from '@/types'
+import type { NavTask, PointNavType } from '@/types'
 import { uid } from '@/util'
 
 export interface TaskSlice {
@@ -13,6 +13,7 @@ export interface TaskSlice {
   addTask: () => void
   appendTaskPoint: (point: string) => void
   swapTaskPoints: (id: string, from: number, to: number) => void
+  updatePointNavType: (id: string, index: number, type: PointNavType) => void
 }
 
 export const taskSlice: StateCreator<NavigationSlice & TaskSlice, [], [], TaskSlice> = (set, get) => ({
@@ -52,7 +53,8 @@ export const taskSlice: StateCreator<NavigationSlice & TaskSlice, [], [], TaskSl
           return { ...state }
         task.points.push({
           id: point,
-          payload: {},
+          type: 'auto',
+          actions: [{}],
         })
         return { tasks: newTasks }
       }
@@ -65,6 +67,14 @@ export const taskSlice: StateCreator<NavigationSlice & TaskSlice, [], [], TaskSl
       const point = task.points[from]
       task.points.splice(from, 1)
       task.points.splice(to, 0, point)
+      return { tasks: newTasks }
+    })
+  },
+  updatePointNavType: (id: string, index: number, type: PointNavType) => {
+    set((state) => {
+      const newTasks = state.tasks.slice()
+      const task = newTasks.find(t => t.id === id)!
+      task.points[index].type = type
       return { tasks: newTasks }
     })
   },
