@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import Monitor from './Monitor'
 import Breadcrumb from './Breadcrumb'
 import InfoDeck from './InfoDeck'
+import TaskDeck from './TaskDeck'
 import { useOperationStore } from '@/store'
 
 const App: React.FC = () => {
@@ -30,6 +31,7 @@ const App: React.FC = () => {
           ref={monitorRef}>
           <Monitor width={monitorSize.width} height={monitorSize.height} />
         </div>
+        <TaskDeck />
       </div>
     </div>
   )

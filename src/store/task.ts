@@ -12,7 +12,7 @@ export interface TaskSlice {
   task: (by: string) => NavTask | undefined
   addTask: () => void
   appendTaskPoint: (point: string) => void
-  swipTaskPoints: (id: string, from: number, to: number) => void
+  swapTaskPoints: (id: string, from: number, to: number) => void
 }
 
 export const taskSlice: StateCreator<NavigationSlice & TaskSlice, [], [], TaskSlice> = (set, get) => ({
@@ -41,18 +41,24 @@ export const taskSlice: StateCreator<NavigationSlice & TaskSlice, [], [], TaskSl
   },
   appendTaskPoint: (point: string) => {
     set((state) => {
-      const newTasks = state.tasks.slice()
-      const task = newTasks.find(t => t.id === get().enabledTaskId)
-      if (!task)
+      const enabledTaskId = get().enabledTaskId
+      if (!enabledTaskId) {
         return { ...state }
-      task.points.push({
-        id: point,
-        payload: {},
-      })
-      return { tasks: newTasks }
+      }
+      else {
+        const newTasks = state.tasks.slice()
+        const task = newTasks.find(t => t.id === enabledTaskId)
+        if (!task)
+          return { ...state }
+        task.points.push({
+          id: point,
+          payload: {},
+        })
+        return { tasks: newTasks }
+      }
     })
   },
-  swipTaskPoints: (id: string, from: number, to: number) => {
+  swapTaskPoints: (id: string, from: number, to: number) => {
     set((state) => {
       const newTasks = state.tasks.slice()
       const task = newTasks.find(t => t.id === id)!

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import TaskPoints from './TaskPoints'
 import { useTaskStore } from '@/store'
 
 const TaskDeck: React.FC = () => {
@@ -6,9 +7,15 @@ const TaskDeck: React.FC = () => {
 
   const currentTaskId = useTaskStore(state => state.enabledTaskId)
   const task = useTaskStore(state => state.task)
-  const selectTask = useTaskStore(state => state.enableTask)
+  const enableTask = useTaskStore(state => state.enableTask)
   const tasks = useTaskStore(state => state.tasks)
   const addTask = useTaskStore(state => state.addTask)
+
+  const currentTask = () => {
+    if (!currentTaskId)
+      return undefined
+    return task(currentTaskId)
+  }
 
   return (
     <div w-12rem border='l-solid 1px gray-300'>
@@ -26,29 +33,20 @@ const TaskDeck: React.FC = () => {
             onClick={() => addTask()} />
         </div>
         {tasks.map((t) => {
+          const enabled = currentTaskId === t.id
           return (
             <div flex='~ items-center' pl text-3 cursor-default h-2rem
-              className={currentTaskId === t.id ? 'font-bold' : ''}
+              className={enabled ? 'font-bold' : ''}
               key={t.id}
-              onClick={() => selectTask(t.id)}>
+              onClick={() => enableTask(t.id)}>
               <div i-material-symbols-check-small mr-1
-                className={currentTaskId === t.id ? '' : 'invisible'} />
+                className={enabled ? '' : 'invisible'} />
               {t.id}
             </div>
           )
         })}
-        {task(currentTaskId ?? '') && (
-          task(currentTaskId ?? '')!.points.map((p, i) => {
-            return (
-              <div
-            cursor-default h-2rem pl-2 text-3
-            className={dragOverItem === p.id ? 'bg-gray-300' : ''}
-            key={`${p.id}-${i}`}
-            draggable>{p.id}</div>
-            )
-          })
-        )}
       </div>
+      {currentTask() && <TaskPoints task={currentTask()!} />}
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigationStore, useOperationStore } from '@/store'
+import { useNavigationStore, useOperationStore, useTaskStore } from '@/store'
 
 type display = 'point' | 'path'
 
@@ -9,7 +9,7 @@ const InfoDeck: React.FC = () => {
   const selectedId = useOperationStore(state => state.selectedPointId)
   const select = useOperationStore(state => state.selectPoint)
   const updateOp = useOperationStore(state => state.updateOp)
-  // const appendTaskPoint = useTaskStore(state => state.appendTaskPoint)
+  const appendTaskPoint = useTaskStore(state => state.appendTaskPoint)
 
   return (
     <div w-12rem border='r-solid 1px gray-300'>
@@ -44,7 +44,7 @@ const InfoDeck: React.FC = () => {
                 select(p.id)
               }}
               onDoubleClick={() => {
-                // appendTaskPoint(p.id)
+                appendTaskPoint(p.id)
               }}>
               <div i-material-symbols-location-on-outline text-gray-500 />
               <div ml-1 text-3>{p.id}</div>
