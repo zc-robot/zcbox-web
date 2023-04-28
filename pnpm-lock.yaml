@@ -16,9 +16,6 @@ dependencies:
   react-konva:
     specifier: 18.2.7
     version: 18.2.7(konva@9.0.1)(react-dom@18.2.0)(react@18.2.0)
-  web-vitals:
-    specifier: ^3.3.1
-    version: 3.3.1
   zustand:
     specifier: ^4.3.7
     version: 4.3.7(react@18.2.0)
@@ -3998,10 +3995,6 @@ packages:
     optionalDependencies:
       fsevents: 2.3.2
     dev: true
-
-  /web-vitals@3.3.1:
-    resolution: {integrity: sha512-LTfY5GjcY3ngFzNsYFSYL+AmVmlWrzPTUxSMDis2rZbf+SzT7HH3NH4Y/l45XOlrAIunOBeURN9qtBHkRskAiA==}
-    dev: false
 
   /which-boxed-primitive@1.0.2:
     resolution: {integrity: sha512-bwZdv0AKLpplFY2KZRX6TvyuN7ojjr7lwkg6ml0roIy9YeuSr7JS372qlNW18UQYzgYK9ziGcerWqZOmEn9VNg==}

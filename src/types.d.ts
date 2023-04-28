@@ -1,47 +1,44 @@
 export type Operation =
-  | "move"
-  | "select"
-  | "waypoint"
-  | "pathway"
+  | 'move'
+  | 'select'
+  | 'waypoint'
+  | 'pathway'
 
-export type GridInfoMessage = {
+export interface GridInfoMessage {
   resolution: number,
   width: number,
   height: number,
   origin: PoseMessage,
 }
 
-export type OccupancyGridMessage = {
-  header?: {
-    frame_id: string,
-  },
+export interface OccupancyGridMessage {
   info: GridInfoMessage,
   data: number[],
 }
 
-export type RobotInfoMessage = {
+export interface RobotInfoMessage {
   robot_pose: PoseMessage
 }
 
-export type PoseMessage = {
+export interface PoseMessage {
   position: PointMessage,
   orientation: QuaternionMessage,
 }
 
-export type PointMessage = {
+export interface PointMessage {
   x: number,
   y: number,
   z: number,
 }
 
-export type QuaternionMessage = {
+export interface QuaternionMessage {
   x: number,
   y: number,
   z: number,
   w: number,
 }
 
-export type NavPoint = {
+export interface NavPoint {
   id: string,
   x: number,
   y: number,
@@ -49,7 +46,7 @@ export type NavPoint = {
 }
 
 // NavPath is a bezier line segment between two NavPoints
-export type NavPath = {
+export interface NavPath {
   id: string
   start: NavPoint,
   end: NavPoint,

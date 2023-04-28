@@ -1,15 +1,13 @@
 import type { StateCreator } from 'zustand'
-import demoPoseMsg from './mock_pose.json'
-import gridMsg from './mock_grid.json'
 import type { GridInfoMessage, PoseMessage } from '@/types'
 import { mapImageData } from '@/util/transform'
 import apiServer from '@/service/apiServer'
 
 export interface GridSlice {
   scale: number
-  gridInfo?: GridInfoMessage
+  gridInfo: GridInfoMessage | null
   mapData: number[]
-  pose?: PoseMessage
+  pose: PoseMessage | null
 
   // Actions
   fetchMapGrid: () => Promise<void>
@@ -19,9 +17,9 @@ export interface GridSlice {
 
 export const gridSlice: StateCreator<GridSlice> = set => ({
   scale: 2,
-  gridInfo: gridMsg.info,
-  mapData: gridMsg.data,
-  pose: demoPoseMsg,
+  gridInfo: null,
+  mapData: [],
+  pose: null,
   wayPoints: [],
 
   fetchMapGrid: async () => {
@@ -52,5 +50,5 @@ export function selectMapImageData(state: GridSlice) {
   if (!gridInfo)
     return null
   const data = mapImageData(gridInfo, mapData)
-  return new ImageData(new Uint8ClampedArray(data), gridInfo.width, gridInfo.height)
+  return new ImageData(data, gridInfo.width, gridInfo.height)
 }

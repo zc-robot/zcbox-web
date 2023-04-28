@@ -12,16 +12,15 @@ import { useKeyPress } from '@/util/hooks'
 export interface MonitorProps {
   width: number
   height: number
-  margin?: { top: number; right: number; bottom: number; left: number }
 }
 
 interface ImageState {
   x: number
   y: number
-  width?: number
-  height?: number
+  width: number | null
+  height: number | null
   scale: number
-  rotation?: number
+  rotation: number | null
 }
 
 const Monitor: React.FC<MonitorProps> = ({ width, height }) => {

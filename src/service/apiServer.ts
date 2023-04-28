@@ -2,8 +2,8 @@ import ky from 'ky'
 import type { OccupancyGridMessage, RobotInfoMessage } from '@/types'
 
 class ApiServer {
-  // domain = "http://localhost:1234"
-  domain = 'http://10.211.55.14:1234'
+  domain = 'http://localhost:1234'
+  // domain = 'http://10.211.55.14:1234'
   client = ky.create({ prefixUrl: this.domain })
 
   // get_map

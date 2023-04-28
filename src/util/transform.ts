@@ -36,26 +36,17 @@ function getColorVal(value: number) {
 export function mapImageData(info: GridInfoMessage, mapData: number[]) {
   const width = info.width
   const height = info.height
-  const map = new Array<number>(width * height)
-  for (let row = 0; row < height; row++) {
-    for (let col = 0; col < width; col++) {
-      // determine the index into the map data
-      const mapI = col + ((height - row - 1) * width)
-      // determine the value
-      const data = mapData[mapI]
-      const colorVal = getColorVal(data)
-
-      // determine the index into the image data array
-      let i = (col + (row * width)) * 4
-      // r
-      map[i] = colorVal
-      // g
-      map[++i] = colorVal
-      // b
-      map[++i] = colorVal
-      // a
-      map[++i] = 255
-    }
+  const map = new Uint8ClampedArray(width * height * 4)
+  for (let index = 0; index < mapData.length; index++) {
+    const data = mapData[index]
+    const colorVal = getColorVal(data)
+    const row = height - Math.floor(index / width) - 1
+    const col = index % width
+    const i = (col + (row * width)) * 4
+    map[i] = colorVal
+    map[i + 1] = colorVal
+    map[i + 2] = colorVal
+    map[i + 3] = 255
   }
   return map
 }
