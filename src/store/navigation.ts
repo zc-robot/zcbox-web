@@ -28,7 +28,7 @@ export const navigationSlice: StateCreator<NavigationSlice> = (set, get) => ({
     return get().points.find(p => p.id === by)
   },
   addPoint: (point: { x: number; y: number }) => {
-    const id = uid('point')
+    const id = uid('Point')
     set((state) => {
       const newPoints = state.points.slice()
       const p = {
@@ -64,7 +64,7 @@ export const navigationSlice: StateCreator<NavigationSlice> = (set, get) => ({
   },
   addPath: (start: string, end: string) => {
     set((state) => {
-      const id = uid('path')
+      const id = uid('Path')
       const newPaths = state.paths.slice()
       const startPoint = get().point(start)!
       const endPoint = get().point(end)!

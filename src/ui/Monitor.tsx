@@ -7,12 +7,7 @@ import Waypoint from './Waypoint'
 import Pathway from './Pathway'
 import { useGridStore, useNavigationStore, useOperationStore } from '@/store'
 import { quaternionToCanvasAngle } from '@/util/transform'
-import { useKeyPress } from '@/util/hooks'
-
-export interface MonitorProps {
-  width: number
-  height: number
-}
+import { useElementSize, useKeyPress } from '@/util/hooks'
 
 interface ImageState {
   x: number
@@ -23,13 +18,14 @@ interface ImageState {
   rotation: number | null
 }
 
-const Monitor: React.FC<MonitorProps> = ({ width, height }) => {
+const Monitor: React.FC = () => {
   const layerRef = useRef<Konva.Layer>(null)
   const [layerState, setLayerState] = useState<ImageState>()
   const [robotState, setRobotState] = useState<ImageState>()
   const [selectedId, setSelectedId] = useState<string>('')
   const [offset, setOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
 
+  const [containerRef, { width, height }] = useElementSize()
   const currentOp = useOperationStore(state => state.current)
   const updateOp = useOperationStore(state => state.updateOp)
   const scale = useGridStore(state => state.scale)
@@ -138,44 +134,48 @@ const Monitor: React.FC<MonitorProps> = ({ width, height }) => {
 
   return (
     <>
-      <Stage
-        width={width}
-        height={height}>
-        <Layer
-          ref={layerRef}
-          x={(layerState?.x ?? 0) + offset.x}
-          y={(layerState?.y ?? 0) + offset.y}
-          scaleX={layerState?.scale}
-          scaleY={layerState?.scale}
-          draggable={currentOp === 'move'}
-          onDragMove={handleLayerDrag}
-          onClick={handleLayerClick}>
-          <GridMap />
-          {poseMsg
-            ? <Robot
-              rotation={robotState?.rotation ?? 0}
-              x={robotState?.x ?? 0}
-              y={robotState?.y ?? 0}
+      <div flex-1
+        className={currentOp === 'move' ? 'cursor-pointer' : ''}
+        ref={containerRef}>
+        <Stage
+          width={width}
+          height={height}>
+          <Layer
+            ref={layerRef}
+            x={(layerState?.x ?? 0) + offset.x}
+            y={(layerState?.y ?? 0) + offset.y}
+            scaleX={layerState?.scale}
+            scaleY={layerState?.scale}
+            draggable={currentOp === 'move'}
+            onDragMove={handleLayerDrag}
+            onClick={handleLayerClick}>
+            <GridMap />
+            {poseMsg
+              ? <Robot
+                rotation={robotState?.rotation ?? 0}
+                x={robotState?.x ?? 0}
+                y={robotState?.y ?? 0}
+                scale={robotState?.scale ?? 1}
+                width={5} />
+              : null
+            }
+            {pathways.map((path, i) => <Pathway
+              key={i}
+              path={path}
               scale={robotState?.scale ?? 1}
-              width={5} />
-            : null
-          }
-          {pathways.map(path => <Pathway
-            key={path.id}
-            path={path}
-            scale={robotState?.scale ?? 1}
-            onSelect={() => setSelectedId(path.id)}
-            isSelected={selectedId === path.id} />,
-          )}
-          {wayPoints.map(wp => <Waypoint
-            key={wp.id}
-            point={wp}
-            scale={robotState?.scale ?? 1}
-            width={3}
-            onSelect={() => handlePointClick(wp.id)}
-            isSelected={wp.id === selectedId} />)}
-        </Layer>
-      </Stage>
+              onSelect={() => setSelectedId(path.id)}
+              isSelected={selectedId === path.id} />,
+            )}
+            {wayPoints.map((wp, i) => <Waypoint
+              key={i}
+              point={wp}
+              scale={robotState?.scale ?? 1}
+              width={3}
+              onSelect={() => handlePointClick(wp.id)}
+              isSelected={wp.id === selectedId} />)}
+          </Layer>
+        </Stage>
+      </div>
     </>
   )
 }

@@ -32,12 +32,13 @@ const TaskDeck: React.FC = () => {
           <div i-material-symbols-add
             onClick={() => addTask()} />
         </div>
-        {tasks.map((t) => {
+        {tasks.map((t, i) => {
           const enabled = currentTaskId === t.id
           return (
-            <div flex='~ items-center' pl text-3 cursor-default h-2rem
+            <div
+              key={i}
+              flex='~ items-center' pl text-3 cursor-default h-2rem
               className={enabled ? 'font-bold' : ''}
-              key={t.id}
               onClick={() => enableTask(t.id)}>
               <div i-material-symbols-check-small mr-1
                 className={enabled ? '' : 'invisible'} />

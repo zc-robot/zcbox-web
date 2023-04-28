@@ -32,13 +32,13 @@ const InfoDeck: React.FC = () => {
         className={currentDisplay === 'point'
           ? 'flex'
           : 'hidden'}>
-        {points.map((p) => {
+        {points.map((p, i) => {
           return (
             <div
+              key={i}
               cursor-default h-2rem pl-2
               flex='~ items-center' hover='border-solid border-1px border-gray-300'
               className={selectedId === p.id ? 'bg-gray-300' : ''}
-              key={p.id}
               onClick={() => {
                 updateOp('select')
                 select(p.id)
