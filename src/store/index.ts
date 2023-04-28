@@ -6,12 +6,15 @@ import type { NavigationSlice } from './navigation'
 import { navigationSlice } from './navigation'
 import type { OperationSlice } from './operation'
 import { operationSlice } from './operation'
+import { taskSlice } from './task'
+import type { TaskSlice } from './task'
 
-const useBoundStore = create<GridSlice & NavigationSlice & OperationSlice>()(devtools(
+const useBoundStore = create<GridSlice & NavigationSlice & OperationSlice & TaskSlice>()(devtools(
   (...a) => ({
     ...gridSlice(...a),
     ...navigationSlice(...a),
     ...operationSlice(...a),
+    ...taskSlice(...a),
   }),
 ))
 
@@ -26,6 +29,11 @@ export function useGridStore<T>(selector?: (state: GridSlice) => T,
 }
 
 export function useOperationStore<T>(selector?: (state: OperationSlice) => T,
+  equals?: (a: T, b: T) => boolean) {
+  return useBoundStore(selector!, equals)
+}
+
+export function useTaskStore<T>(selector?: (state: TaskSlice) => T,
   equals?: (a: T, b: T) => boolean) {
   return useBoundStore(selector!, equals)
 }

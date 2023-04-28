@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import Monitor from './Monitor'
-import Panel from './Panel'
+import Breadcrumb from './Breadcrumb'
+import InfoDeck from './InfoDeck'
 import { useOperationStore } from '@/store'
 
 const App: React.FC = () => {
@@ -21,15 +22,14 @@ const App: React.FC = () => {
 
   return (
     <div flex flex-col h-full>
-      <Panel />
+      <Breadcrumb />
       <div flex flex-auto>
-        <div w-12rem border="r-solid 0.5px" ></div>
+        <InfoDeck />
         <div flex-1
           className={currentOp === 'move' ? 'cursor-pointer' : ''}
           ref={monitorRef}>
           <Monitor width={monitorSize.width} height={monitorSize.height} />
         </div>
-        <div w-12rem className={'hidden'}></div>
       </div>
     </div>
   )

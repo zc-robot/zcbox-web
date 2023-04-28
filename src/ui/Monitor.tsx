@@ -31,7 +31,7 @@ const Monitor: React.FC<MonitorProps> = ({ width, height }) => {
   const [offset, setOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
 
   const currentOp = useOperationStore(state => state.current)
-  const updateOp = useOperationStore(state => state.update)
+  const updateOp = useOperationStore(state => state.updateOp)
   const scale = useGridStore(state => state.scale)
   const gridInfo = useGridStore(state => state.gridInfo)
   const poseMsg = useGridStore(state => state.pose)
@@ -73,7 +73,7 @@ const Monitor: React.FC<MonitorProps> = ({ width, height }) => {
         x: layerX,
         y: layerY,
         scale: layerScale,
-      }
+      } as ImageState
       setLayerState(lp)
 
       if (!poseMsg)
@@ -83,7 +83,7 @@ const Monitor: React.FC<MonitorProps> = ({ width, height }) => {
         y: -poseMsg.position.y,
         scale: resolution,
         rotation: quaternionToCanvasAngle(poseMsg.orientation),
-      }
+      } as ImageState
       setRobotState(ap)
     }
     renderMap()

@@ -52,3 +52,11 @@ export interface NavPath {
   end: NavPoint,
   controls: NavPoint[],
 }
+
+export interface NavTask {
+  id: string,
+  points: {
+    id: string,
+    payload: any,
+  }[],
+}

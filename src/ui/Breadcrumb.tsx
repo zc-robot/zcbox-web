@@ -2,12 +2,12 @@ import React, { useState } from 'react'
 import { useGridStore, useNavigationStore, useOperationStore } from '@/store'
 import { useInterval } from '@/util/hooks'
 
-const Panel: React.FC = () => {
+const Breadcrumb: React.FC = () => {
   const zoom = useGridStore(state => state.zoom)
   const fetchMapGrid = useGridStore(state => state.fetchMapGrid)
   const fetchRobotData = useGridStore(state => state.fetchRobotPose)
   const currentOp = useOperationStore(state => state.current)
-  const updateOp = useOperationStore(state => state.update)
+  const updateOp = useOperationStore(state => state.updateOp)
   const submitNavInfo = useNavigationStore(state => state.submitNavInfo)
 
   const [pollingGrid, setPollingGrid] = useState(false)
@@ -88,4 +88,4 @@ const Panel: React.FC = () => {
   )
 }
 
-export default Panel
+export default Breadcrumb

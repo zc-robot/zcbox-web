@@ -7,10 +7,10 @@ import { useGridStore } from '@/store'
 interface MapProp {
   x: number
   y: number
-  width: number | null
-  height: number | null
-  data: CanvasImageSource | null
-  rotation: number | null
+  width?: number
+  height?: number
+  data: CanvasImageSource
+  rotation?: number
 }
 
 const GridMap: React.FC = () => {
@@ -35,7 +35,7 @@ const GridMap: React.FC = () => {
         width: width * resolution,
         height: height * resolution,
         data: bitmap,
-      }
+      } as MapProp
       setMapState(state)
     }
     renderMap()
