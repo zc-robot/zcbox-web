@@ -1,8 +1,8 @@
 import React from 'react'
-import Monitor from './Monitor'
+import Monitor from './map/Monitor'
 import Breadcrumb from './Breadcrumb'
-import InfoDeck from './InfoDeck'
-import TaskDeck from './TaskDeck'
+import InfoDeck from './info/InfoDeck'
+import TaskDeck from './task/TaskDeck'
 
 const App: React.FC = () => {
   return (

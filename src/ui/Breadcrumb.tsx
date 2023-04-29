@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useGridStore, useNavigationStore, useOperationStore } from '@/store'
-import { useInterval } from '@/util/hooks'
+import { useInterval } from '@/hooks'
 
 const Breadcrumb: React.FC = () => {
   const zoom = useGridStore(state => state.zoom)

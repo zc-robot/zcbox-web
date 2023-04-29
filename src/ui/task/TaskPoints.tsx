@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import type { NavTask, PointNavType } from '@/types'
+import PointModal from './PointModal'
+import type { NavTask, TaskPoint } from '@/types'
 import { useTaskStore } from '@/store'
 
 interface TaskPointsProp {
@@ -8,12 +9,12 @@ interface TaskPointsProp {
 
 const TaskPoints: React.FC<TaskPointsProp> = ({ task }) => {
   const [dragState, setDragState] = useState({ dragIndex: -1, hoverIndex: -1 })
+  const [configPoint, setConfigPoint] = useState<{ index: number; point: TaskPoint }>()
 
   const swapTaskPoints = useTaskStore(state => state.swapTaskPoints)
-  const updatePointType = useTaskStore(state => state.updatePointNavType)
 
   return (
-    <>
+    <div flex='~ col'>
       {task.points.map((p, i) => {
         return (
           <div
@@ -38,16 +39,16 @@ const TaskPoints: React.FC<TaskPointsProp> = ({ task }) => {
             }}
             draggable
           >{p.id}
-            <select
-              value={p.type}
-              onChange={e => updatePointType(task.id, i, e.target.value as PointNavType)}>
-              <option value='auto'>Auto</option>
-              <option value='manually'>Manual</option>
-            </select>
+            <div i-material-symbols-edit-outline m-2 onClick={() => setConfigPoint({ index: i, point: p })} />
           </div>
         )
       })}
-    </>
+      <PointModal
+        task={task}
+        index={configPoint?.index ?? 0}
+        point={configPoint?.point}
+        onClose={() => setConfigPoint(undefined)} />
+    </div>
   )
 }
 

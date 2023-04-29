@@ -7,7 +7,7 @@ import Waypoint from './Waypoint'
 import Pathway from './Pathway'
 import { useGridStore, useNavigationStore, useOperationStore } from '@/store'
 import { quaternionToCanvasAngle } from '@/util/transform'
-import { useElementSize, useKeyPress } from '@/util/hooks'
+import { useElementSize, useKeyPress } from '@/hooks'
 
 interface ImageState {
   x: number
