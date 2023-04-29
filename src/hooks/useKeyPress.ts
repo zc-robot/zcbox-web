@@ -1,11 +1,13 @@
 import { useEffect } from 'react'
 
-export function useKeyPress(callback: (T?: any) => void, keys: string[]) {
+export function useKeyPress(callback: (T?: any) => void, keys: string[], preventDefault = false) {
   const onKeyDown = (event: KeyboardEvent) => {
     const wasAnyKeyPressed = keys.includes(event.key)
 
     if (wasAnyKeyPressed) {
-      event.preventDefault()
+      if (preventDefault)
+        event.preventDefault()
+
       callback()
     }
   }

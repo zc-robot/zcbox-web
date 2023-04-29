@@ -35,9 +35,9 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
     setActions(newActions)
   }
 
-  const handleUpdateActionArgs = (index: number, args: number) => {
+  const handleUpdateActionArgs = (index: number, args: string) => {
     const newActions = [...actions]
-    newActions[index].args = args
+    newActions[index].args = Number(args)
     setActions(newActions)
   }
 
@@ -94,7 +94,7 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
                     <input ml-a
                       type='number'
                       value={action.args}
-                      onChange={e => handleUpdateActionArgs(i, Number(e.target.value))}
+                      onChange={e => handleUpdateActionArgs(i, e.target.value)}
                     />
                   </div>
                 )
