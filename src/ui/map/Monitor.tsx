@@ -22,12 +22,13 @@ const Monitor: React.FC = () => {
   const layerRef = useRef<Konva.Layer>(null)
   const [layerState, setLayerState] = useState<ImageState>()
   const [robotState, setRobotState] = useState<ImageState>()
-  const [selectedId, setSelectedId] = useState<string>('')
   const [offset, setOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
 
   const [containerRef, { width, height }] = useElementSize()
   const currentOp = useOperationStore(state => state.current)
   const updateOp = useOperationStore(state => state.updateOp)
+  const selectedId = useOperationStore(state => state.selectedPointId)
+  const selectPoint = useOperationStore(state => state.selectPoint)
   const scale = useGridStore(state => state.scale)
   const gridInfo = useGridStore(state => state.gridInfo)
   const poseMsg = useGridStore(state => state.pose)
@@ -44,11 +45,11 @@ const Monitor: React.FC = () => {
 
     if (selectedId.startsWith('point')) {
       removeWaypoint(selectedId)
-      setSelectedId('')
+      selectPoint(null)
     }
     else if (selectedId.startsWith('path')) {
       removePathway(selectedId)
-      setSelectedId('')
+      selectPoint(null)
     }
   }, ['Backspace'])
 
@@ -87,7 +88,7 @@ const Monitor: React.FC = () => {
 
   useEffect(() => {
     if (currentOp !== 'select')
-      setSelectedId('')
+      selectPoint(null)
   }, [currentOp])
 
   const handleLayerClick = (obj: Konva.KonvaEventObject<MouseEvent>) => {
@@ -97,13 +98,13 @@ const Monitor: React.FC = () => {
 
     if (currentOp === 'select') {
       if (selectedId)
-        setSelectedId('')
+        selectPoint(null)
     }
     else if (currentOp === 'waypoint') {
       const x = (obj.evt.offsetX - layer.x()) * (gridInfo.resolution / scale)
       const y = (obj.evt.offsetY - layer.y()) * (gridInfo.resolution / scale)
       const id = addWaypoint({ x, y })
-      setSelectedId(id)
+      selectPoint(id)
       updateOp('select')
     }
   }
@@ -111,16 +112,16 @@ const Monitor: React.FC = () => {
   const handlePointClick = (id: string) => {
     if (currentOp === 'pathway') {
       if (!selectedId) {
-        setSelectedId(id)
+        selectPoint(id)
       }
       else if (selectedId && selectedId !== id) {
         addPathway(selectedId, id)
-        setSelectedId('')
+        selectPoint(null)
         updateOp('select')
       }
     }
     else if (currentOp === 'select') {
-      setSelectedId(id)
+      selectPoint(id)
     }
   }
 
@@ -163,7 +164,7 @@ const Monitor: React.FC = () => {
               key={i}
               path={path}
               scale={robotState?.scale ?? 1}
-              onSelect={() => setSelectedId(path.id)}
+              onSelect={() => selectPoint(path.id)}
               isSelected={selectedId === path.id} />,
             )}
             {wayPoints.map((wp, i) => <Waypoint
