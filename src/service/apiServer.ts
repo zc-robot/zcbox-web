@@ -1,5 +1,10 @@
 import ky from 'ky'
-import type { OccupancyGridMessage, RobotInfoMessage } from '@/types'
+import type { NavPath, NavPoint, NavTask, OccupancyGridMessage, RobotInfoMessage } from '@/types'
+
+interface Resp<T> {
+  code: number
+  data: T
+}
 
 class ApiServer {
   domain = 'http://localhost:1234'
@@ -19,8 +24,27 @@ class ApiServer {
   }
 
   submitNavgationInfo = async (data: object) => {
-    const json = await this.client.post('save_deplyment', { json: data }).json()
+    const json = await this.client.post('save_deployment', { json: data }).json()
     return json
+  }
+
+  fetchNavigationInfo = async () => {
+    const json = await this.client.get('get_deployment').json<Resp<{ points: NavPoint[]; paths: NavPath[] }>>()
+    if (json.code === 0)
+      return json.data
+    return { points: [], paths: [] }
+  }
+
+  submitTasks = async (data: object) => {
+    const json = await this.client.post('save_tasks', { json: data }).json()
+    return json
+  }
+
+  fetchTasks = async () => {
+    const json = await this.client.get('get_tasks').json<Resp<NavTask[]>>()
+    if (json.code === 0)
+      return json.data
+    return []
   }
 }
 

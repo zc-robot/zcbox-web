@@ -2,6 +2,7 @@ import type { StateCreator } from 'zustand'
 import type { NavigationSlice } from './navigation'
 import type { NavTask, PointNavType } from '@/types'
 import { uid } from '@/util'
+import apiServer from '@/service/apiServer'
 
 export interface TaskSlice {
   tasks: NavTask[]
@@ -17,6 +18,8 @@ export interface TaskSlice {
     type: string
     args: number
   }[]) => void
+  fetchTasks: () => Promise<void>
+  submitTasks: () => Promise<void>
 }
 
 export const taskSlice: StateCreator<NavigationSlice & TaskSlice, [], [], TaskSlice> = (set, get) => ({
@@ -54,8 +57,10 @@ export const taskSlice: StateCreator<NavigationSlice & TaskSlice, [], [], TaskSl
         const task = newTasks.find(t => t.id === enabledTaskId)
         if (!task)
           return { ...state }
+        const p = state.points.find(p => p.id === point)
         task.points.push({
           id: point,
+          point: p!, // TODO: Remove this
           type: 'auto',
           actions: [],
         })
@@ -84,5 +89,16 @@ export const taskSlice: StateCreator<NavigationSlice & TaskSlice, [], [], TaskSl
       task.points[index].actions = actions
       return { tasks: newTasks }
     })
+  },
+  fetchTasks: async () => {
+    const tasks = await apiServer.fetchTasks()
+    set(() => {
+      return { tasks }
+    })
+  },
+  submitTasks: async () => {
+    const tasks = get().tasks
+    if (tasks.length)
+      await apiServer.submitTasks(tasks)
   },
 })

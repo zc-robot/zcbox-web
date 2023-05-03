@@ -57,12 +57,14 @@ type PointNavType = 'auto' | 'manually'
 
 export interface TaskPoint {
   id: string,
+  point: NavPoint,
   type: PointNavType,
   actions: {
     type: string,
     args: number,
   }[],
 }
+
 export interface NavTask {
   id: string,
   points: TaskPoint[],

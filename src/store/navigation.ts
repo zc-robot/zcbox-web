@@ -2,7 +2,6 @@ import type { StateCreator } from 'zustand'
 import apiServer from '@/service/apiServer'
 import type { NavPath, NavPoint } from '@/types'
 import { uid } from '@/util'
-import { dumpNavPoint } from '@/util/transform'
 
 export interface NavigationSlice {
   points: NavPoint[]
@@ -17,6 +16,7 @@ export interface NavigationSlice {
   addPath: (start: string, end: string) => void
   updatePath: (id: string, controls: Partial<{ x: number; y: number }[]>) => void
   removePath: (id: string) => void
+  fetchNavInfo: () => Promise<void>
   submitNavInfo: () => Promise<void>
 }
 
@@ -107,25 +107,13 @@ export const navigationSlice: StateCreator<NavigationSlice> = (set, get) => ({
       return { paths: newPaths }
     })
   },
+  fetchNavInfo: async () => {
+    const { points, paths } = await apiServer.fetchNavigationInfo()
+    set({ points, paths })
+  },
   submitNavInfo: async () => {
-    const points = get().points.map((p) => {
-      return dumpNavPoint(p)
-    })
-    const paths = get().paths.map((p) => {
-      const start = get().points.find(point => point.id === p.start.id)!
-      const end = get().points.find(point => point.id === p.end.id)!
-      return {
-        id: p.id,
-        start: p.start.id,
-        end: p.end.id,
-        points: [
-          dumpNavPoint(start).position,
-          dumpNavPoint(p.controls[0]).position,
-          dumpNavPoint(p.controls[1]).position,
-          dumpNavPoint(end).position,
-        ],
-      }
-    })
+    const points = get().points
+    const paths = get().paths
     await apiServer.submitNavgationInfo({ points, paths })
   },
 })
