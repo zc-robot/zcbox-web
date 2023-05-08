@@ -7,6 +7,7 @@ import apiServer from '@/service/apiServer'
 export interface TaskSlice {
   tasks: NavTask[]
   enabledTaskId: string | null
+  executingTaskId: string | null
 
   // Action
   enableTask: (id: string | null) => void
@@ -18,6 +19,8 @@ export interface TaskSlice {
     type: string
     args: number
   }[]) => void
+  executeTask: (id: string) => Promise<void>
+  stopTask: () => Promise<void>
   fetchTasks: () => Promise<void>
   submitTasks: () => Promise<void>
 }
@@ -25,6 +28,7 @@ export interface TaskSlice {
 export const taskSlice: StateCreator<NavigationSlice & TaskSlice, [], [], TaskSlice> = (set, get) => ({
   tasks: [],
   enabledTaskId: null,
+  executingTaskId: null,
 
   enableTask: (id: string | null) => {
     set(() => {
@@ -88,6 +92,18 @@ export const taskSlice: StateCreator<NavigationSlice & TaskSlice, [], [], TaskSl
       task.points[index].type = type
       task.points[index].actions = actions
       return { tasks: newTasks }
+    })
+  },
+  executeTask: async (id: string) => {
+    await apiServer.executeTask(id)
+    set(() => {
+      return { executingTaskId: id }
+    })
+  },
+  stopTask: async () => {
+    await apiServer.stopTask()
+    set(() => {
+      return { executingTaskId: null }
     })
   },
   fetchTasks: async () => {

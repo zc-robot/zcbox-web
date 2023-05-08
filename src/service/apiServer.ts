@@ -46,6 +46,16 @@ class ApiServer {
       return json.data
     return []
   }
+
+  executeTask = async (id: string) => {
+    const json = await this.client.post('execute_task', { json: { id } }).json()
+    return json
+  }
+
+  stopTask = async () => {
+    const json = await this.client.post('stop_task').json()
+    return json
+  }
 }
 
 export default new ApiServer()

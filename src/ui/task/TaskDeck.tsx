@@ -10,6 +10,9 @@ const TaskDeck: React.FC = () => {
   const enableTask = useTaskStore(state => state.enableTask)
   const tasks = useTaskStore(state => state.tasks)
   const addTask = useTaskStore(state => state.addTask)
+  const executingTaskId = useTaskStore(state => state.executingTaskId)
+  const executeTask = useTaskStore(state => state.executeTask)
+  const stopTask = useTaskStore(state => state.stopTask)
 
   const currentTask = () => {
     if (!currentTaskId)
@@ -17,9 +20,22 @@ const TaskDeck: React.FC = () => {
     return task(currentTaskId)
   }
 
+  const toggleTask = () => {
+    if (!currentTaskId)
+      return
+    if (executingTaskId)
+      stopTask()
+    else
+      executeTask(currentTaskId)
+  }
+
   return (
     <div w-12rem border='l-solid 1px gray-300'>
-      <div flex='~ row-reverse items-center' pl h-8 border='b-solid 1px gray-300'>
+      <div flex='~ justify-between items-center' pl h-8 border='b-solid 1px gray-300'>
+        <div
+          color-gray-500
+          className={executingTaskId ? 'i-material-symbols-pause-outline' : 'i-material-symbols-play-arrow-outline'}
+          onClick={toggleTask} />
         <div flex='~ items-center' text-3 p-1 cursor-default color-gray-500
           onClick={() => setShowTaskList(!showTaskList)}>
           {currentTaskId ?? '任务列表'}<div i-material-symbols-keyboard-arrow-down />
