@@ -30,7 +30,7 @@ const TaskDeck: React.FC = () => {
   }
 
   return (
-    <div w-12rem border='l-solid 1px gray-300'>
+    <div flex='grow shrink-0 basis-a' h-0 overflow-auto>
       <div flex='~ justify-between items-center' pl h-8 border='b-solid 1px gray-300'>
         <div
           color-gray-500
@@ -41,8 +41,7 @@ const TaskDeck: React.FC = () => {
           {currentTaskId ?? '任务列表'}<div i-material-symbols-keyboard-arrow-down />
         </div>
       </div>
-      <div border='b-solid 1px gray-300'
-        className={showTaskList ? 'flbex w-100%' : 'hidden'}>
+      <div className={showTaskList ? 'flbex w-100%' : 'hidden'}>
         <div flex='~ justify-between items-center' pl pr h-8>
           <div text-3 p-1 cursor-default font-bold>任务</div>
           <div i-material-symbols-add

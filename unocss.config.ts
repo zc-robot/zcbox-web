@@ -25,7 +25,12 @@ export default defineConfig({
     'panel-icon': 'text-white text-5 ma',
   },
   presets: [
-    presetIcons(),
+    presetIcons({
+      extraProperties: {
+        'display': 'block',
+        'vertical-align': 'middle',
+      },
+    }),
     presetUno(),
     presetAttributify(),
   ],
