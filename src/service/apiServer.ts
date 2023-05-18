@@ -56,6 +56,11 @@ class ApiServer {
     const json = await this.client.post('stop_task').json()
     return json
   }
+
+  sendRobotVelocity = async (line: number, angular: number) => {
+    const json = await this.client.get(`velocity_control/${line}/${angular}`).json()
+    return json
+  }
 }
 
 export default new ApiServer()

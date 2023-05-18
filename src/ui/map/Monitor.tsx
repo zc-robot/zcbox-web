@@ -39,15 +39,15 @@ const Monitor: React.FC = () => {
   const addPathway = useNavigationStore(state => state.addPath)
   const removePathway = useNavigationStore(state => state.removePath)
 
-  useKeyPress(() => {
-    if (!selectedId)
+  useKeyPress((_, isDown) => {
+    if (!selectedId || !isDown)
       return
 
-    if (selectedId.startsWith('point')) {
+    if (selectedId.startsWith('Point')) {
       removeWaypoint(selectedId)
       selectPoint(null)
     }
-    else if (selectedId.startsWith('path')) {
+    else if (selectedId.startsWith('Path')) {
       removePathway(selectedId)
       selectPoint(null)
     }
