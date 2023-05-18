@@ -53,7 +53,7 @@ class ApiServer {
   }
 
   stopTask = async () => {
-    const json = await this.client.post('stop_task').json()
+    const json = await this.client.get('stop_task').json()
     return json
   }
 }
