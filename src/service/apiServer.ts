@@ -58,9 +58,9 @@ class ApiServer {
   }
 
   sendRobotVelocity = async (line: number, angular: number) => {
-    line = Number(line.toFixed(1))
-    angular = Number(angular.toFixed(1))
-    const json = await this.client.get(`velocity_control/${line}/${angular}`).json()
+    const line_string = line.toFixed(1)
+    const angular_string = angular.toFixed(1)
+    const json = await this.client.get(`velocity_control/${line_string}/${angular_string}`).json()
     return json
   }
 }
