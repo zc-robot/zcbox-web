@@ -36,16 +36,16 @@ const _panel: React.FC = () => {
   useInterval(async () => {
     switch (pressedKey) {
       case 'w':
-        await sendRobotVelocity(velocityInfo.line, 0)
+        await sendRobotVelocity(velocityInfo.line, 0.0)
         break
       case 's':
-        await sendRobotVelocity(-velocityInfo.line, 0)
+        await sendRobotVelocity(-velocityInfo.line, 0.0)
         break
       case 'a':
-        await sendRobotVelocity(0, -velocityInfo.angular)
+        await sendRobotVelocity(0.0, -velocityInfo.angular)
         break
       case 'd':
-        await sendRobotVelocity(0, velocityInfo.angular)
+        await sendRobotVelocity(0.0, velocityInfo.angular)
     }
   }, pressedKey === '' ? undefined : 500)
 

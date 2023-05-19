@@ -22,8 +22,8 @@ export const operationSlice: StateCreator<OperationSlice> = (set, get) => ({
   current: 'move',
   selectedPointId: null,
   velocityInfo: {
-    line: 0.5,
-    angular: 0.5,
+    line: 0.2,
+    angular: 0.2,
   },
 
   updateOp: (by: Operation) => {
