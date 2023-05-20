@@ -8,7 +8,7 @@ interface Resp<T> {
 
 class ApiServer {
   //domain = 'http://localhost:1234'
-  domain = 'http://10.211.55.14:1234'
+  domain = 'http://192.168.1.173:1234'
   client = ky.create({ prefixUrl: this.domain })
 
   // get_map
