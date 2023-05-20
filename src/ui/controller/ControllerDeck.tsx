@@ -42,10 +42,10 @@ const _panel: React.FC = () => {
         await sendRobotVelocity(-velocityInfo.line, 0.0)
         break
       case 'a':
-        await sendRobotVelocity(0.0, -velocityInfo.angular)
+        await sendRobotVelocity(0.0, velocityInfo.angular)
         break
       case 'd':
-        await sendRobotVelocity(0.0, velocityInfo.angular)
+        await sendRobotVelocity(0.0, -velocityInfo.angular)
     }
   }, pressedKey === '' ? undefined : 500)
 
