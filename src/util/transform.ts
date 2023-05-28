@@ -8,11 +8,11 @@ export function quaternionToCanvasAngle(msg: QuaternionMessage) {
   const yaw = Math.atan2(sinYaw, cosYaw)
   const deg = yaw * 180 / Math.PI
   // Canvas rotation is clock wise and in degrees
-  return 90 - deg
+  return -deg
 }
 
 export function canvasAngleToQuaternion(angle: number): QuaternionMessage {
-  const radians = (90 - angle) * Math.PI / 180.0
+  const radians = -angle * Math.PI / 180.0
   const cosHalfAngle = Math.cos(radians / 2.0)
   const sinHalfAngle = Math.sin(radians / 2.0)
   const x = 0

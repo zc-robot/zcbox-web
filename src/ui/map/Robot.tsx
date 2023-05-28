@@ -11,9 +11,9 @@ interface RobotProp {
 
 const Robot: React.FC<RobotProp> = ({ x, y, width, scale, rotation }) => {
   const points = [
-    -width / 2, width,
-    width / 2, width,
-    0, -width,
+    -width, width / 2,
+    width, 0,
+    -width, -width / 2,
   ]
 
   return (
