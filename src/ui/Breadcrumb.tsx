@@ -20,8 +20,8 @@ const Breadcrumb: React.FC = () => {
   const zoomOutClick = () => zoom(0.9)
 
   const handleSubmitClicked = async () => {
-    await submitNavInfo()
     await submitTasks()
+    await submitNavInfo()
   }
 
   const handleFetchClicked = async () => {

@@ -10,13 +10,11 @@ class ApiServer {
   domain = import.meta.env.VITE_API_DOMAIN || 'http://localhost:1234'
   client = ky.create({ prefixUrl: this.domain })
 
-  // get_map
   fetchMap = async () => {
     const json = await this.client.get('get_map').json()
     return json as OccupancyGridMessage
   }
 
-  // get_robot_data
   fetchRobotData = async () => {
     const json = await this.client.get('get_robot_data').json()
     return json as RobotInfoMessage
@@ -57,9 +55,7 @@ class ApiServer {
   }
 
   sendRobotVelocity = async (line: number, angular: number) => {
-    const line_string = line.toFixed(1)
-    const angular_string = angular.toFixed(1)
-    const json = await this.client.get(`velocity_control/${line_string}/${angular_string}`).json()
+    const json = await this.client.get(`velocity_control/${line.toFixed(1)}/${angular.toFixed(1)}`).json()
     return json
   }
 }

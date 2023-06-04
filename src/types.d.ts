@@ -59,9 +59,11 @@ export interface TaskPoint {
   id: string,
   point: NavPoint,
   type: PointNavType,
+  precise: boolean,
+  reverse: boolean,
   actions: {
     type: string,
-    args: number,
+    args: any,
   }[],
 }
 
