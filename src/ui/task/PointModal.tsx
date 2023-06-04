@@ -15,6 +15,7 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
   const [isReverse, setReverse] = useState<boolean>(false)
   const [actions, setActions] = useState<{ type: string; args: any }[]>([])
   const updateTask = useTaskStore(state => state.updateTask)
+  const removeTaskPoint = useTaskStore(state => state.removeTaskPoint)
 
   useEffect(() => {
     setNavType(point?.type ?? 'auto')
@@ -54,6 +55,12 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
 
   const handleSubmit = () => {
     updateTask(task.id, index, navType, isPrecise, isReverse, actions)
+
+    onClose()
+  }
+
+  const handleDelete = () => {
+    removeTaskPoint(task.id, index)
 
     onClose()
   }
@@ -175,10 +182,16 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
                 )
               })}
             </div>
-            <div
-              flex-self-end mt-a bg-gray-300 p-1 rounded-1 text-sm cursor-default
-              onClick={() => handleSubmit()}>
-              确认
+            <div flex='~ justify-between' mt-a>
+              <div p1 border='solid 1px red' text='sm red' rounded-1 cursor-default
+              onClick={() => handleDelete()}>
+                删除
+              </div>
+              <div
+                bg-gray-300 p1 rounded-1 text-sm cursor-default
+                onClick={() => handleSubmit()}>
+                确认
+              </div>
             </div>
           </div>
         </div >

@@ -157,7 +157,7 @@ const Monitor: React.FC = () => {
                 x={robotState?.x ?? 0}
                 y={robotState?.y ?? 0}
                 scale={robotState?.scale ?? 1}
-                width={5} />
+                width={20} />
               : null
             }
             {pathways.map((path, i) => <Pathway
@@ -171,7 +171,7 @@ const Monitor: React.FC = () => {
               key={i}
               point={wp}
               scale={robotState?.scale ?? 1}
-              width={3}
+              width={15}
               onSelect={() => handlePointClick(wp.id)}
               isSelected={wp.id === selectedId} />)}
           </Layer>

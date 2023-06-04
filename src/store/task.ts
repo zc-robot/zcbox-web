@@ -14,6 +14,7 @@ export interface TaskSlice {
   task: (by: string) => NavTask | undefined
   addTask: () => void
   appendTaskPoint: (point: string) => void
+  removeTaskPoint: (id: string, index: number) => void
   swapTaskPoints: (id: string, from: number, to: number) => void
   updateTask: (id: string, index: number, type: PointNavType, precise: boolean, reverse: boolean, actions: {
     type: string
@@ -48,6 +49,16 @@ export const taskSlice: StateCreator<NavigationSlice & TaskSlice, [], [], TaskSl
       }
       newTasks.push(newTask)
       return { tasks: newTasks, currentTaskId: id }
+    })
+  },
+  removeTaskPoint: (id: string, index: number) => {
+    set((state) => {
+      const newTasks = state.tasks.slice()
+      const task = newTasks.find(t => t.id === id)
+      if (!task)
+        return { ...state }
+      task.points.splice(index, 1)
+      return { tasks: newTasks }
     })
   },
   appendTaskPoint: (point: string) => {
