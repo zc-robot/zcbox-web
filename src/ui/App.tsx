@@ -8,13 +8,13 @@ import Uploader from './uploader/Uploader'
 
 const App: React.FC = () => {
   return (
-    <div flex='~ col' h-full>
+    <div flex="~ col" h-full>
       <Breadcrumb />
-      <div flex='~ auto'>
+      <div flex="~ auto">
         <Uploader />
         <InfoDeck />
         <Monitor />
-        <div flex='~ col' w-12rem border='l-solid 1px gray-300'>
+        <div flex="~ col" w-12rem border="l-solid 1px gray-300">
           <TaskDeck />
           <ControllerDeck />
         </div>

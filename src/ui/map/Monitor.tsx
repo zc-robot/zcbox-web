@@ -89,7 +89,7 @@ const Monitor: React.FC = () => {
   useEffect(() => {
     if (currentOp !== 'select')
       selectPoint(null)
-  }, [currentOp])
+  }, [currentOp, selectPoint])
 
   const handleLayerClick = (obj: Konva.KonvaEventObject<MouseEvent>) => {
     const layer = layerRef.current

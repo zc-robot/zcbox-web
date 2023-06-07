@@ -14,12 +14,12 @@ const TaskPoints: React.FC<TaskPointsProp> = ({ task }) => {
   const swapTaskPoints = useTaskStore(state => state.swapTaskPoints)
 
   return (
-    <div flex='~ col'>
+    <div flex="~ col">
       {task.points.map((p, i) => {
         return (
           <div
             key={i}
-            flex='~ items-center justify-between' h-2rem pl-2 pr-2 text-3
+            flex="~ items-center justify-between" h-2rem pl-2 pr-2 text-3
             onDragStart={() => {
               setDragState({ ...dragState, dragIndex: i })
             }}

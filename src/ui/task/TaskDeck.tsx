@@ -30,19 +30,19 @@ const TaskDeck: React.FC = () => {
   }
 
   return (
-    <div flex='grow shrink-0 basis-a' h-0 overflow-auto>
-      <div flex='~ justify-between items-center' pl h-8 border='b-solid 1px gray-300'>
+    <div flex="grow shrink-0 basis-a" h-0 overflow-auto>
+      <div flex="~ justify-between items-center" pl h-8 border="b-solid 1px gray-300">
         <div
           color-gray-500
           className={executingTaskId ? 'i-material-symbols-pause-outline' : 'i-material-symbols-play-arrow-outline'}
           onClick={toggleTask} />
-        <div flex='~ items-center' text-3 p-1 cursor-default color-gray-500
+        <div flex="~ items-center" text-3 p-1 cursor-default color-gray-500
           onClick={() => setShowTaskList(!showTaskList)}>
           {currentTaskId ?? '任务列表'}<div i-material-symbols-keyboard-arrow-down />
         </div>
       </div>
       <div className={showTaskList ? 'flbex w-100%' : 'hidden'}>
-        <div flex='~ justify-between items-center' pl pr h-8>
+        <div flex="~ justify-between items-center" pl pr h-8>
           <div text-3 p-1 cursor-default font-bold>任务</div>
           <div i-material-symbols-add
             onClick={() => addTask()} />
@@ -52,7 +52,7 @@ const TaskDeck: React.FC = () => {
           return (
             <div
               key={i}
-              flex='~ items-center' pl text-3 cursor-default h-2rem
+              flex="~ items-center" pl text-3 cursor-default h-2rem
               className={enabled ? 'font-bold' : ''}
               onClick={() => enableTask(t.id)}>
               <div i-material-symbols-check-small mr-1

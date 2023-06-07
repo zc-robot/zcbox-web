@@ -31,5 +31,6 @@ export function useKeyPress(callback: (event: KeyboardEvent, pressed: boolean) =
       document.removeEventListener('keydown', onKeyDown)
       document.removeEventListener('keyup', onKeyUp)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onKeyDown])
 }

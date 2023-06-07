@@ -12,8 +12,8 @@ const InfoDeck: React.FC = () => {
   const appendTaskPoint = useTaskStore(state => state.appendTaskPoint)
 
   return (
-    <div w-12rem border='r-solid 1px gray-300'>
-      <div flex='~ items-center' pl h-8 border='b-solid 1px gray-300'>
+    <div w-12rem border="r-solid 1px gray-300">
+      <div flex="~ items-center" pl h-8 border="b-solid 1px gray-300">
         <div
           text-3 p-1 cursor-default
           className={currentDisplay === 'point'
@@ -37,7 +37,7 @@ const InfoDeck: React.FC = () => {
             <div
               key={i}
               cursor-default h-2rem pl-2
-              flex='~ items-center' hover='border-solid border-1px border-gray-300'
+              flex="~ items-center" hover="border-solid border-1px border-gray-300"
               className={selectedId === p.id ? 'bg-gray-300' : ''}
               onClick={() => {
                 updateOp('select')

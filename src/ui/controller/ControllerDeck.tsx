@@ -50,9 +50,9 @@ const _panel: React.FC = () => {
   }, pressedKey === '' ? undefined : 500)
 
   return (
-    <div p-2 flex='~ col justify-center items-center'>
-      <div flex='~ justify-center items-center'>
-        <div w-4 h-4 border='solid 1px gray-5' rounded p-1
+    <div p-2 flex="~ col justify-center items-center">
+      <div flex="~ justify-center items-center">
+        <div w-4 h-4 border="solid 1px gray-5" rounded p-1
           onPointerDown={() => pressKey('w')}
           onPointerUp={() => pressKey('')}
           onPointerOut={() => pressKey('')}
@@ -60,8 +60,8 @@ const _panel: React.FC = () => {
           <i i-material-symbols-arrow-upward-rounded ma />
         </div>
       </div>
-      <div flex='~ justify-center items-center'>
-        <div w-4 h-4 border='solid 1px gray-5' rounded p-1
+      <div flex="~ justify-center items-center">
+        <div w-4 h-4 border="solid 1px gray-5" rounded p-1
           onPointerDown={() => pressKey('a')}
           onPointerUp={() => pressKey('')}
           onPointerLeave={() => pressKey('')}
@@ -69,7 +69,7 @@ const _panel: React.FC = () => {
           className={pressedKey === 'a' ? 'bg-gray-3' : ''}>
           <i i-material-symbols-arrow-back-rounded ma />
         </div>
-        <div w-4 h-4 border='solid 1px gray-5' rounded p-1
+        <div w-4 h-4 border="solid 1px gray-5" rounded p-1
           onPointerDown={() => pressKey('s')}
           onPointerUp={() => pressKey('')}
           onPointerLeave={() => pressKey('')}
@@ -77,7 +77,7 @@ const _panel: React.FC = () => {
           className={pressedKey === 's' ? 'bg-gray-3' : ''}>
           <i i-material-symbols-arrow-downward-rounded ma />
         </div>
-        <div w-4 h-4 border='solid 1px gray-5' rounded p-1
+        <div w-4 h-4 border="solid 1px gray-5" rounded p-1
           onPointerDown={() => pressKey('d')}
           onPointerUp={() => pressKey('')}
           onPointerLeave={() => pressKey('')}
@@ -86,26 +86,26 @@ const _panel: React.FC = () => {
           <i i-material-symbols-arrow-forward-rounded ma />
         </div>
       </div>
-      <div flex='~ items-center' pt-2>
+      <div flex="~ items-center" pt-2>
         <div i-material-symbols-line-end-arrow-outline-rounded text-5 />
         <i text-3 mr-2>线速度</i>
         <input
           flex-grow
           w-20
-          type='number'
+          type="number"
           min={0}
           step={0.1}
           value={velocityInfo.line}
           onChange={e => updateLineVelocity(Number(e.target.value))}
         />
       </div>
-      <div flex='~ items-center' py-2>
+      <div flex="~ items-center" py-2>
         <div i-material-symbols-rotate-right-rounded text-5 />
         <i text-3 mr-2>角速度</i>
         <input
           flex-grow
           w-20
-          type='number'
+          type="number"
           min={0}
           step={0.1}
           value={velocityInfo.angular}
@@ -120,8 +120,8 @@ const ControllerDeck: React.FC = () => {
   const [isDeckDisplay, displayDeck] = useState(false)
 
   return (
-    <div flex='grow-0 shrink-0 basis-a'>
-      <div flex='~ items-center justify-between' px-4 h-8 border='t-solid b-solid 1px gray-300'
+    <div flex="grow-0 shrink-0 basis-a">
+      <div flex="~ items-center justify-between" px-4 h-8 border="t-solid b-solid 1px gray-300"
         onClick={() => displayDeck(!isDeckDisplay)}>
         <div text-3 p-1 cursor-default font-bold>机器人操作</div>
         <div i-material-symbols-keyboard-arrow-up />
