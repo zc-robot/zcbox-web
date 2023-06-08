@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { useGridStore, useNavigationStore, useOperationStore, useTaskStore } from '@/store'
 import { useInterval } from '@/hooks'
 
-const Breadcrumb: React.FC = () => {
+const TopDeck: React.FC = () => {
   const zoom = useGridStore(state => state.zoom)
   const fetchMapGrid = useGridStore(state => state.fetchMapGrid)
   const fetchRobotData = useGridStore(state => state.fetchRobotPose)
@@ -103,4 +103,4 @@ const Breadcrumb: React.FC = () => {
   )
 }
 
-export default Breadcrumb
+export default TopDeck

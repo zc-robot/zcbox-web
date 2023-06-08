@@ -126,7 +126,7 @@ const Monitor: React.FC = () => {
   }
 
   const handleLayerDrag = (obj: Konva.KonvaEventObject<DragEvent>) => {
-    if (currentOp !== 'move')
+    if (currentOp !== 'move' || !layerState)
       return
 
     const evt = obj.evt

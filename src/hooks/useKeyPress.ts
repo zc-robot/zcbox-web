@@ -1,7 +1,7 @@
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 
 export function useKeyPress(callback: (event: KeyboardEvent, pressed: boolean) => void, keys: string[], preventDefault = false) {
-  const onKeyDown = (event: KeyboardEvent) => {
+  const onKeyDown = useCallback((event: KeyboardEvent) => {
     const wasAnyKeyPressed = keys.includes(event.key)
 
     if (wasAnyKeyPressed) {
@@ -10,9 +10,9 @@ export function useKeyPress(callback: (event: KeyboardEvent, pressed: boolean) =
 
       callback(event, true)
     }
-  }
+  }, [callback, keys, preventDefault])
 
-  const onKeyUp = (event: KeyboardEvent) => {
+  const onKeyUp = useCallback((event: KeyboardEvent) => {
     const wasAnyKeyPressed = keys.includes(event.key)
 
     if (wasAnyKeyPressed) {
@@ -21,7 +21,7 @@ export function useKeyPress(callback: (event: KeyboardEvent, pressed: boolean) =
 
       callback(event, false)
     }
-  }
+  }, [callback, keys, preventDefault])
 
   useEffect(() => {
     document.addEventListener('keydown', onKeyDown)
@@ -31,6 +31,5 @@ export function useKeyPress(callback: (event: KeyboardEvent, pressed: boolean) =
       document.removeEventListener('keydown', onKeyDown)
       document.removeEventListener('keyup', onKeyUp)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onKeyDown])
+  }, [onKeyDown, onKeyUp])
 }
