@@ -75,7 +75,6 @@ export const taskSlice: StateCreator<NavigationSlice & TaskSlice, [], [], TaskSl
         const p = state.points.find(p => p.id === point)
         task.points.push({
           id: point,
-          point: p!, // TODO: Remove this
           precise: false,
           reverse: false,
           type: 'auto',

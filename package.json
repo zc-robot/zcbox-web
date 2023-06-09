@@ -20,7 +20,7 @@
     "react-dropzone-component": "^3.2.0",
     "react-konva": "18.2.7",
     "react-router-dom": "^6.12.0",
-    "zustand": "^4.3.7"
+    "zustand": "^4.3.8"
   },
   "devDependencies": {
     "@antfu/eslint-config-react": "^0.39.5",
@@ -33,8 +33,8 @@
     "@unocss/preset-attributify": "^0.51.8",
     "@unocss/preset-icons": "^0.51.8",
     "@unocss/preset-uno": "^0.51.8",
-    "@unocss/transformer-attributify-jsx": "^0.51.8",
-    "@vitejs/plugin-react-swc": "^3.3.0",
+    "@unocss/transformer-attributify-jsx": "^0.53.1",
+    "@vitejs/plugin-react": "^4.0.0",
     "eslint": "^8.42.0",
     "eslint-config-ts": "^4.0.1",
     "typescript": "^5.0.4",
@@ -48,6 +48,11 @@
     "rules": {
       "react/prop-types": "off",
       "react/no-unknown-property": "off"
-    }
+    },
+    "ignorePatterns": [
+      "mock",
+      "dist",
+      "node_modules"
+    ]
   }
 }

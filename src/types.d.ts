@@ -57,7 +57,6 @@ type PointNavType = 'auto' | 'manually'
 
 export interface TaskPoint {
   id: string,
-  point: NavPoint,
   type: PointNavType,
   precise: boolean,
   reverse: boolean,
@@ -70,4 +69,30 @@ export interface TaskPoint {
 export interface NavTask {
   id: string,
   points: TaskPoint[],
+}
+
+export interface RobotParams {
+  urdf: JointParams[],
+  robot_footprint: FootprintParams
+}
+
+export interface JointParams {
+  name: string,
+  type: string,
+  parent: string,
+  child: string,
+  x: number,
+  y: number,
+  z: number,
+  roll: number,
+  pitch: number,
+  yaw: number,
+}
+
+export interface FootprintParams {
+  is_round: boolean,
+  radius: number,
+  robot_length: number,
+  robot_width: number,
+  nav_center2robot_center: number,
 }

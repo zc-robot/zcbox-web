@@ -28,6 +28,16 @@ const server = http.createServer((req, res) => {
       }))
     })
   }
+  else if (req.url === '/get_params') {
+    res.setHeader('Content-Type', 'application/json')
+    if (req.method === 'GET') {
+      fs.readFile(`${dirPath}/params.json`, (_, data) => {
+        res.end(data.toString())
+      })
+    }
+    else if (req.method === 'POST') {
+    }
+  }
   else {
     res.end('Hello World')
   }

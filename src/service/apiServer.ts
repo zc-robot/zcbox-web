@@ -1,5 +1,5 @@
 import ky from 'ky'
-import type { NavPath, NavPoint, NavTask, OccupancyGridMessage, RobotInfoMessage } from '@/types'
+import type { NavPath, NavPoint, NavTask, OccupancyGridMessage, RobotInfoMessage, RobotParams } from '@/types'
 
 interface Resp<T> {
   code: number
@@ -56,6 +56,18 @@ class ApiServer {
 
   sendRobotVelocity = async (line: number, angular: number) => {
     const json = await this.client.get(`velocity_control/${line.toFixed(1)}/${angular.toFixed(1)}`).json()
+    return json
+  }
+
+  fetchParams = async () => {
+    const json = await this.client.get('get_params').json<Resp<RobotParams>>()
+    if (json.code === 0)
+      return json.data
+    return null
+  }
+
+  uploadParams = async (params: RobotParams) => {
+    const json = await this.client.post('get_params', { json: params }).json()
     return json
   }
 }

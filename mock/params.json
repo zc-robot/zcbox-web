@@ -1,0 +1,182 @@
+{
+  "code": 0,
+  "data": {
+    "robot_footprint": {
+      "is_round": true,
+      "nav_center2robot_center": 0.0,
+      "radius": 0.26,
+      "robot_length": 0.0,
+      "robot_width": 0.0
+    },
+    "urdf": [
+      {
+        "child": "base_link",
+        "name": "base_link_joint",
+        "parent": "base_footprint",
+        "pitch": 0.0,
+        "roll": 0.0,
+        "type": "fixed",
+        "x": 0.0,
+        "y": 0.0,
+        "yaw": 0.0,
+        "z": 0.0
+      },
+      {
+        "child": "left_wheel_link",
+        "name": "left_wheel_joint",
+        "parent": "base_link",
+        "pitch": 0.0,
+        "roll": 1.57,
+        "type": "continuous",
+        "x": -0.0,
+        "y": 0.298,
+        "yaw": 0.0,
+        "z": 0.109
+      },
+      {
+        "child": "right_wheel_link",
+        "name": "right_wheel_joint",
+        "parent": "base_link",
+        "pitch": 0.0,
+        "roll": 1.57,
+        "type": "continuous",
+        "x": -0.0,
+        "y": -0.298,
+        "yaw": 0.0,
+        "z": 0.109
+      },
+      {
+        "child": "camera_pose_frame",
+        "name": "camera_odom_joint",
+        "parent": "base_link",
+        "pitch": 0.0,
+        "roll": 0.0,
+        "type": "fixed",
+        "x": 0.25,
+        "y": 0.0,
+        "yaw": 0.0,
+        "z": 0.0
+      },
+      {
+        "child": "laser",
+        "name": "laser_joint",
+        "parent": "base_link",
+        "pitch": 0.0,
+        "roll": 0.0,
+        "type": "fixed",
+        "x": 0.22,
+        "y": 0.0,
+        "yaw": 0.0,
+        "z": 0.3
+      },
+      {
+        "child": "rgbd1_link",
+        "name": "rgbd1_joint",
+        "parent": "base_link",
+        "pitch": 0.0,
+        "roll": 0.0,
+        "type": "fixed",
+        "x": 0.3,
+        "y": 0.0,
+        "yaw": 0.0,
+        "z": 0.38
+      },
+      {
+        "child": "rgbd2_link",
+        "name": "rgbd2_joint",
+        "parent": "base_link",
+        "pitch": 0.0,
+        "roll": 0.0,
+        "type": "fixed",
+        "x": 0.3,
+        "y": 0.0,
+        "yaw": 0.0,
+        "z": 0.38
+      },
+      {
+        "child": "imu_link",
+        "name": "imu1_joint",
+        "parent": "base_link",
+        "pitch": 0.0,
+        "roll": 0.0,
+        "type": "fixed",
+        "x": 0.1,
+        "y": 0.0,
+        "yaw": 0.0,
+        "z": 0.3
+      },
+      {
+        "child": "base_sonar1",
+        "name": "base_sonar1_joint",
+        "parent": "base_link",
+        "pitch": 0.0,
+        "roll": 0.0,
+        "type": "fixed",
+        "x": 0.16,
+        "y": 0.191,
+        "yaw": 0.875,
+        "z": 0.1
+      },
+      {
+        "child": "base_sonar2",
+        "name": "base_sonar2_joint",
+        "parent": "base_link",
+        "pitch": 0.0,
+        "roll": 0.0,
+        "type": "fixed",
+        "x": 0.216,
+        "y": 0.125,
+        "yaw": 0.525,
+        "z": 0.1
+      },
+      {
+        "child": "base_sonar3",
+        "name": "base_sonar3_joint",
+        "parent": "base_link",
+        "pitch": 0.0,
+        "roll": 0.0,
+        "type": "fixed",
+        "x": 0.246,
+        "y": 0.042,
+        "yaw": 0.175,
+        "z": 0.1
+      },
+      {
+        "child": "base_sonar4",
+        "name": "base_sonar4_joint",
+        "parent": "base_link",
+        "pitch": 0.0,
+        "roll": 0.0,
+        "type": "fixed",
+        "x": 0.246,
+        "y": -0.042,
+        "yaw": -0.175,
+        "z": 0.1
+      },
+      {
+        "child": "base_sonar5",
+        "name": "base_sonar5_joint",
+        "parent": "base_link",
+        "pitch": 0.0,
+        "roll": 0.0,
+        "type": "fixed",
+        "x": 0.216,
+        "y": -0.125,
+        "yaw": -0.525,
+        "z": 0.1
+      },
+      {
+        "child": "base_sonar6",
+        "name": "base_sonar6_joint",
+        "parent": "base_link",
+        "pitch": 0.0,
+        "roll": 0.0,
+        "type": "fixed",
+        "x": 0.16,
+        "y": -0.191,
+        "yaw": -0.875,
+        "z": 0.1
+      }
+    ]
+  }
+}
