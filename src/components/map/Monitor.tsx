@@ -135,8 +135,8 @@ const Monitor: React.FC = () => {
 
   return (
     <>
-      <div flex-1
-        className={currentOp === 'move' ? 'cursor-pointer' : ''}
+      <div
+        className={`flex-1 ${currentOp === 'move' ? 'cursor-pointer' : ''}`}
         ref={containerRef}>
         <Stage
           width={width}

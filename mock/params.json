@@ -116,66 +116,6 @@
         "y": 0.191,
         "yaw": 0.875,
         "z": 0.1
-      },
-      {
-        "child": "base_sonar2",
-        "name": "base_sonar2_joint",
-        "parent": "base_link",
-        "pitch": 0.0,
-        "roll": 0.0,
-        "type": "fixed",
-        "x": 0.216,
-        "y": 0.125,
-        "yaw": 0.525,
-        "z": 0.1
-      },
-      {
-        "child": "base_sonar3",
-        "name": "base_sonar3_joint",
-        "parent": "base_link",
-        "pitch": 0.0,
-        "roll": 0.0,
-        "type": "fixed",
-        "x": 0.246,
-        "y": 0.042,
-        "yaw": 0.175,
-        "z": 0.1
-      },
-      {
-        "child": "base_sonar4",
-        "name": "base_sonar4_joint",
-        "parent": "base_link",
-        "pitch": 0.0,
-        "roll": 0.0,
-        "type": "fixed",
-        "x": 0.246,
-        "y": -0.042,
-        "yaw": -0.175,
-        "z": 0.1
-      },
-      {
-        "child": "base_sonar5",
-        "name": "base_sonar5_joint",
-        "parent": "base_link",
-        "pitch": 0.0,
-        "roll": 0.0,
-        "type": "fixed",
-        "x": 0.216,
-        "y": -0.125,
-        "yaw": -0.525,
-        "z": 0.1
-      },
-      {
-        "child": "base_sonar6",
-        "name": "base_sonar6_joint",
-        "parent": "base_link",
-        "pitch": 0.0,
-        "roll": 0.0,
-        "type": "fixed",
-        "x": 0.16,
-        "y": -0.191,
-        "yaw": -0.875,
-        "z": 0.1
       }
     ]
   }

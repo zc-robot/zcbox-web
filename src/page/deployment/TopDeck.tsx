@@ -38,65 +38,68 @@ const TopDeck: React.FC = () => {
   }, pollingRobot ? 2000 : undefined)
 
   return (
-    <div panel-container>
-      <div flex>
+    <div className="panel-container">
+      <div className="flex">
         <div
           className={currentOp === 'move' ? 'panel-item-enabled' : 'panel-item'}
           onClick={() => updateOp('move')}>
-          <div i-material-symbols-back-hand-outline-rounded panel-icon />
+          <div className="i-material-symbols-back-hand-outline-rounded panel-icon" />
         </div>
         <div
           className={currentOp === 'select' ? 'panel-item-enabled' : 'panel-item'}
           onClick={() => updateOp('select')}>
-          <div i-material-symbols-near-me-outline-rounded panel-icon rotate-y-180 />
+          <div className="i-material-symbols-near-me-outline-rounded panel-icon rotate-y-180" />
         </div>
         <div
           className={currentOp === 'waypoint' ? 'panel-item-enabled' : 'panel-item'}
           onClick={() => updateOp('waypoint')}>
-          <div i-material-symbols-my-location-outline-rounded panel-icon />
+          <div className="i-material-symbols-my-location-outline-rounded panel-icon" />
         </div>
         <div
           className={currentOp === 'pathway' ? 'panel-item-enabled' : 'panel-item'}
           onClick={() => updateOp('pathway')}>
-          <div i-material-symbols-edit-road-outline-rounded panel-icon />
+          <div className="i-material-symbols-edit-road-outline-rounded panel-icon" />
         </div>
       </div>
-      <div flex>
-        <div panel-item
+      <div
+        className="flex">
+        <div
+          className="panel-item"
           onClick={zoomInClick}>
-          <div i-material-symbols-zoom-in-rounded panel-icon />
+          <div className="i-material-symbols-zoom-in-rounded panel-icon" />
         </div>
-        <div panel-item
+        <div
+          className="panel-item"
           onClick={zoomOutClick}>
-          <div i-material-symbols-zoom-out-rounded panel-icon />
+          <div className="i-material-symbols-zoom-out-rounded panel-icon" />
         </div>
-        <div panel-item
+        <div
+          className="panel-item"
           onClick={() => setPollingGrid(!pollingGrid)}>
           <div
-            className={pollingGrid
+            className={`panel-icon ${pollingGrid
               ? 'i-material-symbols-pause-circle-outline-rounded'
-              : 'i-material-symbols-map-outline-rounded'}
-            panel-icon />
+              : 'i-material-symbols-map-outline-rounded'}`} />
         </div>
-        <div panel-item
+        <div
+          className="panel-item"
           onClick={() => setPollingRobot(!pollingRobot)}>
           <div
-            className={pollingRobot
+            className={`panel-icon ${pollingRobot
               ? 'i-material-symbols-pause-circle-outline-rounded'
-              : 'i-material-symbols-smart-toy-outline-rounded'}
-            panel-icon />
+              : 'i-material-symbols-smart-toy-outline-rounded'}`} />
         </div>
-        <div panel-item
+        <div
+          className="panel-item"
           onClick={handleSubmitClicked}>
           <div
-            i-material-symbols-upload-rounded
-            panel-icon />
+            className="i-material-symbols-upload-rounded panel-icon" />
         </div>
-        <div panel-item
+        <div
+          className="panel-item"
           onClick={handleFetchClicked}>
           <div
-            i-material-symbols-download-rounded
-            panel-icon />
+            className="i-material-symbols-download-rounded panel-icon" />
         </div>
       </div>
     </div>

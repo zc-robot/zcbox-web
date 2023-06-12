@@ -64,9 +64,9 @@ devDependencies:
   '@unocss/preset-uno':
     specifier: ^0.51.8
     version: 0.51.8
-  '@unocss/transformer-attributify-jsx':
-    specifier: ^0.53.1
-    version: 0.53.1
+  '@unocss/transformer-variant-group':
+    specifier: ^0.51.8
+    version: 0.51.8
   '@vitejs/plugin-react':
     specifier: ^4.0.0
     version: 4.0.0(vite@4.3.2)
@@ -1097,10 +1097,6 @@ packages:
     resolution: {integrity: sha512-myHRKBphEN3h0OnsUhg2JaFKjFGfqF/jmmzZCCMNU5UmxbheZomXANNLYXVgEP6LHvd4xAF0DEzrOBcDPLf0HQ==}
     dev: true
 
-  /@unocss/core@0.53.1:
-    resolution: {integrity: sha512-6CUaOMeQyoPIgMuSboX9yGywiCumhoYTPk6uMFhgD3vZmIRCZMwN9RFDLB+s2+NOlnBU6aQsJLONcUapZb/49g==}
-    dev: true
-
   /@unocss/extractor-arbitrary-variants@0.51.8:
     resolution: {integrity: sha512-cCsdRLqmt3adcaRtoIP2pC8mYgH3ed8DEES3E7VOWghqLjwLULUMyBS+vy7n9CvnV75kuTKb1bZ+k9eu/rfh2w==}
     dependencies:
@@ -1204,12 +1200,6 @@ packages:
     resolution: {integrity: sha512-iq4WRj+IHVIRPSH7qaB8PqqlSNSHXkXjPki1n14Bcv1D1ILgDBnH6gRammB/Z7KqAP/k/TCK7bSMeHrQ6iTQoQ==}
     dependencies:
       '@unocss/core': 0.51.8
-    dev: true
-
-  /@unocss/transformer-attributify-jsx@0.53.1:
-    resolution: {integrity: sha512-MSusgZeS4UtyfgBvV92gHBLMBf6uZS/4svjA3RqydVMnOF5MbqF/QU1vxUCqs5ppmcnKmq4sNvGQB2Is0kNzvQ==}
-    dependencies:
-      '@unocss/core': 0.53.1
     dev: true
 
   /@unocss/transformer-compile-class@0.51.8:

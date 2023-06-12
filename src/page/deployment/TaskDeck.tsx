@@ -30,21 +30,20 @@ const TaskDeck: React.FC = () => {
   }
 
   return (
-    <div flex="grow shrink-0 basis-a" h-0 overflow-auto>
-      <div flex="~ justify-between items-center" pl h-8 border="b-solid 1px gray-300">
+    <div className="flex='grow shrink-0 basis-a' h-0 overflow-auto">
+      <div className="flex flex-(justify-between items-center) pl h-8 border-(b-solid 1px gray-300)">
         <div
-          color-gray-500
-          className={executingTaskId ? 'i-material-symbols-pause-outline' : 'i-material-symbols-play-arrow-outline'}
+          className={`color-gray-500 ${executingTaskId ? 'i-material-symbols-pause-outline' : 'i-material-symbols-play-arrow-outline'}`}
           onClick={toggleTask} />
-        <div flex="~ items-center" text-3 p-1 cursor-default color-gray-500
+        <div className="flex flex-items-center text-3 p-1 cursor-default color-gray-500"
           onClick={() => setShowTaskList(!showTaskList)}>
-          {currentTaskId ?? '任务列表'}<div i-material-symbols-keyboard-arrow-down />
+          {currentTaskId ?? '任务列表'}<div className="i-material-symbols-keyboard-arrow-down" />
         </div>
       </div>
       <div className={showTaskList ? 'flbex w-100%' : 'hidden'}>
-        <div flex="~ justify-between items-center" pl pr h-8>
-          <div text-3 p-1 cursor-default font-bold>任务</div>
-          <div i-material-symbols-add
+        <div className="flex flex-(justify-between items-center) pl pr h-8>">
+          <div className="text-3 p-1 cursor-default font-bold">任务</div>
+          <div className="i-material-symbols-add"
             onClick={() => addTask()} />
         </div>
         {tasks.map((t, i) => {
@@ -52,11 +51,10 @@ const TaskDeck: React.FC = () => {
           return (
             <div
               key={i}
-              flex="~ items-center" pl text-3 cursor-default h-2rem
-              className={enabled ? 'font-bold' : ''}
+              className={`flex flex-items-center pl text-3 cursor-default h-2rem ${enabled ? 'font-bold' : ''}`}
               onClick={() => enableTask(t.id)}>
-              <div i-material-symbols-check-small mr-1
-                className={enabled ? '' : 'invisible'} />
+              <div
+                className={`i-material-symbols-check-small mr-1 ${enabled ? '' : 'invisible'}`} />
               {t.id}
             </div>
           )

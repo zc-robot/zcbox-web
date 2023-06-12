@@ -20,7 +20,7 @@ const Settings: React.FC = () => {
   }
 
   return (
-    <div flex="~ 1 col" px-20 overflow-auto pb-10>
+    <div className="flex flex-(1 col) px-20 overflow-auto pb-10">
       <h3>关节参数</h3>
       {params && (
         <>
@@ -30,11 +30,11 @@ const Settings: React.FC = () => {
         </>
       )}
       <div
-        bg-gray-300 p1 rounded-1 text="sm center" cursor-default w-10
+        className="bg-gray-300 p1 rounded-1 text='sm center' cursor-default w-10"
         onClick={() => handleSubmit()}>
         保存
       </div>
-      <hr h-1px w-full border-1 bg-gray-500 />
+      <hr className="h-1px w-full border-1 bg-gray-500" />
       <h3>固件升级</h3>
       <Uploader />
     </div>

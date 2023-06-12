@@ -69,7 +69,8 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
     switch (action.type) {
       case 'wait':
         return (
-          <input ml-a
+          <input
+            className="ml-a"
             type="number"
             value={action.args === 0 ? '' : action.args}
             placeholder="等待(s)"
@@ -77,7 +78,8 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
         )
       case 'arm':
         return (
-          <input ml-a
+          <input
+            className="ml-a"
             type="number"
             value={action.args === 0 ? '' : action.args}
             placeholder="叉臂高度(m)"
@@ -85,8 +87,8 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
         )
       case 'move':
         return (
-          <div ml-a flex="~ justify-end" gap-2>
-            <input w-4rem
+          <div className="ml-a flex flex-justify-end gap-2">
+            <input className="w-4rem"
               type="number"
               value={action.args.angle === 0 ? '' : action.args.angle}
               placeholder="角度(°)"
@@ -94,7 +96,7 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
                 ...action.args,
                 angle: e.target.value,
               })} />
-            <input w-4rem
+            <input className="w-4rem"
               type="number"
               value={action.args.speed === 0 ? '' : action.args.speed}
               placeholder="速度(m/s)"
@@ -102,7 +104,7 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
                 ...action.args,
                 speed: e.target.value,
               })} />
-            <input w-4rem
+            <input className="w-4rem"
               type="number"
               value={action.args.distance === 0 ? '' : action.args.distance}
               placeholder="距离(m)"
@@ -118,21 +120,20 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
   return (
     <>
       {point && (
-        <div fixed z-100 top-0 left-0 right-0 bottom-0
-          flex="justify-center items-center"
-          className={point ? 'flex bg-gray-100/30' : 'hidden'}>
-          <div flex="~ col" border="solid 1px gray-300"
-            shadow-md w-20rem min-h-16rem p-4 bg-white rounded-2xl>
-            <div flex="~ items-end" text-3>
-              <span text-5 font-bold mr-3>{point.id}</span>
+        <div className={`fixed z-100 top-0 left-0 right-0 bottom-0 flex="justify-center items-center" ${point
+          ? 'flex bg-gray-100/30'
+          : 'hidden'}`}>
+          <div
+            className="flex flex-col border-(solid 1px gray-300) shadow-md w-20rem min-h-16rem p-4 bg-white rounded-2xl" >
+            <div className="flex flex-items-end text-3">
+              <span className="text-5 font-bold mr-3">{point.id}</span>
               {`${task.id}(${index + 1})`}
               <div
-                i-material-symbols-cancel-outline-rounded
-                flex-self-center ml-a text-5
+                className="i-material-symbols-cancel-outline-rounded flex-self-center ml-a text-5"
                 onClick={() => onClose()} />
             </div>
-            <div flex="~ justify-between" mt-5 pt-2 pb-2 border="b-solid 1px gray-300">
-              <span font-bold>导航方式</span>
+            <div className="flex flex-justify-between pt-2 pb-2 border-(b-solid 1px gray-300)">
+              <span className="font-bold">导航方式</span>
               <select
                 value={navType}
                 onChange={e => setNavType(e.target.value as PointNavType)}>
@@ -140,8 +141,8 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
                 <option value="manually">Manual</option>
               </select>
             </div>
-            <div flex="~ justify-between" pt-2 pb-2 border="b-solid 1px gray-300">
-              <span font-bold>精准导航</span>
+            <div className="flex flex-justify-between pt-2 pb-2 border-(b-solid 1px gray-300)">
+              <span className="font-bold">精准导航</span>
               <select
                 value={isPrecise ? 'true' : 'false'}
                 onChange={e => setPrecise(e.target.value === 'true')}>
@@ -149,8 +150,8 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
                 <option value="false">否</option>
               </select>
             </div>
-            <div flex="~ justify-between" pt-2 pb-2 border="b-solid 1px gray-300">
-              <span font-bold>倒车进入</span>
+            <div className="flex flex-justify-between pt-2 pb-2 border-(b-solid 1px gray-300)">
+              <span className="font-bold">倒车进入</span>
               <select
                 value={isReverse ? 'true' : 'false'}
                 onChange={e => setReverse(e.target.value === 'true')}>
@@ -158,19 +159,19 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
                 <option value="false">否</option>
               </select>
             </div>
-            <div flex="~ justify-between" pt-2 pb-2>
-              <span font-bold>动作</span>
-              <div i-material-symbols-add
+            <div className="flex flex-justify-between pt-2 pb-2">
+              <span className="font-bold">动作</span>
+              <div className="i-material-symbols-add"
                 onClick={_ => handleAddAction()} />
             </div>
-            <div flex="~ col" overflow-auto mb-5>
+            <div className="flex flex-col overflow-auto mb-5">
               {actions.map((action, i) => {
                 return (
-                  <div key={i} flex="~ items-center" pt-2 pb-2>
-                    <div i-material-symbols-delete-outline
+                  <div key={i} className="flex flex-items-center pt-2 pb-2">
+                    <div className="i-material-symbols-delete-outline"
                       onClick={_ => handleRemoveAction(i)} />
                     <select
-                      ml-2
+                      className="ml-2"
                       value={action.type}
                       onChange={e => handleUpdateActionType(i, e.target.value)}>
                       <option value="wait">等待</option>
@@ -182,13 +183,13 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
                 )
               })}
             </div>
-            <div flex="~ justify-between" mt-a>
-              <div p1 border="solid 1px red" text="sm red" rounded-1 cursor-default
+            <div className="flex flex-justify-between mt-a">
+              <div className="p1 border-(solid 1px red) text='sm red' rounded-1 cursor-default"
               onClick={() => handleDelete()}>
                 删除
               </div>
               <div
-                bg-gray-300 p1 rounded-1 text-sm cursor-default
+                className="bg-gray-300 p1 rounded-1 text-sm cursor-default"
                 onClick={() => handleSubmit()}>
                 确认
               </div>

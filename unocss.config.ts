@@ -2,7 +2,7 @@ import { defineConfig } from 'unocss'
 import presetIcons from '@unocss/preset-icons'
 import presetUno from '@unocss/preset-uno'
 import presetAttributify from '@unocss/preset-attributify'
-import transformerAttributifyJsx from '@unocss/transformer-attributify-jsx'
+import transformerVariantGroup from '@unocss/transformer-variant-group'
 
 export default defineConfig({
   preflights: [{
@@ -40,6 +40,6 @@ export default defineConfig({
     presetAttributify(),
   ],
   transformers: [
-    transformerAttributifyJsx(),
+    transformerVariantGroup(),
   ],
 })

@@ -9,12 +9,12 @@ const Deployment: React.FC = () => {
   const { mapId } = useParams()
 
   return (
-    <div flex="~ col 1" h-full>
+    <div className="flex flex-(col 1) h-full">
       <TopDeck />
-      <div flex="~ auto">
+      <div className="flex flex-auto">
         {mapId && <InfoDeck />}
         <Monitor />
-        {mapId && <div flex="~ col" w-12rem border="l-solid 1px gray-300">
+        {mapId && <div className="flex flex-col w-12rem border-(l-solid 1px gray-300)">
           <TaskDeck />
           <ControllerDeck />
         </div>}

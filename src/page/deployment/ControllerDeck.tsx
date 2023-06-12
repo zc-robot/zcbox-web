@@ -50,48 +50,43 @@ const _panel: React.FC = () => {
   }, pressedKey === '' ? undefined : 500)
 
   return (
-    <div p-2 flex="~ col justify-center items-center">
-      <div flex="~ justify-center items-center">
-        <div w-4 h-4 border="solid 1px gray-5" rounded p-1
+    <div className="p-2 flex flex-(col justify-center items-center)">
+      <div className="flex flex-(justify-center items-center)">
+        <div className={`w-4 h-4 border-(solid 1px gray-5) rounded p-1 ${pressedKey === 'w' ? 'bg-gray-3' : ''}`}
           onPointerDown={() => pressKey('w')}
           onPointerUp={() => pressKey('')}
-          onPointerOut={() => pressKey('')}
-          className={pressedKey === 'w' ? 'bg-gray-3' : ''}>
-          <i i-material-symbols-arrow-upward-rounded ma />
+          onPointerOut={() => pressKey('')}>
+          <i className="i-material-symbols-arrow-upward-rounded ma" />
         </div>
       </div>
-      <div flex="~ justify-center items-center">
-        <div w-4 h-4 border="solid 1px gray-5" rounded p-1
+      <div className="flex flex-(justify-center items-center)">
+        <div className={`w-4 h-4 border-(solid 1px gray-5) rounded p-1 ${pressedKey === 'a' ? 'bg-gray-3' : ''}`}
           onPointerDown={() => pressKey('a')}
           onPointerUp={() => pressKey('')}
           onPointerLeave={() => pressKey('')}
-          onPointerOut={() => pressKey('')}
-          className={pressedKey === 'a' ? 'bg-gray-3' : ''}>
-          <i i-material-symbols-arrow-back-rounded ma />
+          onPointerOut={() => pressKey('')}>
+          <i className="i-material-symbols-arrow-back-rounded ma" />
         </div>
-        <div w-4 h-4 border="solid 1px gray-5" rounded p-1
+        <div className={`w-4 h-4 border-(solid 1px gray-5) rounded p-1 ${pressedKey === 's' ? 'bg-gray-3' : ''}`}
           onPointerDown={() => pressKey('s')}
           onPointerUp={() => pressKey('')}
           onPointerLeave={() => pressKey('')}
-          onPointerOut={() => pressKey('')}
-          className={pressedKey === 's' ? 'bg-gray-3' : ''}>
-          <i i-material-symbols-arrow-downward-rounded ma />
+          onPointerOut={() => pressKey('')}>
+          <i className="i-material-symbols-arrow-downward-rounded ma" />
         </div>
-        <div w-4 h-4 border="solid 1px gray-5" rounded p-1
+        <div className={`w-4 h-4 border-(solid 1px gray-5) rounded p-1 ${pressedKey === 'd' ? 'bg-gray-3' : ''}`}
           onPointerDown={() => pressKey('d')}
           onPointerUp={() => pressKey('')}
           onPointerLeave={() => pressKey('')}
-          onPointerOut={() => pressKey('')}
-          className={pressedKey === 'd' ? 'bg-gray-3' : ''}>
-          <i i-material-symbols-arrow-forward-rounded ma />
+          onPointerOut={() => pressKey('')}>
+          <i className="i-material-symbols-arrow-forward-rounded ma" />
         </div>
       </div>
-      <div flex="~ items-center" pt-2>
-        <div i-material-symbols-line-end-arrow-outline-rounded text-5 />
-        <i text-3 mr-2>线速度</i>
+      <div className="flex flex-items-center pt-2">
+        <div className="i-material-symbols-line-end-arrow-outline-rounded text-5" />
+        <i className="text-3 mr-2">线速度</i>
         <input
-          flex-grow
-          w-20
+          className="flex-grow w-20"
           type="number"
           min={0}
           step={0.1}
@@ -99,12 +94,11 @@ const _panel: React.FC = () => {
           onChange={e => updateLineVelocity(Number(e.target.value))}
         />
       </div>
-      <div flex="~ items-center" py-2>
-        <div i-material-symbols-rotate-right-rounded text-5 />
-        <i text-3 mr-2>角速度</i>
+      <div className="flex flex-items-center pt-2">
+        <div className="i-material-symbols-rotate-right-rounded text-5" />
+        <i className="text-3 mr-2">角速度</i>
         <input
-          flex-grow
-          w-20
+          className="flex-grow w-20"
           type="number"
           min={0}
           step={0.1}
@@ -120,11 +114,11 @@ const ControllerDeck: React.FC = () => {
   const [isDeckDisplay, displayDeck] = useState(false)
 
   return (
-    <div flex="grow-0 shrink-0 basis-a">
-      <div flex="~ items-center justify-between" px-4 h-8 border="t-solid b-solid 1px gray-300"
+    <div className="flex='grow-0 shrink-0 basis-a'">
+      <div className="flex flex-(items-center justify-between) px-4 h-8 border-(t-solid b-solid 1px gray-300)"
         onClick={() => displayDeck(!isDeckDisplay)}>
-        <div text-3 p-1 cursor-default font-bold>机器人操作</div>
-        <div i-material-symbols-keyboard-arrow-up />
+        <div className="text-3 p-1 cursor-default font-bold">机器人操作</div>
+        <div className="i-material-symbols-keyboard-arrow-up" />
       </div>
       {isDeckDisplay && <_panel />}
     </div>

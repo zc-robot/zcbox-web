@@ -14,12 +14,12 @@ const TaskPoints: React.FC<TaskPointsProp> = ({ task }) => {
   const swapTaskPoints = useTaskStore(state => state.swapTaskPoints)
 
   return (
-    <div flex="~ col">
+    <div className="flex flex-col">
       {task.points.map((p, i) => {
         return (
           <div
             key={i}
-            flex="~ items-center justify-between" h-2rem pl-2 pr-2 text-3
+            className="flex flex-(items-center justify-between) h-2rem pl-2 pr-2 text-3"
             onDragStart={() => {
               setDragState({ ...dragState, dragIndex: i })
             }}
@@ -39,7 +39,9 @@ const TaskPoints: React.FC<TaskPointsProp> = ({ task }) => {
             }}
             draggable
           >{p.id}
-            <div i-material-symbols-edit-outline m-2 onClick={() => setConfigPoint({ index: i, point: p })} />
+            <div
+             className="i-material-symbols-edit-outline m-2"
+             onClick={() => setConfigPoint({ index: i, point: p })} />
           </div>
         )
       })}

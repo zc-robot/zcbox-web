@@ -19,7 +19,7 @@ const Uploader: React.FC = () => {
 
   return (
     // TODO: Implement DropzoneComponent
-    <div className={'w-100 flex-self-center'}>
+    <div className="w-100 flex-self-center">
       <DropzoneComponent
         config={componentConfig}
         djsConfig={djsConfig} />

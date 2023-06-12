@@ -1,5 +1,4 @@
-import type Konva from 'konva'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Image } from 'react-konva'
 import { selectMapImageData } from '@/store/grid'
 import { useGridStore } from '@/store'
@@ -14,7 +13,6 @@ interface MapProp {
 }
 
 const GridMap: React.FC = () => {
-  const imageRef = useRef<Konva.Image>(null)
   const gridInfo = useGridStore(state => state.gridInfo)
   const imageData = useGridStore(selectMapImageData)
   const [mapState, setMapState] = useState<MapProp>()
@@ -43,13 +41,12 @@ const GridMap: React.FC = () => {
 
   return (
     <>
-      <Image
-        ref={imageRef}
-        image={mapState?.data}
-        x={mapState?.x}
-        y={mapState?.y}
-        width={mapState?.width}
-        height={mapState?.height} />
+    {mapState && <Image
+      image={mapState.data}
+      x={mapState.x}
+      y={mapState.y}
+      width={mapState.width}
+      height={mapState.height} /> }
     </>
   )
 }
