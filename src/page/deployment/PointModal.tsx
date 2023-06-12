@@ -120,12 +120,12 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
   return (
     <>
       {point && (
-        <div className={`fixed z-100 top-0 left-0 right-0 bottom-0 flex="justify-center items-center" ${point
+        <div className={`fixed z-100 top-0 left-0 right-0 bottom-0 flex-(justify-center items-center) ${point
           ? 'flex bg-gray-100/30'
           : 'hidden'}`}>
           <div
             className="flex flex-col border-(solid 1px gray-300) shadow-md w-20rem min-h-16rem p-4 bg-white rounded-2xl" >
-            <div className="flex flex-items-end text-3">
+            <div className="flex items-end text-3">
               <span className="text-5 font-bold mr-3">{point.id}</span>
               {`${task.id}(${index + 1})`}
               <div

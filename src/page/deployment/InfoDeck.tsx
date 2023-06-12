@@ -13,7 +13,7 @@ const InfoDeck: React.FC = () => {
 
   return (
     <div className="w-12rem border-(r-solid 1px gray-300)">
-      <div className="flex flex-items-center pl h-8 border-(b-solid 1px gray-300)">
+      <div className="flex items-center pl h-8 border-(b-solid 1px gray-300)">
         <div
           className={`text-3 p-1 cursor-default ${currentDisplay === 'point'
           ? 'font-bold'
@@ -34,7 +34,7 @@ const InfoDeck: React.FC = () => {
           return (
             <div
               key={i}
-              className={`cursor-default h-2rem pl-2 flex="~ items-center" hover="border-solid border-1px border-gray-300" ${selectedId === p.id
+              className={`cursor-default h-2rem pl-2 flex items-center hover:(outline outline-1 outline-blue-300) ${selectedId === p.id
                 ? 'bg-gray-300'
                 : ''}`}
               onClick={() => {

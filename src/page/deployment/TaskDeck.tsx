@@ -30,7 +30,7 @@ const TaskDeck: React.FC = () => {
   }
 
   return (
-    <div className="flex='grow shrink-0 basis-a' h-0 overflow-auto">
+    <div className="flex-(grow shrink-0 basis-a) h-0 overflow-auto">
       <div className="flex flex-(justify-between items-center) pl h-8 border-(b-solid 1px gray-300)">
         <div
           className={`color-gray-500 ${executingTaskId ? 'i-material-symbols-pause-outline' : 'i-material-symbols-play-arrow-outline'}`}

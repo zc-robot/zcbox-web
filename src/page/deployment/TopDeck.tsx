@@ -41,65 +41,75 @@ const TopDeck: React.FC = () => {
     <div className="panel-container">
       <div className="flex">
         <div
-          className={currentOp === 'move' ? 'panel-item-enabled' : 'panel-item'}
+          className={`${currentOp === 'move' ? 'panel-item-enabled' : 'panel-item'} group`}
           onClick={() => updateOp('move')}>
           <div className="i-material-symbols-back-hand-outline-rounded panel-icon" />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">移动</span>
         </div>
         <div
-          className={currentOp === 'select' ? 'panel-item-enabled' : 'panel-item'}
+          className={`${currentOp === 'select' ? 'panel-item-enabled' : 'panel-item'} group`}
           onClick={() => updateOp('select')}>
           <div className="i-material-symbols-near-me-outline-rounded panel-icon rotate-y-180" />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">选择</span>
         </div>
         <div
-          className={currentOp === 'waypoint' ? 'panel-item-enabled' : 'panel-item'}
+          className={`${currentOp === 'waypoint' ? 'panel-item-enabled' : 'panel-item'} group`}
           onClick={() => updateOp('waypoint')}>
           <div className="i-material-symbols-my-location-outline-rounded panel-icon" />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">添加路径点</span>
         </div>
         <div
-          className={currentOp === 'pathway' ? 'panel-item-enabled' : 'panel-item'}
+          className={`${currentOp === 'pathway' ? 'panel-item-enabled' : 'panel-item'} group`}
           onClick={() => updateOp('pathway')}>
           <div className="i-material-symbols-edit-road-outline-rounded panel-icon" />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">添加路径</span>
         </div>
       </div>
       <div
         className="flex">
         <div
-          className="panel-item"
+          className="panel-item group"
           onClick={zoomInClick}>
           <div className="i-material-symbols-zoom-in-rounded panel-icon" />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">放大</span>
         </div>
         <div
-          className="panel-item"
+          className="panel-item group"
           onClick={zoomOutClick}>
           <div className="i-material-symbols-zoom-out-rounded panel-icon" />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">缩小</span>
         </div>
         <div
-          className="panel-item"
+          className="panel-item group"
           onClick={() => setPollingGrid(!pollingGrid)}>
           <div
-            className={`panel-icon ${pollingGrid
+            className={`${pollingGrid
               ? 'i-material-symbols-pause-circle-outline-rounded'
-              : 'i-material-symbols-map-outline-rounded'}`} />
+              : 'i-material-symbols-map-outline-rounded'} panel-icon`} />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">加载地图</span>
         </div>
         <div
-          className="panel-item"
+          className="panel-item group"
           onClick={() => setPollingRobot(!pollingRobot)}>
           <div
             className={`panel-icon ${pollingRobot
               ? 'i-material-symbols-pause-circle-outline-rounded'
               : 'i-material-symbols-smart-toy-outline-rounded'}`} />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">加载机器人</span>
         </div>
         <div
-          className="panel-item"
+          className="panel-item group"
           onClick={handleSubmitClicked}>
           <div
             className="i-material-symbols-upload-rounded panel-icon" />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">保存</span>
         </div>
         <div
-          className="panel-item"
+          className="panel-item group"
           onClick={handleFetchClicked}>
           <div
             className="i-material-symbols-download-rounded panel-icon" />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">下载</span>
         </div>
       </div>
     </div>
