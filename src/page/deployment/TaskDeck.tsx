@@ -1,32 +1,31 @@
 import { useState } from 'react'
 import TaskPoints from './TaskPoints'
-import { useTaskStore } from '@/store'
+import { useProfileStore } from '@/store'
+import apiServer from '@/service/apiServer'
 
 const TaskDeck: React.FC = () => {
   const [showTaskList, setShowTaskList] = useState(false)
 
-  const currentTaskId = useTaskStore(state => state.enabledTaskId)
-  const task = useTaskStore(state => state.task)
-  const enableTask = useTaskStore(state => state.enableTask)
-  const tasks = useTaskStore(state => state.tasks)
-  const addTask = useTaskStore(state => state.addTask)
-  const executingTaskId = useTaskStore(state => state.executingTaskId)
-  const executeTask = useTaskStore(state => state.executeTask)
-  const stopTask = useTaskStore(state => state.stopTask)
+  const currentProfileId = useProfileStore(state => state.currentProfileId)
+  const currentTaskId = useProfileStore(state => state.currentTaskId)
+  const setCurrentTask = useProfileStore(state => state.setCurrentTask)
+  const currentTasks = useProfileStore(state => state.currentProfileTasks())
+  const currentEnabledTask = useProfileStore(state => state.getCurrentTask())
+  const addTask = useProfileStore(state => state.appendProfileTask)
 
-  const currentTask = () => {
-    if (!currentTaskId)
-      return undefined
-    return task(currentTaskId)
-  }
+  const [executingTaskId, setExecutingTaskId] = useState<string | undefined>(undefined)
 
-  const toggleTask = () => {
-    if (!currentTaskId)
+  const toggleTask = async () => {
+    if (!currentProfileId || !currentTaskId)
       return
-    if (executingTaskId)
-      stopTask()
-    else
-      executeTask(currentTaskId)
+    if (executingTaskId) {
+      await apiServer.stopTask()
+      setExecutingTaskId(undefined)
+    }
+    else {
+      await apiServer.executeTask(currentTaskId)
+      setExecutingTaskId(currentTaskId)
+    }
   }
 
   return (
@@ -40,27 +39,27 @@ const TaskDeck: React.FC = () => {
           {currentTaskId ?? '任务列表'}<div className="i-material-symbols-keyboard-arrow-down" />
         </div>
       </div>
-      <div className={showTaskList ? 'flbex w-100%' : 'hidden'}>
-        <div className="flex flex-(justify-between items-center) pl pr h-8>">
+      <div className={showTaskList ? 'flex flex-col w-full' : 'hidden'}>
+        <div className="flex justify-between items-center pl pr h-8>">
           <div className="text-3 p-1 cursor-default font-bold">任务</div>
           <div className="i-material-symbols-add"
             onClick={() => addTask()} />
         </div>
-        {tasks.map((t, i) => {
-          const enabled = currentTaskId === t.id
+        {currentTasks.map((t, i) => {
+          const enabled = currentTaskId === t.uid
           return (
             <div
               key={i}
               className={`flex flex-items-center pl text-3 cursor-default h-2rem ${enabled ? 'font-bold' : ''}`}
-              onClick={() => enableTask(t.id)}>
+              onClick={() => setCurrentTask(t.uid)}>
               <div
                 className={`i-material-symbols-check-small mr-1 ${enabled ? '' : 'invisible'}`} />
-              {t.id}
+              {t.uid}
             </div>
           )
         })}
       </div>
-      {currentTask() && <TaskPoints task={currentTask()!} />}
+      {currentEnabledTask && <TaskPoints task={currentEnabledTask} />}
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import ky from 'ky'
-import type { NavPath, NavPoint, NavTask, OccupancyGridMessage, RobotInfoMessage, RobotParams } from '@/types'
+import type { MapData, MapDataDetail, RobotParams } from '@/types'
 
 interface Resp<T> {
   code: number
@@ -10,38 +10,29 @@ class ApiServer {
   domain = import.meta.env.VITE_API_DOMAIN || 'http://localhost:1234'
   client = ky.create({ prefixUrl: this.domain })
 
-  fetchMap = async () => {
-    const json = await this.client.get('get_map').json()
-    return json as OccupancyGridMessage
+  fetchMapList = async () => {
+    const json = await this.client.get('getMaps').json<Resp<MapData[]>>()
+    return json.data
   }
 
-  fetchRobotData = async () => {
-    const json = await this.client.get('get_robot_data').json()
-    return json as RobotInfoMessage
+  fetchMap = async (id: number) => {
+    const json = await this.client.get(`getMapDataWithDetail/${id}`).json<Resp<MapDataDetail>>()
+    return json.data
   }
 
-  submitNavgationInfo = async (data: object) => {
+  saveMap = async (name: string) => {
+    const json = await this.client.get(`saveMap/${name}`).json()
+    return json
+  }
+
+  submitProfile = async (data: object) => {
     const json = await this.client.post('save_deployment', { json: data }).json()
     return json
   }
 
-  fetchNavigationInfo = async () => {
-    const json = await this.client.get('get_deployment').json<Resp<{ points: NavPoint[]; paths: NavPath[] }>>()
-    if (json.code === 0)
-      return json.data
-    return { points: [], paths: [] }
-  }
-
   submitTasks = async (data: object) => {
-    const json = await this.client.post('save_tasks', { json: data }).json()
+    const json = await this.client.post('saveTasks', { json: data }).json()
     return json
-  }
-
-  fetchTasks = async () => {
-    const json = await this.client.get('get_tasks').json<Resp<NavTask[]>>()
-    if (json.code === 0)
-      return json.data
-    return []
   }
 
   executeTask = async (id: string) => {
@@ -51,11 +42,6 @@ class ApiServer {
 
   stopTask = async () => {
     const json = await this.client.get('stop_task').json()
-    return json
-  }
-
-  sendRobotVelocity = async (line: number, angular: number) => {
-    const json = await this.client.get(`velocity_control/${line.toFixed(1)}/${angular.toFixed(1)}`).json()
     return json
   }
 

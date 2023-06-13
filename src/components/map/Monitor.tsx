@@ -5,9 +5,10 @@ import GridMap from './GridMap'
 import Robot from './Robot'
 import Waypoint from './Waypoint'
 import Pathway from './Pathway'
-import { useGridStore, useNavigationStore, useOperationStore } from '@/store'
+import { useGridStore, useOperationStore, useProfileStore } from '@/store'
 import { quaternionToCanvasAngle } from '@/util/transform'
 import { useElementSize, useKeyPress } from '@/hooks'
+import { uid } from '@/util'
 
 interface ImageState {
   x: number
@@ -32,23 +33,23 @@ const Monitor: React.FC = () => {
   const scale = useGridStore(state => state.scale)
   const gridInfo = useGridStore(state => state.gridInfo)
   const poseMsg = useGridStore(state => state.pose)
-  const wayPoints = useNavigationStore(state => state.points)
-  const addWaypoint = useNavigationStore(state => state.addPoint)
-  const removeWaypoint = useNavigationStore(state => state.removePoint)
-  const pathways = useNavigationStore(state => state.paths)
-  const addPathway = useNavigationStore(state => state.addPath)
-  const removePathway = useNavigationStore(state => state.removePath)
+  const currentPoints = useProfileStore(state => state.currentProfilePoints())
+  const appendCurrentProfilePoint = useProfileStore(state => state.appendCurrentProfilePoint)
+  const removeCurrentProfilePoint = useProfileStore(state => state.removeCurrentProfilePoint)
+  const currentPaths = useProfileStore(state => state.currentProfilePaths())
+  const appendCurrentProfilePath = useProfileStore(state => state.appendCurrentProfilePath)
+  const removeCurrentProfilePath = useProfileStore(state => state.removeCurrentProfilePath)
 
   useKeyPress((_, isDown) => {
     if (!selectedId || !isDown)
       return
 
     if (selectedId.startsWith('Point')) {
-      removeWaypoint(selectedId)
+      removeCurrentProfilePoint(selectedId)
       selectPoint(null)
     }
     else if (selectedId.startsWith('Path')) {
-      removePathway(selectedId)
+      removeCurrentProfilePath(selectedId)
       selectPoint(null)
     }
   }, ['Backspace'])
@@ -103,7 +104,14 @@ const Monitor: React.FC = () => {
     else if (currentOp === 'waypoint') {
       const x = (obj.evt.offsetX - layer.x()) * (gridInfo.resolution / scale)
       const y = (obj.evt.offsetY - layer.y()) * (gridInfo.resolution / scale)
-      const id = addWaypoint({ x, y })
+      const id = uid('Point')
+      appendCurrentProfilePoint({
+        x,
+        y,
+        name: `路径点 ${id.slice(-3)}`,
+        uid: id,
+        rotation: 0,
+      })
       selectPoint(id)
       updateOp('select')
     }
@@ -115,7 +123,20 @@ const Monitor: React.FC = () => {
         selectPoint(id)
       }
       else if (selectedId && selectedId !== id) {
-        addPathway(selectedId, id)
+        const start = currentPoints.find(p => p.uid === selectedId)
+        const end = currentPoints.find(p => p.uid === id)
+        if (!start || !end)
+          return
+
+        appendCurrentProfilePath({
+          uid: uid('Path'),
+          start,
+          end,
+          controls: [
+            { x: start.x, y: start.y },
+            { x: end.x, y: end.y },
+          ],
+        })
         selectPoint(null)
         updateOp('select')
       }
@@ -158,22 +179,21 @@ const Monitor: React.FC = () => {
                 y={robotState?.y ?? 0}
                 scale={robotState?.scale ?? 1}
                 width={20} />
-              : null
-            }
-            {pathways.map((path, i) => <Pathway
+              : null}
+            {currentPaths.map((path, i) => <Pathway
               key={i}
               path={path}
               scale={robotState?.scale ?? 1}
-              onSelect={() => selectPoint(path.id)}
-              isSelected={selectedId === path.id} />,
+              onSelect={() => selectPoint(path.uid)}
+              isSelected={selectedId === path.uid} />,
             )}
-            {wayPoints.map((wp, i) => <Waypoint
+            {currentPoints.map((wp, i) => <Waypoint
               key={i}
               point={wp}
               scale={robotState?.scale ?? 1}
-              width={15}
-              onSelect={() => handlePointClick(wp.id)}
-              isSelected={wp.id === selectedId} />)}
+              width={1}
+              onSelect={() => handlePointClick(wp.uid)}
+              isSelected={wp.uid === selectedId} />)}
           </Layer>
         </Stage>
       </div>

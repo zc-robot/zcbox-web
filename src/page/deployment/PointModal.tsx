@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { NavTask, PointNavType, TaskPoint } from '@/types'
-import { useTaskStore } from '@/store'
+import { useProfileStore } from '@/store'
 
 interface PointModalProps {
   index: number
@@ -14,8 +14,8 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
   const [isPrecise, setPrecise] = useState<boolean>(false)
   const [isReverse, setReverse] = useState<boolean>(false)
   const [actions, setActions] = useState<{ type: string; args: any }[]>([])
-  const updateTask = useTaskStore(state => state.updateTask)
-  const removeTaskPoint = useTaskStore(state => state.removeTaskPoint)
+  const removeProfileTaskPoint = useProfileStore(state => state.removeProfileTaskPoint)
+  const updateProfileTaskPoint = useProfileStore(state => state.updateProfileTaskPoint)
 
   useEffect(() => {
     setNavType(point?.type ?? 'auto')
@@ -54,13 +54,18 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
   }
 
   const handleSubmit = () => {
-    updateTask(task.id, index, navType, isPrecise, isReverse, actions)
+    updateProfileTaskPoint(index, {
+      type: navType,
+      precise: isPrecise,
+      reverse: isReverse,
+      actions,
+    })
 
     onClose()
   }
 
   const handleDelete = () => {
-    removeTaskPoint(task.id, index)
+    removeProfileTaskPoint(index)
 
     onClose()
   }
@@ -126,8 +131,8 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
           <div
             className="flex flex-col border-(solid 1px gray-300) shadow-md w-20rem min-h-16rem p-4 bg-white rounded-2xl" >
             <div className="flex items-end text-3">
-              <span className="text-5 font-bold mr-3">{point.id}</span>
-              {`${task.id}(${index + 1})`}
+              <span className="text-5 font-bold mr-3">{point.uid}</span>
+              {`${task.uid}(${index + 1})`}
               <div
                 className="i-material-symbols-cancel-outline-rounded flex-self-center ml-a text-5"
                 onClick={() => onClose()} />

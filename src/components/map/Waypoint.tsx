@@ -2,7 +2,7 @@ import type Konva from 'konva'
 import { useEffect, useRef } from 'react'
 import { Arrow, Circle, Group, Transformer } from 'react-konva'
 import type { NavPoint } from '@/types'
-import { useNavigationStore } from '@/store'
+import { useProfileStore } from '@/store'
 
 interface WaypointProp {
   point: NavPoint
@@ -15,7 +15,7 @@ interface WaypointProp {
 const Waypoint: React.FC<WaypointProp> = ({ point, width, scale, onSelect, isSelected }) => {
   const shapeRef = useRef<Konva.Arrow>(null)
   const transformRef = useRef<Konva.Transformer>(null)
-  const updatePoint = useNavigationStore(state => state.updatePoint)
+  const updateCurrentProfilePoint = useProfileStore(state => state.updateCurrentProfilePoint)
 
   const handleSelect = (e: Konva.KonvaEventObject<MouseEvent>) => {
     e.cancelBubble = true
@@ -53,7 +53,7 @@ const Waypoint: React.FC<WaypointProp> = ({ point, width, scale, onSelect, isSel
               return
             const rotation = node.rotation()
             node.rotate(0)
-            updatePoint(point.id, {
+            updateCurrentProfilePoint(point.uid, {
               rotation,
             })
           }} />

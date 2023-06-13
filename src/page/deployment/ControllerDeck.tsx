@@ -1,13 +1,28 @@
-import { useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { useOperationStore } from '@/store'
 import { useInterval, useKeyPress } from '@/hooks'
+import Websocket from '@/service/websocket'
 
 const _panel: React.FC = () => {
   const velocityInfo = useOperationStore(state => state.velocityInfo)
   const updateLineVelocity = useOperationStore(state => state.updateLineVelocity)
   const updateAngularVelocity = useOperationStore(state => state.updateAngularVelocity)
-  const sendRobotVelocity = useOperationStore(state => state.sendRobotVelocity)
   const [pressedKey, pressKey] = useState<string>('')
+  const ws = useRef<Websocket | null>(null)
+
+  const initWebsocket = useCallback(() => {
+    if (!ws.current) {
+      const client = Websocket.connect('velocity_control')
+      ws.current = client
+    }
+  }, [ws])
+
+  useLayoutEffect(() => {
+    initWebsocket()
+    return () => {
+      ws.current?.close()
+    }
+  }, [ws, initWebsocket])
 
   useKeyPress((event, isDown) => {
     if (isDown) {
@@ -34,18 +49,20 @@ const _panel: React.FC = () => {
   }, ['w', 's', 'a', 'd', 'W', 'S', 'A', 'D'])
 
   useInterval(async () => {
+    if (!ws.current)
+      return
     switch (pressedKey) {
       case 'w':
-        await sendRobotVelocity(velocityInfo.line, 0.0)
+        ws.current.send({ linear: velocityInfo.line, angular: 0.0 })
         break
       case 's':
-        await sendRobotVelocity(-velocityInfo.line, 0.0)
+        ws.current.send({ linear: -velocityInfo.line, angular: 0.0 })
         break
       case 'a':
-        await sendRobotVelocity(0.0, velocityInfo.angular)
+        ws.current.send({ linear: 0.0, angular: velocityInfo.angular })
         break
       case 'd':
-        await sendRobotVelocity(0.0, -velocityInfo.angular)
+        ws.current.send({ linear: 0.0, angular: -velocityInfo.angular })
     }
   }, pressedKey === '' ? undefined : 500)
 

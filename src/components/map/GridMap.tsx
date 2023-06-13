@@ -19,8 +19,10 @@ const GridMap: React.FC = () => {
 
   useEffect(() => {
     const renderMap = async () => {
-      if (!gridInfo)
+      if (!gridInfo) {
+        setMapState(undefined)
         return
+      }
 
       const width = gridInfo.width
       const height = gridInfo.height

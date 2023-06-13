@@ -5,6 +5,7 @@ import Home from './home'
 import NotFound from './404'
 import Settings from './settings'
 import Default from './home/Default'
+import Mapping from './mapping'
 
 const router = createBrowserRouter([
   {
@@ -17,7 +18,11 @@ const router = createBrowserRouter([
         element: <Default />,
       },
       {
-        path: '/deployment/:mapId?',
+        path: '/mapping',
+        element: <Mapping />,
+      },
+      {
+        path: '/deployment/:mapId',
         element: <Deployment />,
       },
       {

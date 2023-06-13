@@ -1,41 +1,41 @@
-import React, { useState } from 'react'
-import { useGridStore, useNavigationStore, useOperationStore, useTaskStore } from '@/store'
-import { useInterval } from '@/hooks'
+import React from 'react'
+import { useGridStore, useOperationStore, useProfileStore } from '@/store'
+import apiServer from '@/service/apiServer'
 
-const TopDeck: React.FC = () => {
+export interface TopDeckProps {
+  mapId: number
+}
+
+const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const zoom = useGridStore(state => state.zoom)
-  const fetchMapGrid = useGridStore(state => state.fetchMapGrid)
-  const fetchRobotData = useGridStore(state => state.fetchRobotPose)
   const currentOp = useOperationStore(state => state.current)
   const updateOp = useOperationStore(state => state.updateOp)
-  const submitNavInfo = useNavigationStore(state => state.submitNavInfo)
-  const submitTasks = useTaskStore(state => state.submitTasks)
-  const fetchNavInfo = useNavigationStore(state => state.fetchNavInfo)
-  const fetchTasks = useTaskStore(state => state.fetchTasks)
 
-  const [pollingGrid, setPollingGrid] = useState(false)
-  const [pollingRobot, setPollingRobot] = useState(false)
+  const currentProfileId = useProfileStore(state => state.currentProfileId)
+  const currentProfilePoints = useProfileStore(state => state.currentProfilePoints)
+  const currentProfilePaths = useProfileStore(state => state.currentProfilePaths)
+  const currentTask = useProfileStore(state => state.getCurrentTask)
 
   const zoomInClick = () => zoom(1.1)
   const zoomOutClick = () => zoom(0.9)
 
   const handleSubmitClicked = async () => {
-    await submitTasks()
-    await submitNavInfo()
+    // Submit task
+    if (!currentProfileId)
+      return
+    const task = currentTask()
+    if (task)
+      await apiServer.submitTasks({ deploy_id: currentProfileId, data: task })
+
+    // Submit profile
+    const points = currentProfilePoints()
+    const paths = currentProfilePaths()
+    await apiServer.submitProfile({
+      map_id: mapId,
+      waypoints: points,
+      pathways: paths,
+    })
   }
-
-  const handleFetchClicked = async () => {
-    await fetchNavInfo()
-    await fetchTasks()
-  }
-
-  useInterval(async () => {
-    await fetchMapGrid()
-  }, pollingGrid ? 2000 : undefined)
-
-  useInterval(async () => {
-    await fetchRobotData()
-  }, pollingRobot ? 2000 : undefined)
 
   return (
     <div className="panel-container">
@@ -65,8 +65,7 @@ const TopDeck: React.FC = () => {
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">添加路径</span>
         </div>
       </div>
-      <div
-        className="flex">
+      <div className="flex">
         <div
           className="panel-item group"
           onClick={zoomInClick}>
@@ -81,35 +80,10 @@ const TopDeck: React.FC = () => {
         </div>
         <div
           className="panel-item group"
-          onClick={() => setPollingGrid(!pollingGrid)}>
-          <div
-            className={`${pollingGrid
-              ? 'i-material-symbols-pause-circle-outline-rounded'
-              : 'i-material-symbols-map-outline-rounded'} panel-icon`} />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">加载地图</span>
-        </div>
-        <div
-          className="panel-item group"
-          onClick={() => setPollingRobot(!pollingRobot)}>
-          <div
-            className={`panel-icon ${pollingRobot
-              ? 'i-material-symbols-pause-circle-outline-rounded'
-              : 'i-material-symbols-smart-toy-outline-rounded'}`} />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">加载机器人</span>
-        </div>
-        <div
-          className="panel-item group"
           onClick={handleSubmitClicked}>
           <div
             className="i-material-symbols-upload-rounded panel-icon" />
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">保存</span>
-        </div>
-        <div
-          className="panel-item group"
-          onClick={handleFetchClicked}>
-          <div
-            className="i-material-symbols-download-rounded panel-icon" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">下载</span>
         </div>
       </div>
     </div>

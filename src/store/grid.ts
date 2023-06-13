@@ -1,7 +1,6 @@
 import type { StateCreator } from 'zustand'
 import type { GridInfoMessage, PoseMessage } from '@/types'
 import { mapImageData } from '@/util/transform'
-import apiServer from '@/service/apiServer'
 
 export interface GridSlice {
   scale: number
@@ -10,8 +9,9 @@ export interface GridSlice {
   pose: PoseMessage | null
 
   // Actions
-  fetchMapGrid: () => Promise<void>
-  fetchRobotPose: () => Promise<void>
+  setMapGrid: (data: number[], grid: GridInfoMessage) => void
+  setRobotPose: (pose: PoseMessage) => void
+  resetGrid: () => void
   zoom: (scale: number) => void
 }
 
@@ -20,25 +20,26 @@ export const gridSlice: StateCreator<GridSlice> = set => ({
   gridInfo: null,
   mapData: [],
   pose: null,
-  wayPoints: [],
 
-  fetchMapGrid: async () => {
-    const msg = await apiServer.fetchMap()
-    set({
-      gridInfo: msg.info,
-      mapData: msg.data,
-    })
+  // Actions
+  setMapGrid: (data, grid) => {
+    set({ mapData: data, gridInfo: grid })
   },
-  fetchRobotPose: async () => {
-    const msg = await apiServer.fetchRobotData()
+  setRobotPose: (pose) => {
+    set({ pose })
+  },
+  resetGrid: () => {
     set({
-      pose: msg.robot_pose,
+      scale: 2,
+      gridInfo: null,
+      mapData: [],
+      pose: null,
     })
   },
   zoom: (scale: number) => {
     set((state) => {
       const newScale = state.scale * scale
-      if (newScale > 3 || newScale < 0.5)
+      if (newScale > 10 || newScale < 0.1)
         return state
       return { scale: newScale }
     })
@@ -47,7 +48,7 @@ export const gridSlice: StateCreator<GridSlice> = set => ({
 
 export function selectMapImageData(state: GridSlice) {
   const { gridInfo, mapData } = state
-  if (!gridInfo)
+  if (!gridInfo || !mapData)
     return null
   const data = mapImageData(gridInfo, mapData)
   return new ImageData(data, gridInfo.width, gridInfo.height)

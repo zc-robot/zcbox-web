@@ -2,29 +2,21 @@ import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import type { GridSlice } from './grid'
 import { gridSlice } from './grid'
-import type { NavigationSlice } from './navigation'
-import { navigationSlice } from './navigation'
 import type { OperationSlice } from './operation'
 import { operationSlice } from './operation'
-import { taskSlice } from './task'
-import type { TaskSlice } from './task'
 import type { ParamsSlice } from './params'
 import { paramsSlice } from './params'
+import type { ProfileSlice } from './profile'
+import { profileSlice } from './profile'
 
-const useBoundStore = create<GridSlice & NavigationSlice & OperationSlice & TaskSlice & ParamsSlice>()(devtools(
+const useBoundStore = create<GridSlice & OperationSlice & ProfileSlice & ParamsSlice>()(devtools(
   (...a) => ({
     ...gridSlice(...a),
-    ...navigationSlice(...a),
+    ...profileSlice(...a),
     ...operationSlice(...a),
-    ...taskSlice(...a),
     ...paramsSlice(...a),
   }),
 ))
-
-export function useNavigationStore<T>(selector?: (state: NavigationSlice) => T,
-  equals?: (a: T, b: T) => boolean) {
-  return useBoundStore(selector!, equals)
-}
 
 export function useGridStore<T>(selector?: (state: GridSlice) => T,
   equals?: (a: T, b: T) => boolean) {
@@ -36,12 +28,12 @@ export function useOperationStore<T>(selector?: (state: OperationSlice) => T,
   return useBoundStore(selector!, equals)
 }
 
-export function useTaskStore<T>(selector?: (state: TaskSlice) => T,
+export function useParamsStore<T>(selector?: (state: ParamsSlice) => T,
   equals?: (a: T, b: T) => boolean) {
   return useBoundStore(selector!, equals)
 }
 
-export function useParamsStore<T>(selector?: (state: ParamsSlice) => T,
+export function useProfileStore<T>(selector?: (state: ProfileSlice) => T,
   equals?: (a: T, b: T) => boolean) {
   return useBoundStore(selector!, equals)
 }

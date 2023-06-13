@@ -2,7 +2,7 @@ import type Konva from 'konva'
 import { useRef } from 'react'
 import { Circle, Group, Line } from 'react-konva'
 import type { NavPath } from '@/types'
-import { useNavigationStore } from '@/store'
+import { useProfileStore } from '@/store'
 
 interface AnchorProp {
   x: number
@@ -36,7 +36,7 @@ interface PathwayProps {
 
 const Pathway: React.FC<PathwayProps> = ({ path, scale, onSelect, isSelected }) => {
   const lineRef = useRef<Konva.Line>(null)
-  const updatePath = useNavigationStore(state => state.updatePath)
+  const updateCurrentProfilePath = useProfileStore(state => state.updateCurrentProfilePath)
 
   const points = [
     path.start.x, path.start.y,
@@ -53,13 +53,23 @@ const Pathway: React.FC<PathwayProps> = ({ path, scale, onSelect, isSelected }) 
   const handleAnchor1DragMove = (event: Konva.KonvaEventObject<DragEvent>) => {
     points[2] = event.target.x()
     points[3] = event.target.y()
-    updatePath(path.id, [{ x: points[2], y: points[3] }, { x: points[4], y: points[5] }])
+    updateCurrentProfilePath(path.uid, {
+      controls: [
+        { x: points[2], y: points[3] },
+        { x: points[4], y: points[5] },
+      ],
+    })
   }
 
   const handleAnchor2DragMove = (event: Konva.KonvaEventObject<DragEvent>) => {
     points[4] = event.target.x()
     points[5] = event.target.y()
-    updatePath(path.id, [{ x: points[2], y: points[3] }, { x: points[4], y: points[5] }])
+    updateCurrentProfilePath(path.uid, {
+      controls: [
+        { x: points[2], y: points[3] },
+        { x: points[4], y: points[5] },
+      ],
+    })
   }
 
   return (

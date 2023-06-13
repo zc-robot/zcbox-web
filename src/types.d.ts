@@ -4,6 +4,18 @@ export type Operation =
   | 'waypoint'
   | 'pathway'
 
+export interface MapData {
+  id: number,
+  name: string,
+}
+
+export interface MapDataDetail {
+  id: number,
+  name: string,
+  data: OccupancyGridMessage,
+  deployment: NavProfile[],
+}
+
 export interface GridInfoMessage {
   resolution: number,
   width: number,
@@ -17,7 +29,7 @@ export interface OccupancyGridMessage {
 }
 
 export interface RobotInfoMessage {
-  robot_pose: PoseMessage
+  pose: PoseMessage
 }
 
 export interface PoseMessage {
@@ -38,8 +50,21 @@ export interface QuaternionMessage {
   w: number,
 }
 
+export interface NavProfile {
+  uid: string,
+  map_id: number,
+  name: string,
+  description: string,
+  data: {
+    waypoints: NavPoint[],
+    paths: NavPath[],
+  },
+  tasks: NavTask[],
+}
+
 export interface NavPoint {
-  id: string,
+  uid: string,
+  name: string,
   x: number,
   y: number,
   rotation: number,
@@ -47,16 +72,25 @@ export interface NavPoint {
 
 // NavPath is a bezier line segment between two NavPoints
 export interface NavPath {
-  id: string
-  start: NavPoint,
-  end: NavPoint,
-  controls: NavPoint[],
+  uid: string
+  start: {
+    x: number,
+    y: number
+  },
+  end: {
+    x: number,
+    y: number
+  },
+  controls: {
+    x: number,
+    y: number
+  }[],
 }
 
 type PointNavType = 'auto' | 'manually'
 
 export interface TaskPoint {
-  id: string,
+  uid: string,
   type: PointNavType,
   precise: boolean,
   reverse: boolean,
@@ -67,7 +101,9 @@ export interface TaskPoint {
 }
 
 export interface NavTask {
-  id: string,
+  uid: string,
+  name: string,
+  description: string,
   points: TaskPoint[],
 }
 

@@ -1,6 +1,5 @@
 import type { StateCreator } from 'zustand'
 import type { Operation } from '@/types'
-import apiServer from '@/service/apiServer'
 
 export interface OperationSlice {
   current: Operation
@@ -15,7 +14,6 @@ export interface OperationSlice {
   selectPoint: (id: string | null) => void
   updateLineVelocity: (by: number) => void
   updateAngularVelocity: (by: number) => void
-  sendRobotVelocity: (line: number, angular: number) => Promise<void>
 }
 
 export const operationSlice: StateCreator<OperationSlice> = (set, get) => ({
@@ -49,8 +47,5 @@ export const operationSlice: StateCreator<OperationSlice> = (set, get) => ({
     set(() => {
       return { velocityInfo: { ...get().velocityInfo, angular: Number(by.toFixed(1)) } }
     })
-  },
-  sendRobotVelocity: async (line: number, angular: number) => {
-    await apiServer.sendRobotVelocity(line, angular)
   },
 })

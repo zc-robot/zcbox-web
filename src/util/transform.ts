@@ -53,7 +53,7 @@ export function mapImageData(info: GridInfoMessage, mapData: number[]) {
 
 export function dumpNavPoint(point: NavPoint) {
   return {
-    id: point.id,
+    id: point.uid,
     position: {
       x: point.x,
       y: -point.y,

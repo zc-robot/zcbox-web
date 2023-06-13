@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import PointModal from './PointModal'
 import type { NavTask, TaskPoint } from '@/types'
-import { useTaskStore } from '@/store'
+import { useProfileStore } from '@/store'
 
 interface TaskPointsProp {
   task: NavTask
@@ -11,7 +11,7 @@ const TaskPoints: React.FC<TaskPointsProp> = ({ task }) => {
   const [dragState, setDragState] = useState({ dragIndex: -1, hoverIndex: -1 })
   const [configPoint, setConfigPoint] = useState<{ index: number; point: TaskPoint }>()
 
-  const swapTaskPoints = useTaskStore(state => state.swapTaskPoints)
+  const swapProfileTaskPoints = useProfileStore(state => state.swapProfileTaskPoints)
 
   return (
     <div className="flex flex-col">
@@ -28,7 +28,7 @@ const TaskPoints: React.FC<TaskPointsProp> = ({ task }) => {
             }}
             onDragEnd={() => {
               if (dragState.dragIndex !== dragState.hoverIndex) {
-                swapTaskPoints(task.id, dragState.dragIndex, dragState.hoverIndex)
+                swapProfileTaskPoints(dragState.dragIndex, dragState.hoverIndex)
                 setDragState({ dragIndex: -1, hoverIndex: -1 })
               }
               setDragState({ dragIndex: -1, hoverIndex: -1 })
@@ -38,7 +38,7 @@ const TaskPoints: React.FC<TaskPointsProp> = ({ task }) => {
               e.dataTransfer.dropEffect = 'move'
             }}
             draggable
-          >{p.id}
+          >{p.uid}
             <div
              className="i-material-symbols-edit-outline m-2"
              onClick={() => setConfigPoint({ index: i, point: p })} />

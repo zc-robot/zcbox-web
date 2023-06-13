@@ -2,8 +2,12 @@ name: Build dist
 on:
   workflow_dispatch:
     inputs:
-      args:
+      api:
         description: "API DOMAIN"
+        required: false
+        default: ""
+      ws:
+        description: "WS DOMAIN"
         required: false
         default: ""
 
@@ -27,9 +31,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install
       - name: Set env
-        if: ${{ github.event.inputs.args != '' }}
+        if: ${{ github.event.inputs.api != '' }} && ${{ github.event.inputs.ws != '' }}
         run: |
-          echo "VITE_DOMAIN=${{ github.event.inputs.args }}" >> .env.production.local
+          echo "VITE_API_DOMAIN=${{ github.event.inputs.api }}" >> .env.production.local
+          echo "VITE_WS_DOMAIN=${{ github.event.inputs.ws }}" >> .env.production.local
       - name: Build
         run: pnpm build
       - name: Upload
