@@ -70,7 +70,7 @@ const _panel: React.FC = () => {
       case 'd':
         ws.current.send({ linear: 0.0, angular: -velocityInfo.angular })
     }
-  }, pressedKey === '' ? undefined : 500)
+  }, pressedKey === '' ? undefined : 50)
 
   return (
     <div className="p-2 flex flex-col justify-center items-center">
