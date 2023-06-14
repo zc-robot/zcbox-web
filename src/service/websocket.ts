@@ -1,5 +1,5 @@
 type wsType = 'map' | 'robot_data' | 'velocity_control'
-type wsState = 'connecting' | 'connected' | 'disconnected'
+type wsState = 'connected' | 'disconnected' | 'error'
 
 class Websocket {
   private client: WebSocket
@@ -17,7 +17,7 @@ class Websocket {
         cb('connected', data.data)
       }
       this.client.onerror = () => {
-        cb('disconnected', '')
+        cb('error', '')
       }
       this.client.onclose = () => {
         cb('disconnected', '')
