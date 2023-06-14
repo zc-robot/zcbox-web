@@ -4,6 +4,7 @@ import { useInterval, useKeyPress } from '@/hooks'
 import Websocket from '@/service/websocket'
 
 const _panel: React.FC = () => {
+  const step = 0.02
   const velocityInfo = useOperationStore(state => state.velocityInfo)
   const updateLineVelocity = useOperationStore(state => state.updateLineVelocity)
   const updateAngularVelocity = useOperationStore(state => state.updateAngularVelocity)
@@ -35,16 +36,16 @@ const _panel: React.FC = () => {
       if (event.shiftKey) {
         switch (event.key) {
           case 'W':
-            updateLineVelocity(velocityInfo.line + 0.1)
+            updateLineVelocity(velocityInfo.line + step)
             break
           case 'S':
-            updateLineVelocity(velocityInfo.line - 0.1)
+            updateLineVelocity(velocityInfo.line - step)
             break
           case 'A':
-            updateAngularVelocity(velocityInfo.angular - 0.1)
+            updateAngularVelocity(velocityInfo.angular - step)
             break
           case 'D':
-            updateAngularVelocity(velocityInfo.angular + 0.1)
+            updateAngularVelocity(velocityInfo.angular + step)
         }
       }
       else {
@@ -115,9 +116,9 @@ const _panel: React.FC = () => {
           className="flex-grow w-20"
           type="number"
           min={0}
-          step={0.1}
+          step={step}
           value={velocityInfo.line}
-          onChange={e => updateLineVelocity(Number(e.target.value))}
+          onChange={e => updateLineVelocity(Number.parseFloat(e.target.value))}
         />
       </div>
       <div className="flex flex-items-center pt-2">
@@ -127,9 +128,9 @@ const _panel: React.FC = () => {
           className="flex-grow w-20"
           type="number"
           min={0}
-          step={0.1}
+          step={step}
           value={velocityInfo.angular}
-          onChange={e => updateAngularVelocity(Number(e.target.value))}
+          onChange={e => updateAngularVelocity(Number.parseFloat(e.target.value))}
         />
       </div>
     </div>
