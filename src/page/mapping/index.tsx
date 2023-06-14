@@ -5,6 +5,7 @@ import Monitor from '@/components/map/Monitor'
 import Websocket from '@/service/websocket'
 import { useGridStore } from '@/store'
 import type { OccupancyGridMessage, RobotInfoMessage } from '@/types'
+import apiServer from '@/service/apiServer'
 
 const Mapping: React.FC = () => {
   const mapWs = useRef<Websocket | null>(null)
@@ -36,8 +37,13 @@ const Mapping: React.FC = () => {
     }
   }, [mapWs, robotWs, setMapGrid, setRobotPose])
 
+  const fetchData = useCallback(async () => {
+    await apiServer.mapping(5)
+  }, [])
+
   useLayoutEffect(() => {
     initWebsocket()
+    fetchData()
     return () => {
       mapWs.current?.close()
       robotWs.current?.close()

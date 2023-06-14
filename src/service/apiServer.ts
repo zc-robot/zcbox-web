@@ -15,6 +15,16 @@ class ApiServer {
     return json.data
   }
 
+  mapping = async (resolution: number) => {
+    const json = await this.client.get(`mapping/${resolution}/diff`).json()
+    return json
+  }
+
+  navigation = async (id: number) => {
+    const json = await this.client.get(`navigation/${id}/diff`).json()
+    return json
+  }
+
   fetchMap = async (id: number) => {
     const json = await this.client.get(`getMapDataWithDetail/${id}`).json<Resp<MapDataDetail>>()
     return json.data

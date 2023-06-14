@@ -38,6 +38,7 @@ const Deployment: React.FC = () => {
   }, [setRobotPose])
 
   const fetchData = useCallback(async () => {
+    await apiServer.navigation(parseMapId())
     const data = await apiServer.fetchMap(parseMapId())
     const mapData = data.data
     const profiles = data.deployment
