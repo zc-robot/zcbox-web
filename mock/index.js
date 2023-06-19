@@ -38,7 +38,7 @@ const server = http.createServer((req, res) => {
       }))
     })
   }
-  else if (req.url === '/parameter/get_params') {
+  else if (req.url === '/parameter/params') {
     res.setHeader('Content-Type', 'application/json')
     if (req.method === 'GET') {
       fs.readFile(`${dirPath}/params.json`, (_, data) => {

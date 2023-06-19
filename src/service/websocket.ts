@@ -28,7 +28,8 @@ class Websocket {
         console.error(`ws connect ${path} failed:`, event)
         cb('error', '')
       }
-      this.client.onclose = () => {
+      this.client.onclose = (event) => {
+        console.error(`ws connect ${path} closed:`, event.code, event.reason)
         cb('disconnected', '')
       }
     }
