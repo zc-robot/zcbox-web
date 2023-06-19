@@ -1,9 +1,13 @@
+import { useBoundStore } from '@/store'
+
 type wsType = 'map' | 'robot_data' | 'velocity_control'
 type wsState = 'connected' | 'disconnected' | 'error'
 
 class Websocket {
   private client: WebSocket
-  domain = import.meta.env.VITE_WS_DOMAIN || 'ws://localhost:1234/'
+  get domain() {
+    return useBoundStore.getState().wsDomain
+  }
 
   private constructor(path: string, cb?: (state: wsState, data: string) => void) {
     const domain = this.domain.endsWith('/') ? this.domain : `${this.domain}/`
@@ -16,7 +20,8 @@ class Websocket {
       this.client.onmessage = (data) => {
         cb('connected', data.data)
       }
-      this.client.onerror = () => {
+      this.client.onerror = (event) => {
+        console.error(`ws connect ${path} failed:`, event)
         cb('error', '')
       }
       this.client.onclose = () => {

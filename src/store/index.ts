@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { devtools } from 'zustand/middleware'
+import { devtools, persist } from 'zustand/middleware'
 import type { GridSlice } from './grid'
 import { gridSlice } from './grid'
 import type { OperationSlice } from './operation'
@@ -9,13 +9,22 @@ import { paramsSlice } from './params'
 import type { ProfileSlice } from './profile'
 import { profileSlice } from './profile'
 
-const useBoundStore = create<GridSlice & OperationSlice & ProfileSlice & ParamsSlice>()(devtools(
-  (...a) => ({
-    ...gridSlice(...a),
-    ...profileSlice(...a),
-    ...operationSlice(...a),
-    ...paramsSlice(...a),
-  }),
+export const useBoundStore = create<GridSlice & OperationSlice & ProfileSlice & ParamsSlice>()(persist(
+  devtools(
+    (...a) => ({
+      ...gridSlice(...a),
+      ...profileSlice(...a),
+      ...operationSlice(...a),
+      ...paramsSlice(...a),
+    }),
+  ),
+  {
+    name: 'zc-web',
+    partialize: state => ({
+      apiDomain: state.apiDomain,
+      wsDomain: state.wsDomain,
+    }),
+  },
 ))
 
 export function useGridStore<T>(selector?: (state: GridSlice) => T,

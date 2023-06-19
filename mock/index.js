@@ -14,13 +14,13 @@ const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With,content-type')
   res.setHeader('Access-Control-Allow-Credentials', true)
 
-  if (req.url.includes('/getMapDataWithDetail')) {
+  if (req.url.includes('/deploy/getMapDataWithDetail')) {
     res.setHeader('Content-Type', 'application/json')
     fs.readFile(`${dirPath}/grid.json`, (_, data) => {
       res.end(data)
     })
   }
-  else if (req.url === '/getMaps') {
+  else if (req.url === '/deploy/getMaps') {
     res.setHeader('Content-Type', 'application/json')
     res.end(JSON.stringify({
       code: 0,
@@ -30,7 +30,7 @@ const server = http.createServer((req, res) => {
       ]
     }))
   }
-  else if (req.url === '/get_robot_data') {
+  else if (req.url === '/deploy/get_robot_data') {
     res.setHeader('Content-Type', 'application/json')
     fs.readFile(`${dirPath}/pose.json`, (_, data) => {
       res.end(JSON.stringify({
@@ -38,7 +38,7 @@ const server = http.createServer((req, res) => {
       }))
     })
   }
-  else if (req.url === '/get_params') {
+  else if (req.url === '/parameter/get_params') {
     res.setHeader('Content-Type', 'application/json')
     if (req.method === 'GET') {
       fs.readFile(`${dirPath}/params.json`, (_, data) => {
