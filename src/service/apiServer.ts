@@ -9,7 +9,9 @@ interface Resp<T> {
 
 class ApiServer {
   private get client() {
-    const domain = useBoundStore.getState().apiDomain
+    let domain = useBoundStore.getState().apiDomain
+    if (domain === '')
+      domain = import.meta.env.VITE_API_DOMAIN || 'http://localhost:1234'
     return ky.create({ prefixUrl: domain })
   }
 

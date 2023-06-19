@@ -17,8 +17,8 @@ export interface ParamsSlice {
 }
 
 export const paramsSlice: StateCreator<ParamsSlice> = (set, get) => ({
-  apiDomain: import.meta.env.VITE_API_DOMAIN || 'http://localhost:1234',
-  wsDomain: import.meta.env.VITE_WS_DOMAIN || 'ws://localhost:1234',
+  apiDomain: '',
+  wsDomain: '',
   params: null,
 
   updateApiDomain: (domain: string) => {

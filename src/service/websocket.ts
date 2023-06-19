@@ -6,7 +6,11 @@ type wsState = 'connected' | 'disconnected' | 'error'
 class Websocket {
   private client: WebSocket
   get domain() {
-    return useBoundStore.getState().wsDomain
+    let d = useBoundStore.getState().wsDomain
+    if (d === '')
+      d = import.meta.env.VITE_WS_DOMAIN || 'ws://localhost:1234'
+
+    return d
   }
 
   private constructor(path: string, cb?: (state: wsState, data: string) => void) {
