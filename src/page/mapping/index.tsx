@@ -22,13 +22,18 @@ const Mapping: React.FC = () => {
 
   const initWebsocket = useCallback(() => {
     if (!mapWs.current) {
-      const client = Websocket.connect('map', (state, data) => {
+      const mapClient = Websocket.connect('map', (state, data) => {
         switch (state) {
           case 'connected':
             setWsState(state => ({ ...state, map: 'connected' }))
             if (data) {
-              const msg = JSON.parse(data) as OccupancyGridMessage
-              setMapGrid(msg.data, msg.info)
+              try {
+                const msg = JSON.parse(data) as OccupancyGridMessage
+                setMapGrid(msg.data, msg.info)
+              }
+              catch (e) {
+                console.error('Failed to parse map data', data, e)
+              }
             }
             break
           case 'disconnected':
@@ -39,16 +44,21 @@ const Mapping: React.FC = () => {
             break
         }
       })
-      mapWs.current = client
+      mapWs.current = mapClient
     }
     if (!robotWs.current) {
-      const client = Websocket.connect('robot_data', (state, data) => {
+      const robotClient = Websocket.connect('robot_data', (state, data) => {
         switch (state) {
           case 'connected':
             setWsState(state => ({ ...state, robot: 'connected' }))
             if (data) {
-              const msg = JSON.parse(data) as RobotInfoMessage
-              setRobotPose(msg.pose)
+              try {
+                const msg = JSON.parse(data) as RobotInfoMessage
+                setRobotPose(msg.pose)
+              }
+              catch (e) {
+                console.error('Failed to parse robot data', data, e)
+              }
             }
             break
           case 'disconnected':
@@ -59,7 +69,7 @@ const Mapping: React.FC = () => {
             break
         }
       })
-      robotWs.current = client
+      robotWs.current = robotClient
     }
   }, [mapWs, robotWs, setMapGrid, setRobotPose])
 
