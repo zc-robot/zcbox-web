@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import ControllerDeck from '../deployment/ControllerDeck'
 import MapInfoModal from './MapInfoModal'
 import Monitor from '@/components/map/Monitor'
@@ -20,72 +20,81 @@ const Mapping: React.FC = () => {
     robot: 'disconnected',
   })
 
-  const initWebsocket = useCallback(() => {
-    if (!mapWs.current) {
-      const mapClient = Websocket.connect('map', (state, data) => {
-        switch (state) {
-          case 'connected':
-            setWsState(state => ({ ...state, map: 'connected' }))
-            if (data) {
-              try {
-                const msg = JSON.parse(data) as OccupancyGridMessage
-                setMapGrid(msg.data, msg.info)
-              }
-              catch (e) {
-                console.error('Failed to parse map data', data, e)
-              }
+  const setupMapWs = () => {
+    mapWs.current?.close()
+
+    const mapClient = Websocket.connect('map', (state, data) => {
+      switch (state) {
+        case 'connected':
+          setWsState(state => ({ ...state, map: 'connected' }))
+          if (data) {
+            try {
+              const msg = JSON.parse(data) as OccupancyGridMessage
+              setMapGrid(msg.data, msg.info)
             }
-            break
-          case 'disconnected':
-            setWsState(state => ({ ...state, map: 'disconnected' }))
-            break
-          case 'error':
-            setWsState(state => ({ ...state, map: 'error' }))
-            break
-        }
-      })
-      mapWs.current = mapClient
-    }
-    if (!robotWs.current) {
-      const robotClient = Websocket.connect('robot_data', (state, data) => {
-        switch (state) {
-          case 'connected':
-            setWsState(state => ({ ...state, robot: 'connected' }))
-            if (data) {
-              try {
-                const msg = JSON.parse(data) as RobotInfoMessage
-                setRobotPose(msg.pose)
-              }
-              catch (e) {
-                console.error('Failed to parse robot data', data, e)
-              }
+            catch (e) {
+              console.error('Failed to parse map data', data, e)
             }
-            break
-          case 'disconnected':
-            setWsState(state => ({ ...state, robot: 'disconnected' }))
-            break
-          case 'error':
-            setWsState(state => ({ ...state, robot: 'error' }))
-            break
-        }
-      })
-      robotWs.current = robotClient
-    }
-  }, [mapWs, robotWs, setMapGrid, setRobotPose])
+          }
+          break
+        case 'disconnected':
+          setWsState(state => ({ ...state, map: 'disconnected' }))
+          mapWs.current = null
+          break
+        case 'error':
+          setWsState(state => ({ ...state, map: 'error' }))
+          mapWs.current = null
+          break
+      }
+    })
+    mapWs.current = mapClient
+  }
+
+  const setupRobotWs = () => {
+    robotWs.current?.close()
+
+    const robotClient = Websocket.connect('robot_data', (state, data) => {
+      switch (state) {
+        case 'connected':
+          setWsState(state => ({ ...state, robot: 'connected' }))
+          if (data) {
+            try {
+              const msg = JSON.parse(data) as RobotInfoMessage
+              setRobotPose(msg.pose)
+            }
+            catch (e) {
+              console.error('Failed to parse robot data', data, e)
+            }
+          }
+          break
+        case 'disconnected':
+          setWsState(state => ({ ...state, robot: 'disconnected' }))
+          robotWs.current = null
+          break
+        case 'error':
+          setWsState(state => ({ ...state, robot: 'error' }))
+          robotWs.current = null
+          break
+      }
+    })
+    robotWs.current = robotClient
+  }
 
   const fetchData = useCallback(async () => {
     await apiServer.mapping(5)
   }, [])
 
   useLayoutEffect(() => {
-    initWebsocket()
     fetchData()
     return () => {
       mapWs.current?.close()
       robotWs.current?.close()
-      resetGrid()
     }
-  }, [mapWs, robotWs, initWebsocket, resetGrid, fetchData])
+  }, [fetchData])
+
+  useEffect(() => {
+    return () => resetGrid()
+  }, [resetGrid])
 
   const zoomInClick = () => zoom(1.1)
   const zoomOutClick = () => zoom(0.9)
@@ -118,12 +127,14 @@ const Mapping: React.FC = () => {
           </div>
         </div>
         <div className="flex">
-          <div className="panel-item justify-center">
+          <div className="panel-item justify-center"
+          onClick={() => setupMapWs()}>
             <div className={wsState.map === 'connected'
               ? 'border-green'
-              : 'border-red' + ' border-(3px solid) rd-3px self-center'} />
+              : 'border-red' + ' border-(3px solid) rd-3px self-center'}/>
           </div>
-          <div className="panel-item justify-center">
+          <div className="panel-item justify-center"
+            onClick={() => setupRobotWs()}>
             <div className={wsState.robot === 'connected'
               ? 'border-green'
               : 'border-red' + ' border-(3px solid) rd-3px self-center'} />

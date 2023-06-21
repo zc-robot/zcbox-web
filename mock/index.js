@@ -2,6 +2,8 @@ import http from 'node:http'
 import console from 'node:console'
 import fs from 'node:fs'
 import path from 'node:path'
+import { WebSocketServer } from 'ws'
+import { parse } from 'url'
 
 const host = 'localhost'
 const port = 1234
@@ -52,6 +54,35 @@ const server = http.createServer((req, res) => {
     res.end('Hello World')
   }
 })
+
+const mapWss = new WebSocketServer({ noServer: true })
+const robotWss = new WebSocketServer({ noServer: true })
+mapWss.on('connection', (ws) => {
+  ws.on('error', console.error);
+
+  ws.send('some map data')
+})
+robotWss.on('connection', (ws) => {
+  ws.on('error', console.error);
+
+  ws.send('some robot data')
+})
+
+server.on('upgrade', function upgrade(request, socket, head) {
+  const { pathname } = parse(request.url)
+
+  if (pathname === '/map') {
+    mapWss.handleUpgrade(request, socket, head, function done(ws) {
+      mapWss.emit('connection', ws, request)
+    })
+  } else if (pathname === '/robot_data') {
+    robotWss.handleUpgrade(request, socket, head, function done(ws) {
+      robotWss.emit('connection', ws, request)
+    })
+  } else {
+    socket.destroy()
+  }
+});
 
 server.listen(port, host, () => {
   console.log(`Server is running on http://${host}:${port}`)

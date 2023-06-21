@@ -44,6 +44,7 @@ class Websocket {
   }
 
   close = () => {
+    console.error('ws close')
     this.client.close()
   }
 }

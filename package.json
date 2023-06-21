@@ -39,7 +39,8 @@
     "eslint-config-ts": "^4.0.1",
     "typescript": "^5.0.4",
     "unocss": "^0.51.8",
-    "vite": "^4.3.2"
+    "vite": "^4.3.2",
+    "ws": "^8.13.0"
   },
   "eslintConfig": {
     "extends": [
