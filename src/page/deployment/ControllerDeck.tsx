@@ -52,7 +52,10 @@ const _panel: React.FC = () => {
         pressKey(event.key)
       }
     }
-    else { pressKey('') }
+    else {
+      ws.current?.send({ linear: 0, angular: 0.0 })
+      pressKey('')
+    }
   }, ['w', 's', 'a', 'd', 'W', 'S', 'A', 'D'])
 
   useInterval(async () => {
