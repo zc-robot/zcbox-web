@@ -1,7 +1,9 @@
-import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { useState } from 'react'
+import { useWebSocket } from 'react-use-websocket/dist/lib/use-websocket'
+import { ReadyState } from 'react-use-websocket'
 import { useOperationStore } from '@/store'
 import { useInterval, useKeyPress } from '@/hooks'
-import Websocket from '@/service/websocket'
+import apiServer from '@/service/apiServer'
 
 const _panel: React.FC = () => {
   const step = 0.02
@@ -9,27 +11,8 @@ const _panel: React.FC = () => {
   const updateLineVelocity = useOperationStore(state => state.updateLineVelocity)
   const updateAngularVelocity = useOperationStore(state => state.updateAngularVelocity)
   const [pressedKey, pressKey] = useState<string>('')
-  const ws = useRef<Websocket | null>(null)
-  const [wsConnected, setWsConnected] = useState<boolean>(false)
 
-  const initWebsocket = useCallback(() => {
-    if (!ws.current) {
-      const client = Websocket.connect('velocity_control', (state) => {
-        if (state === 'connected')
-          setWsConnected(true)
-        else
-          setWsConnected(false)
-      })
-      ws.current = client
-    }
-  }, [ws])
-
-  useLayoutEffect(() => {
-    initWebsocket()
-    return () => {
-      ws.current?.close()
-    }
-  }, [ws, initWebsocket])
+  const { sendJsonMessage, readyState } = useWebSocket(`${apiServer.wsDomain}/velocity_control`)
 
   useKeyPress((event, isDown) => {
     if (isDown) {
@@ -53,32 +36,30 @@ const _panel: React.FC = () => {
       }
     }
     else {
-      ws.current?.send({ linear: 0, angular: 0.0 })
+      sendJsonMessage({ linear: 0, angular: 0.0 })
       pressKey('')
     }
   }, ['w', 's', 'a', 'd', 'W', 'S', 'A', 'D'])
 
   useInterval(async () => {
-    if (!ws.current)
-      return
     switch (pressedKey) {
       case 'w':
-        ws.current.send({ linear: velocityInfo.line, angular: 0.0 })
+        sendJsonMessage({ linear: velocityInfo.line, angular: 0.0 })
         break
       case 's':
-        ws.current.send({ linear: -velocityInfo.line, angular: 0.0 })
+        sendJsonMessage({ linear: -velocityInfo.line, angular: 0.0 })
         break
       case 'a':
-        ws.current.send({ linear: 0.0, angular: velocityInfo.angular })
+        sendJsonMessage({ linear: 0.0, angular: velocityInfo.angular })
         break
       case 'd':
-        ws.current.send({ linear: 0.0, angular: -velocityInfo.angular })
+        sendJsonMessage({ linear: 0.0, angular: -velocityInfo.angular })
     }
   }, pressedKey === '' ? undefined : 50)
 
   return (
     <div className="p-2 flex flex-col justify-center items-center">
-      <div className="flex items-center mb-5 justify-center text-sm self-start">连接状态{wsConnected
+      <div className="flex items-center mb-5 justify-center text-sm self-start">连接状态{readyState === ReadyState.OPEN
         ? <span className="ml-1 text-green">已联通</span>
         : <span className="ml-1 text-red">未联通</span>}</div>
       <div className="flex flex-(justify-center items-center)">

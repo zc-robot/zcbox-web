@@ -8,6 +8,16 @@ interface Resp<T> {
 }
 
 class ApiServer {
+  get wsDomain() {
+    let d = useBoundStore.getState().wsDomain
+    if (d === '')
+      d = import.meta.env.VITE_WS_DOMAIN || 'ws://localhost:1234'
+
+    if (d.endsWith('/'))
+      d = d.slice(0, -1)
+    return d
+  }
+
   private get client() {
     let domain = useBoundStore.getState().apiDomain
     if (domain === '')

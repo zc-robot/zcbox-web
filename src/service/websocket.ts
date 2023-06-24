@@ -10,12 +10,13 @@ class Websocket {
     if (d === '')
       d = import.meta.env.VITE_WS_DOMAIN || 'ws://localhost:1234'
 
+    if (!d.endsWith('/'))
+      d = `${d}/`
     return d
   }
 
   private constructor(path: string, cb?: (state: wsState, data: string) => void) {
-    const domain = this.domain.endsWith('/') ? this.domain : `${this.domain}/`
-    this.client = new WebSocket(domain + path)
+    this.client = new WebSocket(this.domain + path)
 
     if (cb) {
       this.client.onopen = () => {
