@@ -1,23 +1,17 @@
 import { useParams } from 'react-router-dom'
-import { useCallback, useLayoutEffect, useRef } from 'react'
+import { useCallback, useEffect } from 'react'
 import ControllerDeck from './ControllerDeck'
 import ProfileDeck from './ProfileDeck'
 import TaskDeck from './TaskDeck'
 import TopDeck from '@/page/deployment/TopDeck'
 import Monitor from '@/components/map/Monitor'
 import { useGridStore, useProfileStore } from '@/store'
-import Websocket from '@/service/websocket'
-import type { RobotInfoMessage } from '@/types'
 import apiServer from '@/service/apiServer'
 
 const Deployment: React.FC = () => {
   const { mapId } = useParams()
-  const robotWs = useRef<Websocket | null>(null)
-  const setMapGrid = useGridStore(state => state.setMapGrid)
-  const setRobotPose = useGridStore(state => state.setRobotPose)
   const resetGrid = useGridStore(state => state.resetGrid)
   const resetProfile = useProfileStore(state => state.resetProfile)
-  const addProfiles = useProfileStore(state => state.addProfiles)
 
   const parseMapId = useCallback(() => {
     if (!mapId)
@@ -25,36 +19,17 @@ const Deployment: React.FC = () => {
     return Number.parseInt(mapId)
   }, [mapId])
 
-  const initWebsocket = useCallback(() => {
-    if (!robotWs.current) {
-      const client = Websocket.connect('robot_data', (state, data) => {
-        if (state === 'connected') {
-          const msg = JSON.parse(data) as RobotInfoMessage
-          setRobotPose(msg.pose)
-        }
-      })
-      robotWs.current = client
+  useEffect(() => {
+    const startNavigation = async () => {
+      await apiServer.navigation(parseMapId())
     }
-  }, [setRobotPose])
 
-  const fetchData = useCallback(async () => {
-    await apiServer.navigation(parseMapId())
-    const data = await apiServer.fetchMap(parseMapId())
-    const mapData = data.data
-    const profiles = data.deployment
-    setMapGrid(mapData.data, mapData.info)
-    addProfiles(profiles)
-  }, [addProfiles, parseMapId, setMapGrid])
-
-  useLayoutEffect(() => {
-    initWebsocket()
-    fetchData()
+    startNavigation()
     return () => {
-      robotWs.current?.close()
       resetGrid()
       resetProfile()
     }
-  }, [fetchData, initWebsocket, resetGrid, resetProfile])
+  }, [parseMapId, resetGrid, resetProfile])
 
   return (
     <div className="flex flex-(col 1) h-full">

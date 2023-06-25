@@ -95,17 +95,17 @@ const Mapping: React.FC = () => {
         </div>
         <div className="flex">
           <div className="panel-item justify-center group">
-            <div className={mapState === ReadyState.OPEN
+            <div className={`${mapState === ReadyState.OPEN
               ? 'border-green'
-              : 'border-red' + ' border-(3px solid) rd-3px self-center'}/>
+              : 'border-red'} border-(3px solid) rd-3px self-center`}/>
               <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
                 {`Map: ${connectionStatus[mapState]}`}
               </span>
           </div>
           <div className="panel-item justify-center">
-            <div className={robotState === ReadyState.OPEN
+            <div className={`${robotState === ReadyState.OPEN
               ? 'border-green'
-              : 'border-red' + ' border-(3px solid) rd-3px self-center'} />
+              : 'border-red'} border-(3px solid) rd-3px self-center`} />
               <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
                 {`Robot: ${connectionStatus[mapState]}`}
               </span>
