@@ -14,8 +14,14 @@ const Mapping: React.FC = () => {
   const setMapGrid = useGridStore(state => state.setMapGrid)
   const setRobotPose = useGridStore(state => state.setRobotPose)
 
-  const { lastMessage: mapMessage, readyState: mapState } = useWebSocket(`${apiServer.wsDomain}/map`)
-  const { lastMessage: robotMessage, readyState: robotState } = useWebSocket(`${apiServer.wsDomain}/robot_data`)
+  const wsOption = {
+    shouldReconnect: (event: CloseEvent) => event.code !== 1000,
+    reconnectAttempts: 10,
+    reconnectInterval: 2000,
+    retryOnError: true,
+  }
+  const { lastMessage: mapMessage, readyState: mapState } = useWebSocket(`${apiServer.wsDomain}/map`, wsOption)
+  const { lastMessage: robotMessage, readyState: robotState } = useWebSocket(`${apiServer.wsDomain}/robot_data`, wsOption)
 
   useEffect(() => {
     if (mapMessage != null) {
