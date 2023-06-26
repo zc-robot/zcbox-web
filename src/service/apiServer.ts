@@ -55,8 +55,8 @@ class ApiServer {
     return json
   }
 
-  submitTasks = async (data: object) => {
-    const json = await this.client.post('deploy/saveTasks', { json: data }).json()
+  submitTask = async (data: object) => {
+    const json = await this.client.post('deploy/saveTask', { json: data }).json()
     return json
   }
 
@@ -71,14 +71,14 @@ class ApiServer {
   }
 
   fetchParams = async () => {
-    const json = await this.client.get('parameter/params').json<Resp<RobotParams>>()
+    const json = await this.client.get('parameter/get_params').json<Resp<RobotParams>>()
     if (json.code === 0)
       return json.data
     return null
   }
 
   uploadParams = async (params: RobotParams) => {
-    const json = await this.client.post('parameter/params', { json: params }).json()
+    const json = await this.client.post('parameter/get_params', { json: params }).json()
     return json
   }
 }
