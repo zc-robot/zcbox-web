@@ -26,7 +26,7 @@ const Home: React.FC = () => {
             return <Link
               key={i}
               className="block p-1 text-center text-gray-5 hover:bg-gray-3 decoration-none"
-              to={`/deployment/${m.id}`}>{m.name}</Link>
+              to={`/deployment/${m.id}`}>{`${m.name} (${m.id})`}</Link>
           })}
         </nav>
         <Link to="/settings" className="flex flex-(items-center justify-center) text-gray-5 mt-a py-4 decoration-none border-(t-solid 1px gray-3)">
