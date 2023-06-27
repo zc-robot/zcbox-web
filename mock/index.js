@@ -69,7 +69,17 @@ mapWss.on('connection', (ws) => {
 robotWss.on('connection', (ws) => {
   ws.on('error', console.error);
 
+  const positionData = fs.readFileSync(`${dirPath}/positions.json`).toString()
+  const positions = JSON.parse(positionData)
   fs.readFile(`${dirPath}/pose.json`, (_, data) => {
+    let obj = JSON.parse(data.toString())
+    
+    let index = 0
+    setInterval(() => {
+      obj.pose.orientation = positions[index]
+      ws.send(JSON.stringify(obj))
+      index = (index + 1) % positions.length
+    }, 1000)
     ws.send(data.toString())
   })
 })

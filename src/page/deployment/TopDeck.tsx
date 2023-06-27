@@ -73,6 +73,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     const paths = currentProfilePaths()
     await apiServer.submitProfile({
       map_id: mapId,
+      uid: currentProfileId,
       waypoints: points,
       paths,
     })
