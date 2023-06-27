@@ -54,6 +54,10 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
   },
   appendProfile: (mapId: number) => {
     const id = uid('Profile')
+    let currentId = get().currentProfileId
+    if (!currentId)
+      currentId = id
+
     set((state) => {
       const newProfiles = state.profiles.slice()
       newProfiles.push({
@@ -67,11 +71,17 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
         },
         tasks: [],
       })
-      return { profiles: newProfiles }
+      return {
+        profiles: newProfiles,
+        currentProfileId: currentId,
+      }
     })
   },
   addProfiles: (profiles) => {
     set((state) => {
+      if (profiles.length === 0)
+        return state
+
       const newProfiles = state.profiles.slice()
       profiles.forEach((p) => {
         const old = newProfiles.find(op => op.uid === p.uid)
@@ -80,7 +90,10 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
         else
           newProfiles.push(p)
       })
-      return { profiles: newProfiles }
+      return {
+        profiles: newProfiles,
+        currentProfileId: profiles[0].uid,
+      }
     })
   },
   setCurrentProfile: (id?: string) => {
