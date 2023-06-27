@@ -79,7 +79,7 @@ robotWss.on('connection', (ws) => {
       obj.pose.orientation = positions[index]
       ws.send(JSON.stringify(obj))
       index = (index + 1) % positions.length
-    }, 1000)
+    }, 500)
     ws.send(data.toString())
   })
 })

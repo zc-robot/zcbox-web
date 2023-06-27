@@ -18,8 +18,7 @@ const Robot: React.FC<RobotProp> = ({ pose }) => {
   const robotShape = (footprint: FootprintParams) => {
     if (footprint.is_round) {
       return (
-        <Group
-          rotation={rotation}>
+        <Group>
           <Circle
             x={x}
             y={y}
@@ -28,20 +27,25 @@ const Robot: React.FC<RobotProp> = ({ pose }) => {
             strokeWidth={footprint.robot_width / 10} />
           <Circle
             x={x}
-            y={y - footprint.nav_center2robot_center}
-            radius={footprint.robot_width / 10}
-            fill="red" />
+            y={y}
+            offsetY={footprint.nav_center2robot_center}
+            radius={footprint.radius / 10}
+            fill="red"
+            rotation={rotation} />
           <Line
-            points={[x, y - footprint.nav_center2robot_center, x + footprint.robot_length / 2, y - footprint.nav_center2robot_center]}
+            x={x}
+            y={y}
+            offsetY={footprint.nav_center2robot_center}
+            points={[0, 0, footprint.radius, 0]}
             stroke="red"
-            strokeWidth={footprint.robot_width / 10} />
+            strokeWidth={footprint.robot_width / 10}
+            rotation={rotation} />
         </Group>
       )
     }
     else {
       return (
-        <Group
-          rotation={rotation}>
+        <Group>
           <Rect
             x={x}
             y={y}
@@ -51,16 +55,24 @@ const Robot: React.FC<RobotProp> = ({ pose }) => {
             height={footprint.robot_length}
             stroke="green"
             strokeWidth={footprint.robot_width / 10}
-            rotation={90} />
+            // As the rotation of Konva is clockwise
+            // we need to add 90 degrees to the rotation of the robot
+            rotation={rotation + 90} />
           <Circle
             x={x}
-            y={y - footprint.nav_center2robot_center}
+            y={y}
+            offsetY={footprint.nav_center2robot_center}
             radius={footprint.robot_width / 10}
-            fill="red" />
+            fill="red"
+            rotation={rotation} />
           <Line
-            points={[x, y - footprint.nav_center2robot_center, x + footprint.robot_length / 2, y - footprint.nav_center2robot_center]}
+            x={x}
+            y={y}
+            offsetY={footprint.nav_center2robot_center}
+            points={[0, 0, footprint.robot_length / 2, 0]}
             stroke="red"
-            strokeWidth={footprint.robot_width / 10} />
+            strokeWidth={footprint.robot_width / 10}
+            rotation={rotation} />
         </Group>
       )
     }

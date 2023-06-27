@@ -1,4 +1,4 @@
-import type { GridInfoMessage, NavPoint, PoseMessage, QuaternionMessage } from '@/types'
+import type { GridInfoMessage, QuaternionMessage } from '@/types'
 
 // See https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles#Rotation_matrices
 // here we use [x y z] = R * [1 0 0]
@@ -49,16 +49,4 @@ export function mapImageData(info: GridInfoMessage, mapData: number[]) {
     map[i + 3] = 255
   }
   return map
-}
-
-export function dumpNavPoint(point: NavPoint) {
-  return {
-    id: point.uid,
-    position: {
-      x: point.x,
-      y: -point.y,
-      z: 0,
-    },
-    orientation: canvasAngleToQuaternion(point.rotation),
-  } as PoseMessage
 }
