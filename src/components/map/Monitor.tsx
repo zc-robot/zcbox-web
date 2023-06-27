@@ -6,7 +6,6 @@ import Robot from './Robot'
 import Waypoint from './Waypoint'
 import Pathway from './Pathway'
 import { useGridStore, useOperationStore, useProfileStore } from '@/store'
-import { quaternionToCanvasAngle } from '@/util/transform'
 import { useElementSize, useKeyPress } from '@/hooks'
 import { uid } from '@/util'
 
@@ -22,7 +21,6 @@ interface ImageState {
 const Monitor: React.FC = () => {
   const layerRef = useRef<Konva.Layer>(null)
   const [layerState, setLayerState] = useState<ImageState>()
-  const [robotState, setRobotState] = useState<ImageState>()
   const [offset, setOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
 
   const [containerRef, { width, height }] = useElementSize()
@@ -73,16 +71,6 @@ const Monitor: React.FC = () => {
         scale: layerScale,
       } as ImageState
       setLayerState(lp)
-
-      if (!poseMsg)
-        return
-      const ap = {
-        x: poseMsg.position.x,
-        y: -poseMsg.position.y,
-        scale: resolution,
-        rotation: quaternionToCanvasAngle(poseMsg.orientation),
-      } as ImageState
-      setRobotState(ap)
     }
     renderMap()
   }, [gridInfo, poseMsg, scale])
@@ -130,11 +118,12 @@ const Monitor: React.FC = () => {
 
         appendCurrentProfilePath({
           uid: uid('Path'),
+          name: `路径 ${uid('Path').slice(-3)}`,
           start,
           end,
           controls: [
-            { x: start.x, y: start.y },
-            { x: end.x, y: end.y },
+            { x: start.x + (end.x - start.x) / 4, y: start.y + (end.y - start.y) / 4 },
+            { x: start.x + (end.x - start.x) / 4 * 3, y: start.y + (end.y - start.y) / 4 * 3 },
           ],
         })
         selectPoint(null)
@@ -144,6 +133,11 @@ const Monitor: React.FC = () => {
     else if (currentOp === 'select') {
       selectPoint(id)
     }
+  }
+
+  const handlePathClick = (id: string) => {
+    if (currentOp === 'select')
+      selectPoint(id)
   }
 
   const handleLayerDrag = (obj: Konva.KonvaEventObject<DragEvent>) => {
@@ -172,25 +166,20 @@ const Monitor: React.FC = () => {
             onDragMove={handleLayerDrag}
             onClick={handleLayerClick}>
             <GridMap />
-            {poseMsg
-              ? <Robot
-                rotation={robotState?.rotation ?? 0}
-                x={robotState?.x ?? 0}
-                y={robotState?.y ?? 0}
-                scale={robotState?.scale ?? 1}
-                width={20} />
-              : null}
+            {(gridInfo && poseMsg)
+              && <Robot
+                pose={poseMsg} />
+            }
             {currentPaths.map((path, i) => <Pathway
               key={i}
               path={path}
-              scale={robotState?.scale ?? 1}
-              onSelect={() => selectPoint(path.uid)}
+              onSelect={() => handlePathClick(path.uid)}
               isSelected={selectedId === path.uid} />,
             )}
             {currentPoints.map((wp, i) => <Waypoint
               key={i}
               point={wp}
-              scale={robotState?.scale ?? 1}
+              scale={1}
               width={1}
               onSelect={() => handlePointClick(wp.uid)}
               isSelected={wp.uid === selectedId} />)}

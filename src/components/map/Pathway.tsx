@@ -1,26 +1,25 @@
 import type Konva from 'konva'
-import { useRef } from 'react'
+import { useMemo, useRef } from 'react'
 import { Circle, Group, Line } from 'react-konva'
 import type { NavPath } from '@/types'
-import { useProfileStore } from '@/store'
+import { useParamsStore, useProfileStore } from '@/store'
 
 interface AnchorProp {
   x: number
   y: number
-  scale: number
+  radius: number
   onDragMove: (e: Konva.KonvaEventObject<DragEvent>) => void
 }
 
-const Anchor: React.FC<AnchorProp> = ({ x, y, scale, onDragMove }) => {
+const Anchor: React.FC<AnchorProp> = ({ x, y, radius, onDragMove }) => {
   return (
     <Circle
       x={x}
       y={y}
-      scale={{ x: scale, y: scale }}
-      radius={3}
+      radius={radius}
       fill="white"
       stroke="black"
-      strokeWidth={1}
+      strokeWidth={radius}
       draggable={true}
       onDragMove={onDragMove}
     />
@@ -29,13 +28,13 @@ const Anchor: React.FC<AnchorProp> = ({ x, y, scale, onDragMove }) => {
 
 interface PathwayProps {
   path: NavPath
-  scale: number
   onSelect: () => void
   isSelected: boolean
 }
 
-const Pathway: React.FC<PathwayProps> = ({ path, scale, onSelect, isSelected }) => {
+const Pathway: React.FC<PathwayProps> = ({ path, onSelect, isSelected }) => {
   const lineRef = useRef<Konva.Line>(null)
+  const params = useParamsStore(state => state.params)
   const updateCurrentProfilePath = useProfileStore(state => state.updateCurrentProfilePath)
 
   const points = [
@@ -44,6 +43,15 @@ const Pathway: React.FC<PathwayProps> = ({ path, scale, onSelect, isSelected }) 
     path.controls[1].x, path.controls[1].y,
     path.end.x, path.end.y,
   ]
+
+  const width = useMemo(() => {
+    if (!params)
+      return 0
+    if (params.robot_footprint.is_round)
+      return params.robot_footprint.radius / 10
+    else
+      return params.robot_footprint.robot_width / 10
+  }, [params])
 
   const handleSelect = (e: Konva.KonvaEventObject<MouseEvent>) => {
     e.cancelBubble = true
@@ -73,34 +81,37 @@ const Pathway: React.FC<PathwayProps> = ({ path, scale, onSelect, isSelected }) 
   }
 
   return (
-    <Group
-      onClick={handleSelect}
-      onTap={handleSelect}>
-      <Line
-        ref={lineRef}
-        hitStrokeWidth={scale * 5}
-        stroke={'black'}
-        bezier={true}
-        lineCap="round"
-        lineJoin="round"
-        strokeWidth={scale}
-        points={points} />
-      {isSelected && (
-        <>
-          <Anchor
-            x={points[2]}
-            y={points[3]}
-            scale={scale}
-            onDragMove={handleAnchor1DragMove} />
-          <Anchor
-            x={points[4]}
-            y={points[5]}
-            scale={scale}
-            onDragMove={handleAnchor2DragMove} />
-        </>
-      )}
-    </Group>
-
+    <>
+    {params && (
+      <Group
+        onClick={handleSelect}
+        onTap={handleSelect}>
+        <Line
+          ref={lineRef}
+          stroke={'black'}
+          strokeWidth={width}
+          hitStrokeWidth={width * 2}
+          bezier={true}
+          lineCap="round"
+          lineJoin="round"
+          points={points} />
+        {isSelected && (
+          <>
+            <Anchor
+              x={points[2]}
+              y={points[3]}
+              radius={width}
+              onDragMove={handleAnchor1DragMove} />
+            <Anchor
+              x={points[4]}
+              y={points[5]}
+              radius={width}
+              onDragMove={handleAnchor2DragMove} />
+          </>
+        )}
+      </Group>
+    )}
+    </>
   )
 }
 

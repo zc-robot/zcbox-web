@@ -17,6 +17,7 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
   const profiles = useProfileStore(state => state.filterMapProfiles(mapId))
   const currentProfileId = useProfileStore(state => state.currentProfileId)
   const currentPoints = useProfileStore(state => state.currentProfilePoints())
+  const currentPaths = useProfileStore(state => state.currentProfilePaths())
   const addProfile = useProfileStore(state => state.appendProfile)
   const appendTaskPoint = useProfileStore(state => state.appendProfileTaskPoint)
   const setCurrentProfile = useProfileStore(state => state.setCurrentProfile)
@@ -60,10 +61,9 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
           onClick={() => setCurrentDisplay('path')}>路径</div>
       </div>
       <div
-        className={`flex-col ${currentDisplay === 'point'
-          ? 'flex'
-          : 'hidden'}`}>
-        {currentPoints.map((p, i) => <div
+        className={'flex-col flex'}>
+        {currentDisplay === 'point'
+          ? currentPoints.map((p, i) => <div
               key={i}
               className={`cursor-default h-2rem pl-2 flex items-center hover:(outline outline-1 outline-blue-300) ${selectedId === p.uid
                 ? 'bg-gray-300'
@@ -77,6 +77,18 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
               }}>
               <div className="i-material-symbols-location-on-outline text-gray-500" />
               <div className="ml-1 text-3">{p.name}</div>
+            </div>)
+          : currentPaths.map((p, i) => <div
+            key={i}
+            className={`cursor-default h-2rem pl-2 flex items-center hover:(outline outline-1 outline-blue-300) ${selectedId === p.uid
+              ? 'bg-gray-300'
+              : ''}`}
+            onClick={() => {
+              updateOp('select')
+              select(p.uid)
+            }}>
+            <div className="i-material-symbols-location-on-outline text-gray-500" />
+            <div className="ml-1 text-3">{p.name}</div>
             </div>)}
       </div>
     </div>

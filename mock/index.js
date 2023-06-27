@@ -40,7 +40,7 @@ const server = http.createServer((req, res) => {
       }))
     })
   }
-  else if (req.url === '/parameter/params') {
+  else if (req.url === '/parameter/get_params') {
     res.setHeader('Content-Type', 'application/json')
     if (req.method === 'GET') {
       fs.readFile(`${dirPath}/params.json`, (_, data) => {
@@ -57,15 +57,26 @@ const server = http.createServer((req, res) => {
 
 const mapWss = new WebSocketServer({ noServer: true })
 const robotWss = new WebSocketServer({ noServer: true })
+const controlWss = new WebSocketServer({ noServer: true })
 mapWss.on('connection', (ws) => {
   ws.on('error', console.error);
 
-  ws.send('some map data')
+  fs.readFile(`${dirPath}/grid.json`, (_, data) => {
+    const obj = JSON.parse(data.toString())
+    ws.send(JSON.stringify(obj.data.data))
+  })
 })
 robotWss.on('connection', (ws) => {
   ws.on('error', console.error);
 
-  ws.send('some robot data')
+  fs.readFile(`${dirPath}/pose.json`, (_, data) => {
+    ws.send(data.toString())
+  })
+})
+controlWss.on('connection', (ws) => {
+  ws.on('message', (message) => {
+    console.log('received: %s', message);
+  })
 })
 
 server.on('upgrade', function upgrade(request, socket, head) {
@@ -78,6 +89,10 @@ server.on('upgrade', function upgrade(request, socket, head) {
   } else if (pathname === '/robot_data') {
     robotWss.handleUpgrade(request, socket, head, function done(ws) {
       robotWss.emit('connection', ws, request)
+    })
+  } else if (pathname === '/velocity_control') {
+    controlWss.handleUpgrade(request, socket, head, function done(ws) {
+      controlWss.emit('connection', ws, request)
     })
   } else {
     socket.destroy()

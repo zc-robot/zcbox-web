@@ -16,7 +16,7 @@ export interface GridSlice {
 }
 
 export const gridSlice: StateCreator<GridSlice> = set => ({
-  scale: 2,
+  scale: 1,
   gridInfo: null,
   mapData: [],
   pose: null,

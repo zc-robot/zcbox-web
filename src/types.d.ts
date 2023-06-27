@@ -72,18 +72,19 @@ export interface NavPoint {
 
 // NavPath is a bezier line segment between two NavPoints
 export interface NavPath {
-  uid: string
+  uid: string,
+  name: string,
   start: {
     x: number,
-    y: number
+    y: number,
   },
   end: {
     x: number,
-    y: number
+    y: number,
   },
   controls: {
     x: number,
-    y: number
+    y: number,
   }[],
 }
 

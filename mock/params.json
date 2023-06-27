@@ -2,11 +2,11 @@
   "code": 0,
   "data": {
     "robot_footprint": {
-      "is_round": true,
-      "nav_center2robot_center": 0.0,
-      "radius": 0.26,
-      "robot_length": 0.0,
-      "robot_width": 0.0
+      "is_round": false,
+      "nav_center2robot_center": 0.1,
+      "radius": 0.36,
+      "robot_length": 0.78,
+      "robot_width": 0.5
     },
     "urdf": [
       {

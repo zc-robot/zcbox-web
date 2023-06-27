@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { RouterProvider, createBrowserRouter } from 'react-router-dom'
 import Deployment from './deployment'
 import Home from './home'
@@ -6,6 +6,7 @@ import NotFound from './404'
 import Settings from './settings'
 import Default from './home/Default'
 import Mapping from './mapping'
+import { useParamsStore } from '@/store'
 
 const router = createBrowserRouter([
   {
@@ -34,6 +35,12 @@ const router = createBrowserRouter([
 ])
 
 const App: React.FC = () => {
+  const fetchParams = useParamsStore(state => state.fetchParams)
+
+  useEffect(() => {
+    fetchParams()
+  }, [fetchParams])
+
   return (
     <RouterProvider router={router} />
   )

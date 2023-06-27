@@ -1,50 +1,74 @@
 import React from 'react'
-import { Circle, Shape } from 'react-konva'
+import { Circle, Group, Line, Rect } from 'react-konva'
+import { useParamsStore } from '@/store'
+import type { FootprintParams, PoseMessage } from '@/types'
+import { quaternionToCanvasAngle } from '@/util/transform'
 
 interface RobotProp {
-  x: number
-  y: number
-  width: number
-  scale: number
-  rotation: number
+  pose: PoseMessage
 }
 
-const Robot: React.FC<RobotProp> = ({ x, y, width, scale, rotation }) => {
-  const points = [
-    -width, width / 2,
-    width, 0,
-    -width, -width / 2,
-  ]
+const Robot: React.FC<RobotProp> = ({ pose }) => {
+  const params = useParamsStore(state => state.params)
+
+  const x = pose.position.x
+  const y = -pose.position.y
+  const rotation = quaternionToCanvasAngle(pose.orientation)
+
+  const robotShape = (footprint: FootprintParams) => {
+    if (footprint.is_round) {
+      return (
+        <Group
+          rotation={rotation}>
+          <Circle
+            x={x}
+            y={y}
+            radius={footprint.radius}
+            stroke="green"
+            strokeWidth={footprint.robot_width / 10} />
+          <Circle
+            x={x}
+            y={y - footprint.nav_center2robot_center}
+            radius={footprint.robot_width / 10}
+            fill="red" />
+          <Line
+            points={[x, y - footprint.nav_center2robot_center, x + footprint.robot_length / 2, y - footprint.nav_center2robot_center]}
+            stroke="red"
+            strokeWidth={footprint.robot_width / 10} />
+        </Group>
+      )
+    }
+    else {
+      return (
+        <Group
+          rotation={rotation}>
+          <Rect
+            x={x}
+            y={y}
+            offsetX={footprint.robot_width / 2}
+            offsetY={footprint.robot_length / 2}
+            width={footprint.robot_width}
+            height={footprint.robot_length}
+            stroke="green"
+            strokeWidth={footprint.robot_width / 10}
+            rotation={90} />
+          <Circle
+            x={x}
+            y={y - footprint.nav_center2robot_center}
+            radius={footprint.robot_width / 10}
+            fill="red" />
+          <Line
+            points={[x, y - footprint.nav_center2robot_center, x + footprint.robot_length / 2, y - footprint.nav_center2robot_center]}
+            stroke="red"
+            strokeWidth={footprint.robot_width / 10} />
+        </Group>
+      )
+    }
+  }
 
   return (
     <>
-      <Shape
-        x={x}
-        y={y}
-        scaleX={scale}
-        scaleY={scale}
-        rotation={rotation}
-        sceneFunc={(context, shape) => {
-          context.beginPath()
-          context.moveTo(points[0], points[1])
-          for (let i = 2; i < points.length; i += 2)
-            context.lineTo(points[i], points[i + 1])
-
-          context.closePath()
-          context.fillStyle = 'green'
-          context.fill()
-          context.stroke()
-          context.fillStrokeShape(shape)
-        }}
-      />
-      <Circle
-        x={x}
-        y={y}
-        radius={width / 4}
-        fill="red"
-        scaleX={scale}
-        scaleY={scale}
-      />
+      {params && robotShape(params.robot_footprint)}
     </>
   )
 }
