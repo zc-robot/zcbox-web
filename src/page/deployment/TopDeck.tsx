@@ -16,9 +16,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const currentOp = useOperationStore(state => state.current)
   const updateOp = useOperationStore(state => state.updateOp)
 
-  const currentProfileId = useProfileStore(state => state.currentProfileId)
-  const currentProfilePoints = useProfileStore(state => state.currentProfilePoints)
-  const currentProfilePaths = useProfileStore(state => state.currentProfilePaths)
+  const currentProfile = useProfileStore(state => state.currentProfile)
   const currentTask = useProfileStore(state => state.getCurrentTask)
   const addProfiles = useProfileStore(state => state.addProfiles)
 
@@ -62,18 +60,21 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
 
   const handleSubmitClicked = async () => {
     // Submit task
-    if (!currentProfileId)
+    const profile = currentProfile()
+    if (!profile)
       return
     const task = currentTask()
     if (task)
-      await apiServer.submitTask({ deploy_id: currentProfileId, data: task })
+      await apiServer.submitTask({ deploy_id: profile.uid, data: task })
 
     // Submit profile
-    const points = currentProfilePoints()
-    const paths = currentProfilePaths()
+    const points = profile.data.waypoints
+    const paths = profile.data.paths
     await apiServer.submitProfile({
       map_id: mapId,
-      uid: currentProfileId,
+      uid: profile.uid,
+      name: profile.name,
+      description: profile.description,
       waypoints: points,
       paths,
     })

@@ -13,6 +13,7 @@ export interface ProfileSlice {
   addProfiles: (profiles: NavProfile[]) => void
   appendProfile: (mapId: number) => void
   setCurrentProfile: (id?: string) => void
+  currentProfile: () => NavProfile | undefined
   currentProfilePoints: () => NavPoint[]
   currentProfilePaths: () => NavPath[]
   currentProfileTasks: () => NavTask[]
@@ -103,6 +104,9 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
         currentTaskId: undefined,
       })
     }
+  },
+  currentProfile: () => {
+    return get().profiles.find(p => p.uid === get().currentProfileId)
   },
   currentProfilePoints: () => {
     const p = get().profiles.find(p => p.uid === get().currentProfileId)
