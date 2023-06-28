@@ -94,6 +94,7 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
       return {
         profiles: newProfiles,
         currentProfileId: profiles[0].uid,
+        currentTaskId: profiles[0].tasks[0]?.uid,
       }
     })
   },
@@ -225,18 +226,22 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
     return undefined
   },
   appendProfileTask: () => {
+    const id = uid('Task')
     set((state) => {
       const newProfiles = state.profiles.slice()
       const p = newProfiles.find(p => p.uid === state.currentProfileId)
       if (p && p.tasks) {
         p.tasks.push({
-          uid: uid('Task'),
+          uid: id,
           name: 'New Task',
           description: '',
           points: [],
         })
       }
-      return { profiles: newProfiles }
+      return {
+        profiles: newProfiles,
+        currentTaskId: id,
+      }
     })
   },
   appendProfileTaskPoint: (point: NavPoint) => {
