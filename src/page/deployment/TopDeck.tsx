@@ -64,8 +64,13 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     if (!profile)
       return
     const task = currentTask()
-    if (task)
-      await apiServer.submitTask({ deploy_id: profile.uid, data: task })
+    if (task) {
+      await apiServer.submitTask({
+        deploy_id: profile.uid,
+        uid: task.uid,
+        data: task,
+      })
+    }
 
     // Submit profile
     const points = profile.data.waypoints
