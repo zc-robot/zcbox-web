@@ -60,13 +60,13 @@ class ApiServer {
     return json
   }
 
-  executeTask = async (id: string) => {
-    const json = await this.client.post('deploy/execute_task', { json: { id } }).json()
+  executeTask = async (id: string, repeat: boolean) => {
+    const json = await this.client.post('deploy/executeTask', { json: { uid: id, repeat } }).json()
     return json
   }
 
   stopTask = async () => {
-    const json = await this.client.get('deploy/stop_task').json()
+    const json = await this.client.get('deploy/stopTask').json()
     return json
   }
 

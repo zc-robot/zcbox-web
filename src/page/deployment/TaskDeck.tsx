@@ -5,6 +5,7 @@ import apiServer from '@/service/apiServer'
 
 const TaskDeck: React.FC = () => {
   const [showTaskList, setShowTaskList] = useState(false)
+  const [repeat, setRepeat] = useState(false)
 
   const currentProfileId = useProfileStore(state => state.currentProfileId)
   const currentTaskId = useProfileStore(state => state.currentTaskId)
@@ -23,9 +24,13 @@ const TaskDeck: React.FC = () => {
       setExecutingTaskId(undefined)
     }
     else {
-      await apiServer.executeTask(currentTaskId)
+      await apiServer.executeTask(currentTaskId, repeat)
       setExecutingTaskId(currentTaskId)
     }
+  }
+
+  const toggleRepeat = () => {
+    setRepeat(!repeat)
   }
 
   return (
@@ -34,6 +39,7 @@ const TaskDeck: React.FC = () => {
         <div
           className={`color-gray-500 ${executingTaskId ? 'i-material-symbols-pause-outline' : 'i-material-symbols-play-arrow-outline'}`}
           onClick={toggleTask} />
+        <input type="checkbox" className="text-sm mr-a" title="多次运行" checked={repeat} onChange={toggleRepeat}/>
         <div className="flex flex-items-center text-3 p-1 cursor-default color-gray-500"
           onClick={() => setShowTaskList(!showTaskList)}>
           {currentTaskId ?? '任务列表'}<div className="i-material-symbols-keyboard-arrow-down" />
@@ -54,7 +60,7 @@ const TaskDeck: React.FC = () => {
               onClick={() => setCurrentTask(t.uid)}>
               <div
                 className={`i-material-symbols-check-small mr-1 ${enabled ? '' : 'invisible'}`} />
-              {t.uid}
+              {t.name}
             </div>
           )
         })}

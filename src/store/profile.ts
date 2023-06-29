@@ -233,7 +233,7 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
       if (p && p.tasks) {
         p.tasks.push({
           uid: id,
-          name: 'New Task',
+          name: `任务 ${id.slice(-3)}`,
           description: '',
           points: [],
         })
