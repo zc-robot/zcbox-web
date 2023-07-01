@@ -19,7 +19,10 @@ const Home: React.FC = () => {
     <div className="flex h-full">
       <div className="flex flex-col w-40 bg-gray-100 pt-3rem border-(r-solid 1px gray-3)">
         <nav>
-          <Link to="/mapping" className="flex flex-(items-center justify-center) py-4 decoration-none">
+          <Link
+            className="flex flex-(items-center justify-center) py-4 decoration-none"
+            reloadDocument
+            to="/mapping">
             <div className="bg-white hover:bg-gray-2 rounded border-(solid 1px gray-5) px-4 py-1 text-gray-5">建图</div>
           </Link>
           {maps.map((m, i) => {

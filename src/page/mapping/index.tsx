@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 import useWebSocket, { ReadyState } from 'react-use-websocket'
 import ControllerDeck from '../deployment/ControllerDeck'
 import MapInfoModal from './MapInfoModal'
@@ -11,8 +11,9 @@ const Mapping: React.FC = () => {
   const [showModal, setShowModal] = useState<boolean>(false)
   const resetGrid = useGridStore(state => state.resetGrid)
   const zoom = useGridStore(state => state.zoom)
+  const robotStatus = useGridStore(state => state.robotInfo?.status)
   const setMapGrid = useGridStore(state => state.setMapGrid)
-  const setRobotPose = useGridStore(state => state.setRobotPose)
+  const setRobotInfo = useGridStore(state => state.setRobotInfo)
 
   const wsOption = {
     shouldReconnect: (event: CloseEvent) => event.code !== 1000,
@@ -36,38 +37,33 @@ const Mapping: React.FC = () => {
     if (robotMessage != null) {
       try {
         const msg = JSON.parse(robotMessage.data) as RobotInfoMessage
-        setRobotPose(msg.pose)
+        setRobotInfo(msg)
       }
       catch (e) {
         console.error('Failed to parse robot data', robotMessage.data, e)
       }
     }
-  }, [mapMessage, robotMessage, setMapGrid, setRobotPose])
-
-  const connectionStatus = {
-    [ReadyState.CONNECTING]: 'Connecting',
-    [ReadyState.OPEN]: 'Open',
-    [ReadyState.CLOSING]: 'Closing',
-    [ReadyState.CLOSED]: 'Closed',
-    [ReadyState.UNINSTANTIATED]: 'Uninstantiated',
-  }
-
-  const fetchData = useCallback(async () => {
-    await apiServer.mapping(5)
-  }, [])
+  }, [mapMessage, robotMessage, setMapGrid, setRobotInfo])
 
   useLayoutEffect(() => {
+    const fetchData = async () => {
+      await apiServer.mapping(5)
+    }
     fetchData()
     return () => {
       resetGrid()
     }
-  }, [fetchData, resetGrid])
+  }, [resetGrid])
 
   const zoomInClick = () => zoom(1.1)
   const zoomOutClick = () => zoom(0.9)
 
   const handleSaveClicked = async () => {
     setShowModal(true)
+  }
+
+  const handleModalClose = () => {
+    setShowModal(false)
   }
 
   return (
@@ -95,20 +91,18 @@ const Mapping: React.FC = () => {
         </div>
         <div className="flex">
           <div className="panel-item justify-center group">
-            <div className={`${mapState === ReadyState.OPEN
-              ? 'border-green'
-              : 'border-red'} border-(3px solid) rd-3px self-center`}/>
-              <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
-                {`Map: ${connectionStatus[mapState]}`}
-              </span>
-          </div>
-          <div className="panel-item justify-center">
             <div className={`${robotState === ReadyState.OPEN
               ? 'border-green'
               : 'border-red'} border-(3px solid) rd-3px self-center`} />
               <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
-                {`Robot: ${connectionStatus[mapState]}`}
+                {`机器人: ${robotStatus ?? '未连接'}`}
               </span>
+          </div>
+          <div className="panel-item justify-center group">
+            <div className={`${mapState === ReadyState.OPEN
+              ? 'border-green'
+              : 'border-red'} border-(3px solid) rd-3px self-center`}/>
+              <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">地图</span>
           </div>
         </div>
       </div>
@@ -119,7 +113,7 @@ const Mapping: React.FC = () => {
         </div>
         <MapInfoModal
           visible={showModal}
-          onClose={() => setShowModal(false)} />
+          onClose={handleModalClose} />
       </div>
     </div>
   )

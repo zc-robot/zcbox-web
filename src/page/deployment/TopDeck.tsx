@@ -10,7 +10,8 @@ export interface TopDeckProps {
 
 const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const zoom = useGridStore(state => state.zoom)
-  const setRobotPose = useGridStore(state => state.setRobotPose)
+  const robotStatus = useGridStore(state => state.robotInfo?.status)
+  const setRobotInfo = useGridStore(state => state.setRobotInfo)
   const setMapGrid = useGridStore(state => state.setMapGrid)
 
   const currentOp = useOperationStore(state => state.current)
@@ -23,13 +24,6 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const zoomInClick = () => zoom(1.1)
   const zoomOutClick = () => zoom(0.9)
 
-  const connectionStatus = {
-    [ReadyState.CONNECTING]: 'Connecting',
-    [ReadyState.OPEN]: 'Open',
-    [ReadyState.CLOSING]: 'Closing',
-    [ReadyState.CLOSED]: 'Closed',
-    [ReadyState.UNINSTANTIATED]: 'Uninstantiated',
-  }
   const wsOption = {
     shouldReconnect: (event: CloseEvent) => event.code !== 1000,
     reconnectAttempts: 10,
@@ -42,13 +36,13 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     if (lastMessage !== null) {
       try {
         const msg = JSON.parse(lastMessage.data) as RobotInfoMessage
-        setRobotPose(msg.pose)
+        setRobotInfo(msg)
       }
       catch (e) {
         console.error('Failed to parse robot data', lastMessage.data, e)
       }
     }
-  }, [lastMessage, setRobotPose])
+  }, [lastMessage, setRobotInfo])
 
   const handleFetchClicked = async () => {
     const data = await apiServer.fetchMap(mapId)
@@ -131,7 +125,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
             ? 'border-green'
             : 'border-red'} border-(3px solid) rd-3px self-center`}/>
             <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
-              {`Robot: ${connectionStatus[readyState]}`}
+              {`机器人: ${robotStatus ?? '未连接'}`}
             </span>
         </div>
         <div

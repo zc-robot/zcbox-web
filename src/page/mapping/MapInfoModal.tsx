@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import Input from '@/components/Input'
 import apiServer from '@/service/apiServer'
+import { useParamsStore } from '@/store'
 
 interface PointModalProps {
   visible: boolean
@@ -9,10 +10,12 @@ interface PointModalProps {
 
 const MapInfoModal: React.FC<PointModalProps> = ({ visible, onClose }) => {
   const [name, setName] = useState<string>('地图一')
+  const fetchParams = useParamsStore(state => state.fetchParams)
 
   const handleSubmit = async () => {
     if (name) {
       await apiServer.saveMap(name)
+      await fetchParams()
       onClose()
     }
   }

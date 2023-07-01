@@ -1,13 +1,13 @@
+import type Konva from 'konva'
 import React, { useEffect, useRef, useState } from 'react'
 import { Layer, Stage } from 'react-konva'
-import type Konva from 'konva'
 import GridMap from './GridMap'
+import Pathway from './Pathway'
 import Robot from './Robot'
 import Waypoint from './Waypoint'
-import Pathway from './Pathway'
+import { uid } from '@/util'
 import { useGridStore, useOperationStore, useProfileStore } from '@/store'
 import { useElementSize, useKeyPress } from '@/hooks'
-import { uid } from '@/util'
 
 interface ImageState {
   x: number
@@ -30,7 +30,7 @@ const Monitor: React.FC = () => {
   const selectPoint = useOperationStore(state => state.selectPoint)
   const scale = useGridStore(state => state.scale)
   const gridInfo = useGridStore(state => state.gridInfo)
-  const poseMsg = useGridStore(state => state.pose)
+  const robotInfo = useGridStore(state => state.robotInfo)
   const currentPoints = useProfileStore(state => state.currentProfilePoints())
   const appendCurrentProfilePoint = useProfileStore(state => state.appendCurrentProfilePoint)
   const removeCurrentProfilePoint = useProfileStore(state => state.removeCurrentProfilePoint)
@@ -73,7 +73,7 @@ const Monitor: React.FC = () => {
       setLayerState(lp)
     }
     renderMap()
-  }, [gridInfo, poseMsg, scale])
+  }, [gridInfo, robotInfo, scale])
 
   useEffect(() => {
     if (currentOp !== 'select')
@@ -166,9 +166,9 @@ const Monitor: React.FC = () => {
             onDragMove={handleLayerDrag}
             onClick={handleLayerClick}>
             <GridMap />
-            {(gridInfo && poseMsg)
+            {(gridInfo && robotInfo)
               && <Robot
-                pose={poseMsg} />
+                pose={robotInfo.pose} />
             }
             {currentPaths.map((path, i) => <Pathway
               key={i}

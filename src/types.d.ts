@@ -28,8 +28,16 @@ export interface OccupancyGridMessage {
   data: number[],
 }
 
+export type RobotStatus =
+  | 'idle'
+  | 'moving'
+  | 'succeeded'
+  | 'failed'
+  | 'canceled'
+
 export interface RobotInfoMessage {
-  pose: PoseMessage
+  pose: PoseMessage,
+  status: RobotStatus,
 }
 
 export interface PoseMessage {

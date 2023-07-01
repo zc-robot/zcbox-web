@@ -1,16 +1,16 @@
 import type { StateCreator } from 'zustand'
-import type { GridInfoMessage, PoseMessage } from '@/types'
+import type { GridInfoMessage, RobotInfoMessage } from '@/types'
 import { mapImageData } from '@/util/transform'
 
 export interface GridSlice {
   scale: number
   gridInfo: GridInfoMessage | null
   mapData: number[]
-  pose: PoseMessage | null
+  robotInfo: RobotInfoMessage | null
 
   // Actions
   setMapGrid: (data: number[], grid: GridInfoMessage) => void
-  setRobotPose: (pose: PoseMessage) => void
+  setRobotInfo: (robot: RobotInfoMessage) => void
   resetGrid: () => void
   zoom: (scale: number) => void
 }
@@ -19,21 +19,21 @@ export const gridSlice: StateCreator<GridSlice> = set => ({
   scale: 1,
   gridInfo: null,
   mapData: [],
-  pose: null,
+  robotInfo: null,
 
   // Actions
   setMapGrid: (data, grid) => {
     set({ mapData: data, gridInfo: grid })
   },
-  setRobotPose: (pose) => {
-    set({ pose })
+  setRobotInfo: (robot) => {
+    set({ robotInfo: robot })
   },
   resetGrid: () => {
     set({
       scale: 2,
       gridInfo: null,
       mapData: [],
-      pose: null,
+      robotInfo: null,
     })
   },
   zoom: (scale: number) => {
