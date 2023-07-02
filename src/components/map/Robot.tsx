@@ -16,6 +16,7 @@ const Robot: React.FC<RobotProp> = ({ pose }) => {
   const rotation = quaternionToCanvasAngle(pose.orientation)
 
   const robotShape = (footprint: FootprintParams) => {
+    const robotCenterOffset = -footprint.nav_center2robot_center
     if (footprint.is_round) {
       return (
         <Group>
@@ -28,14 +29,14 @@ const Robot: React.FC<RobotProp> = ({ pose }) => {
           <Circle
             x={x}
             y={y}
-            offsetY={footprint.nav_center2robot_center}
+            offsetX={robotCenterOffset}
             radius={footprint.radius / 10}
             fill="red"
             rotation={rotation} />
           <Line
             x={x}
             y={y}
-            offsetY={footprint.nav_center2robot_center}
+            offsetX={robotCenterOffset}
             points={[0, 0, footprint.radius, 0]}
             stroke="red"
             strokeWidth={footprint.robot_width / 10}
@@ -61,14 +62,14 @@ const Robot: React.FC<RobotProp> = ({ pose }) => {
           <Circle
             x={x}
             y={y}
-            offsetY={footprint.nav_center2robot_center}
+            offsetX={robotCenterOffset}
             radius={footprint.robot_width / 10}
             fill="red"
             rotation={rotation} />
           <Line
             x={x}
             y={y}
-            offsetY={footprint.nav_center2robot_center}
+            offsetX={robotCenterOffset}
             points={[0, 0, footprint.robot_length / 2, 0]}
             stroke="red"
             strokeWidth={footprint.robot_width / 10}
