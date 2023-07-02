@@ -23,7 +23,8 @@ export const useBoundStore = create<GridSlice & OperationSlice & ProfileSlice & 
     partialize: state => ({
       apiDomain: state.apiDomain,
       wsDomain: state.wsDomain,
-      params: state.params,
+      robotParams: state.robotParams,
+      mapParams: state.mapParams,
     }),
   },
 ))

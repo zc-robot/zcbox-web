@@ -11,7 +11,7 @@ const Mapping: React.FC = () => {
   const [showModal, setShowModal] = useState<boolean>(false)
   const resetGrid = useGridStore(state => state.resetGrid)
   const zoom = useGridStore(state => state.zoom)
-  const robotStatus = useGridStore(state => state.robotInfo?.status)
+  const robotStatus = useGridStore(state => state.robotInfo?.fsm)
   const setMapGrid = useGridStore(state => state.setMapGrid)
   const setRobotInfo = useGridStore(state => state.setRobotInfo)
 
@@ -47,7 +47,7 @@ const Mapping: React.FC = () => {
 
   useLayoutEffect(() => {
     const fetchData = async () => {
-      await apiServer.mapping(5)
+      await apiServer.mapping()
     }
     fetchData()
     return () => {

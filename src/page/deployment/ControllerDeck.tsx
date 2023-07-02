@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useWebSocket } from 'react-use-websocket/dist/lib/use-websocket'
 import { ReadyState } from 'react-use-websocket'
+import { round, toNumber, toString } from 'lodash'
 import { useOperationStore } from '@/store'
 import { useInterval, useKeyPress } from '@/hooks'
 import apiServer from '@/service/apiServer'
@@ -19,16 +20,16 @@ const _panel: React.FC = () => {
       if (event.shiftKey) {
         switch (event.key) {
           case 'W':
-            updateLineVelocity(velocityInfo.line + step)
+            updateLineVelocity(round(velocityInfo.line + step, 2))
             break
           case 'S':
-            updateLineVelocity(velocityInfo.line - step)
+            updateLineVelocity(round(velocityInfo.line - step, 2))
             break
           case 'A':
-            updateAngularVelocity(velocityInfo.angular - step)
+            updateAngularVelocity(round(velocityInfo.angular - step, 2))
             break
           case 'D':
-            updateAngularVelocity(velocityInfo.angular + step)
+            updateAngularVelocity(round(velocityInfo.angular + step, 2))
         }
       }
       else {
@@ -36,6 +37,9 @@ const _panel: React.FC = () => {
       }
     }
     else {
+      if (event.shiftKey)
+        return
+
       sendJsonMessage({ linear: 0, angular: 0.0 })
       pressKey('')
     }
@@ -120,8 +124,8 @@ const _panel: React.FC = () => {
           type="number"
           min={0}
           step={step}
-          value={velocityInfo.line}
-          onChange={e => updateLineVelocity(Number.parseFloat(e.target.value))}
+          value={toString(velocityInfo.line)}
+          onChange={(e) => { updateLineVelocity(round(toNumber(e.target.value), 2)) }}
         />
       </div>
       <div className="flex flex-items-center pt-2">
@@ -132,8 +136,8 @@ const _panel: React.FC = () => {
           type="number"
           min={0}
           step={step}
-          value={velocityInfo.angular}
-          onChange={e => updateAngularVelocity(Number.parseFloat(e.target.value))}
+          value={toString(velocityInfo.angular)}
+          onChange={(e) => { updateAngularVelocity(round(toNumber(e.target.value), 2)) }}
         />
       </div>
     </div>

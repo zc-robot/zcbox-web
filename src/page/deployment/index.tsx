@@ -1,5 +1,6 @@
 import { useParams } from 'react-router-dom'
 import { useCallback, useEffect } from 'react'
+import { toNumber } from 'lodash'
 import ControllerDeck from './ControllerDeck'
 import ProfileDeck from './ProfileDeck'
 import TaskDeck from './TaskDeck'
@@ -16,7 +17,7 @@ const Deployment: React.FC = () => {
   const parseMapId = useCallback(() => {
     if (!mapId)
       return 0
-    return Number.parseInt(mapId)
+    return toNumber(mapId)
   }, [mapId])
 
   useEffect(() => {

@@ -34,7 +34,7 @@ interface PathwayProps {
 
 const Pathway: React.FC<PathwayProps> = ({ path, onSelect, isSelected }) => {
   const lineRef = useRef<Konva.Line>(null)
-  const params = useParamsStore(state => state.params)
+  const params = useParamsStore(state => state.robotParams)
   const updateCurrentProfilePath = useProfileStore(state => state.updateCurrentProfilePath)
 
   const points = [

@@ -2,13 +2,14 @@ import { useEffect } from 'react'
 import FootPrint from './Footprint'
 import Joint from './Joint'
 import Host from './Host'
+import MapSetting from './MapSetting'
 import Uploader from '@/page/settings/Uploader'
 import apiServer from '@/service/apiServer'
 import { useParamsStore } from '@/store'
 
 const Settings: React.FC = () => {
-  const params = useParamsStore(state => state.params)
-  const fetchParams = useParamsStore(state => state.fetchParams)
+  const params = useParamsStore(state => state.robotParams)
+  const fetchParams = useParamsStore(state => state.fetchRobotParams)
 
   useEffect(() => {
     fetchParams()
@@ -23,6 +24,9 @@ const Settings: React.FC = () => {
   return (
     <div className="flex flex-(1 col) px-20 overflow-auto pb-10">
       <Host />
+      <hr className="h-1px w-full border-1 bg-gray-500" />
+      <MapSetting />
+      <hr className="h-1px w-full border-1 bg-gray-500" />
       {params && (
         <>
           <h3>关节参数</h3>

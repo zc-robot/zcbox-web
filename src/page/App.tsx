@@ -35,7 +35,7 @@ const router = createBrowserRouter([
 ])
 
 const App: React.FC = () => {
-  const fetchParams = useParamsStore(state => state.fetchParams)
+  const fetchParams = useParamsStore(state => state.fetchRobotParams)
 
   useEffect(() => {
     fetchParams()

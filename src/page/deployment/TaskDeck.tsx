@@ -7,7 +7,7 @@ const TaskDeck: React.FC = () => {
   const [showTaskList, setShowTaskList] = useState(false)
   const [repeat, setRepeat] = useState(false)
 
-  const robotStatus = useGridStore(state => state.robotInfo?.status)
+  const robotStatus = useGridStore(state => state.robotInfo?.fsm)
   const executingTaskId = useGridStore(state => state.robotInfo?.task_uid)
   const currentProfileId = useProfileStore(state => state.currentProfileId)
   const currentTaskId = useProfileStore(state => state.currentTaskId)

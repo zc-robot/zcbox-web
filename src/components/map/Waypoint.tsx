@@ -15,7 +15,7 @@ interface WaypointProp {
 const Waypoint: React.FC<WaypointProp> = ({ point, onSelect, isSelected }) => {
   const shapeRef = useRef<Konva.Arrow>(null)
   const transformRef = useRef<Konva.Transformer>(null)
-  const params = useParamsStore(state => state.params)
+  const params = useParamsStore(state => state.robotParams)
   const updateCurrentProfilePoint = useProfileStore(state => state.updateCurrentProfilePoint)
 
   const handleSelect = (e: Konva.KonvaEventObject<MouseEvent>) => {

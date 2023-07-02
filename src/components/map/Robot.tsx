@@ -9,7 +9,7 @@ interface RobotProp {
 }
 
 const Robot: React.FC<RobotProp> = ({ pose }) => {
-  const params = useParamsStore(state => state.params)
+  const params = useParamsStore(state => state.robotParams)
 
   const x = pose.position.x
   const y = -pose.position.y

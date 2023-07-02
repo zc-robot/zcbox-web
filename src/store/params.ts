@@ -5,12 +5,17 @@ import apiServer from '@/service/apiServer'
 export interface ParamsSlice {
   apiDomain: string
   wsDomain: string
-  params: RobotParams | null
+  robotParams: RobotParams | null
+  mapParams: {
+    resolution: number
+    model: string
+  }
 
   // Actions
   updateApiDomain: (domain: string) => void
   updateWsDomain: (domain: string) => void
-  fetchParams: () => Promise<void>
+  updateMapParams: (by: { resolution?: number; model?: string }) => void
+  fetchRobotParams: () => Promise<void>
   updateJointParams: (index: number, by: JointParams) => void
   updateFootprintParams: (by: FootprintParams) => void
   uploadParams: () => Promise<void>
@@ -19,7 +24,11 @@ export interface ParamsSlice {
 export const paramsSlice: StateCreator<ParamsSlice> = (set, get) => ({
   apiDomain: '',
   wsDomain: '',
-  params: null,
+  robotParams: null,
+  mapParams: {
+    resolution: 2,
+    model: 'diff',
+  },
 
   updateApiDomain: (domain: string) => {
     set({ apiDomain: domain })
@@ -27,30 +36,36 @@ export const paramsSlice: StateCreator<ParamsSlice> = (set, get) => ({
   updateWsDomain: (domain: string) => {
     set({ wsDomain: domain })
   },
-  fetchParams: async () => {
+  updateMapParams: (by: { resolution?: number; model?: string }) => {
+    set((state) => {
+      const newMapParams = { ...state.mapParams, ...by }
+      return { mapParams: newMapParams }
+    })
+  },
+  fetchRobotParams: async () => {
     const params = await apiServer.fetchParams()
-    set({ params })
+    set({ robotParams: params })
   },
   updateJointParams: (index: number, by: JointParams) => {
     set((state) => {
-      if (state.params) {
-        const newUrdf = state.params.urdf.slice()
+      if (state.robotParams) {
+        const newUrdf = state.robotParams.urdf.slice()
         newUrdf[index] = by
-        return { params: { ...state.params, urdf: newUrdf } }
+        return { robotParams: { ...state.robotParams, urdf: newUrdf } }
       }
       else { return state }
     })
   },
   updateFootprintParams: (by: FootprintParams) => {
     set((state) => {
-      if (state.params)
-        return { params: { ...state.params, robot_footprint: by } }
+      if (state.robotParams)
+        return { robotParams: { ...state.robotParams, robot_footprint: by } }
       else
         return state
     })
   },
   uploadParams: async () => {
-    const { params } = get()
+    const { robotParams: params } = get()
     if (params)
       await apiServer.uploadParams(params)
   },

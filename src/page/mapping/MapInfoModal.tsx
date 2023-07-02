@@ -10,7 +10,7 @@ interface PointModalProps {
 
 const MapInfoModal: React.FC<PointModalProps> = ({ visible, onClose }) => {
   const [name, setName] = useState<string>('地图一')
-  const fetchParams = useParamsStore(state => state.fetchParams)
+  const fetchParams = useParamsStore(state => state.fetchRobotParams)
 
   const handleSubmit = async () => {
     if (name) {

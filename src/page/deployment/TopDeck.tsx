@@ -10,7 +10,7 @@ export interface TopDeckProps {
 
 const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const zoom = useGridStore(state => state.zoom)
-  const robotStatus = useGridStore(state => state.robotInfo?.status)
+  const robotStatus = useGridStore(state => state.robotInfo?.fsm)
   const setRobotInfo = useGridStore(state => state.setRobotInfo)
   const setMapGrid = useGridStore(state => state.setMapGrid)
 
@@ -41,7 +41,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
       try {
         const msg = JSON.parse(lastMessage.data) as RobotInfoMessage
         setRobotInfo(msg)
-        const status = msg.status
+        const status = msg.fsm
 
         if (['success', 'failed', 'canceled'].includes(status))
           confirmStatus()

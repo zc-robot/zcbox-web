@@ -1,3 +1,4 @@
+import { round, toNumber, toString } from 'lodash'
 import Input from '@/components/Input'
 import { useParamsStore } from '@/store'
 import type { JointParams } from '@/types'
@@ -12,6 +13,8 @@ const Joint: React.FC<JointProps> = ({ params }) => {
   const handleParamsChanged = (index: number, param: JointParams) => {
     updateJointParams(index, param)
   }
+
+  const roundValue = (value: string) => round(toNumber(value), 2)
 
   return (
     <table>
@@ -36,12 +39,42 @@ const Joint: React.FC<JointProps> = ({ params }) => {
             <td className="text-center">{param.type}</td>
             <td className="text-center">{param.parent}</td>
             <td className="text-center">{param.child}</td>
-            <td className="text-center"><Input className="w-10" value={param.x} onChange={e => handleParamsChanged(index, { ...param, x: Number.parseFloat(e.target.value) })} /></td>
-            <td className="text-center"><Input className="w-10" value={param.y} onChange={e => handleParamsChanged(index, { ...param, y: Number.parseFloat(e.target.value) })}/></td>
-            <td className="text-center"><Input className="w-10" value={param.z} onChange={e => handleParamsChanged(index, { ...param, z: Number.parseFloat(e.target.value) })}/></td>
-            <td className="text-center"><Input className="w-10" value={param.roll} onChange={e => handleParamsChanged(index, { ...param, roll: Number.parseFloat(e.target.value) })}/></td>
-            <td className="text-center"><Input className="w-10" value={param.pitch} onChange={e => handleParamsChanged(index, { ...param, pitch: Number.parseFloat(e.target.value) })}/></td>
-            <td className="text-center"><Input className="w-10" value={param.yaw} onChange={e => handleParamsChanged(index, { ...param, yaw: Number.parseFloat(e.target.value) })}/></td>
+            <td className="text-center"><Input
+              className="w-10"
+              type="number"
+              value={toString(param.x)}
+              onChange={e => handleParamsChanged(index, { ...param, x: roundValue(e.target.value) })} />
+            </td>
+            <td className="text-center"><Input
+              className="w-10"
+              type="number"
+              value={toString(param.y)}
+              onChange={e => handleParamsChanged(index, { ...param, y: roundValue(e.target.value) })}/>
+            </td>
+            <td className="text-center"><Input
+              className="w-10"
+              type="number"
+              value={toString(param.z)}
+              onChange={e => handleParamsChanged(index, { ...param, z: roundValue(e.target.value) })}/>
+            </td>
+            <td className="text-center"><Input
+              className="w-10"
+              type="number"
+              value={toString(param.roll)}
+              onChange={e => handleParamsChanged(index, { ...param, roll: roundValue(e.target.value) })}/>
+            </td>
+            <td className="text-center"><Input
+              className="w-10"
+              type="number"
+              value={toString(param.pitch)}
+              onChange={e => handleParamsChanged(index, { ...param, pitch: roundValue(e.target.value) })}/>
+            </td>
+            <td className="text-center"><Input
+              className="w-10"
+              type="number"
+              value={toString(param.yaw)}
+              onChange={e => handleParamsChanged(index, { ...param, yaw: roundValue(e.target.value) })}/>
+            </td>
           </tr>
         ))}
       </tbody>

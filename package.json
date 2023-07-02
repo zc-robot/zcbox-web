@@ -15,6 +15,7 @@
     "dropzone": "6.0.0-beta.2",
     "konva": "^9.0.1",
     "ky": "^0.33.3",
+    "lodash": "^4.17.21",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-dropzone-component": "^3.2.0",
@@ -26,6 +27,7 @@
   "devDependencies": {
     "@antfu/eslint-config-react": "^0.39.5",
     "@iconify-json/material-symbols": "^1.1.40",
+    "@types/lodash": "^4.14.195",
     "@types/node": "^18.16.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",

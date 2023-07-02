@@ -30,8 +30,9 @@ class ApiServer {
     return json.data
   }
 
-  mapping = async (resolution: number) => {
-    const json = await this.client.get(`mapping/${resolution}/diff`).json()
+  mapping = async () => {
+    const params = useBoundStore.getState().mapParams
+    const json = await this.client.get(`mapping/${params.resolution}/${params.model}`).json()
     return json
   }
 
