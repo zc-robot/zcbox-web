@@ -55,6 +55,11 @@ class ApiServer {
     return json
   }
 
+  confirmStatus = async () => {
+    const json = await this.client.get('deploy/confirmStatus').json()
+    return json
+  }
+
   submitTask = async (data: object) => {
     const json = await this.client.post('deploy/saveTask', { json: data }).json()
     return json
