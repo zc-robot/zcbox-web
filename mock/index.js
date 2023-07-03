@@ -63,7 +63,10 @@ mapWss.on('connection', (ws) => {
 
   fs.readFile(`${dirPath}/grid.json`, (_, data) => {
     const obj = JSON.parse(data.toString())
-    ws.send(JSON.stringify(obj.data.data))
+    const objData = JSON.stringify(obj.data.data)
+    setInterval(() => {
+      ws.send(objData)
+    }, 500)
   })
 })
 robotWss.on('connection', (ws) => {
@@ -80,7 +83,6 @@ robotWss.on('connection', (ws) => {
       ws.send(JSON.stringify(obj))
       index = (index + 1) % positions.length
     }, 500)
-    ws.send(data.toString())
   })
 })
 controlWss.on('connection', (ws) => {

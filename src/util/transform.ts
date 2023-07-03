@@ -33,20 +33,41 @@ function getColorVal(value: number) {
   }
 }
 
-export function mapImageData(info: GridInfoMessage, mapData: number[]) {
+export function offscreenCanvasImage(context: CanvasRenderingContext2D, info: GridInfoMessage, mapData: number[]) {
   const width = info.width
   const height = info.height
-  const map = new Uint8ClampedArray(width * height * 4)
+  context.clearRect(0, 0, width, height)
+  const imageData = context.createImageData(width, height)
   for (let index = 0; index < mapData.length; index++) {
     const data = mapData[index]
     const colorVal = getColorVal(data)
     const row = height - Math.floor(index / width) - 1
     const col = index % width
     const i = (col + (row * width)) * 4
-    map[i] = colorVal
-    map[i + 1] = colorVal
-    map[i + 2] = colorVal
-    map[i + 3] = 255
+    imageData.data[i] = colorVal
+    imageData.data[i + 1] = colorVal
+    imageData.data[i + 2] = colorVal
+    imageData.data[i + 3] = 255
   }
-  return map
+  context.putImageData(imageData, 0, 0)
+}
+
+let mapArray: Uint8ClampedArray | null = null
+export function mapImageData(info: GridInfoMessage, mapData: number[]) {
+  const width = info.width
+  const height = info.height
+  if (!mapArray || mapArray.length !== width * height * 4)
+    mapArray = new Uint8ClampedArray(width * height * 4)
+  for (let index = 0; index < mapData.length; index++) {
+    const data = mapData[index]
+    const colorVal = getColorVal(data)
+    const row = height - Math.floor(index / width) - 1
+    const col = index % width
+    const i = (col + (row * width)) * 4
+    mapArray[i] = colorVal
+    mapArray[i + 1] = colorVal
+    mapArray[i + 2] = colorVal
+    mapArray[i + 3] = 255
+  }
+  return mapArray
 }

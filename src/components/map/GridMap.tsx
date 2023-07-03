@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Image } from 'react-konva'
-import { selectMapImageData } from '@/store/grid'
 import { useGridStore } from '@/store'
+import { selectMapImageData } from '@/store/grid'
 
 interface MapProp {
   x: number
