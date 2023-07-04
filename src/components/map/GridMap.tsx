@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Image } from 'react-konva'
 import { useGridStore } from '@/store'
-import { selectMapImageData } from '@/store/grid'
+import { mapWorker } from '@/util/transform'
 
 interface MapProp {
   x: number
@@ -14,8 +14,15 @@ interface MapProp {
 
 const GridMap: React.FC = () => {
   const gridInfo = useGridStore(state => state.gridInfo)
-  const imageData = useGridStore(selectMapImageData)
+  const mapData = useGridStore(state => state.mapData)
   const [mapState, setMapState] = useState<MapProp>()
+
+  const transformMapBackground = useCallback(async () => {
+    if (!gridInfo || !mapData.length) 
+      return undefined
+    const imageData = await mapWorker.mapImageData(gridInfo, mapData)
+    return await createImageBitmap(imageData)
+  }, [gridInfo, mapData])
 
   useEffect(() => {
     const renderMap = async () => {
@@ -27,7 +34,7 @@ const GridMap: React.FC = () => {
       const width = gridInfo.width
       const height = gridInfo.height
       const resolution = gridInfo.resolution
-      const bitmap = imageData ? await createImageBitmap(imageData) : undefined
+      const bitmap = await transformMapBackground()
 
       const state = {
         x: gridInfo.origin.position.x,
@@ -39,7 +46,7 @@ const GridMap: React.FC = () => {
       setMapState(state)
     }
     renderMap()
-  }, [gridInfo, imageData])
+  }, [gridInfo])
 
   return (
     <>

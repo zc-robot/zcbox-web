@@ -1,4 +1,4 @@
-import type { GridInfoMessage, QuaternionMessage } from '@/types'
+import type { QuaternionMessage } from '@/types'
 
 // See https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles#Rotation_matrices
 // here we use [x y z] = R * [1 0 0]
@@ -22,52 +22,7 @@ export function canvasAngleToQuaternion(angle: number): QuaternionMessage {
   return { x, y, z, w }
 }
 
-function getColorVal(value: number) {
-  switch (value) {
-    case 100:
-      return 0
-    case 0:
-      return 255
-    default:
-      return 127
-  }
-}
-
-export function offscreenCanvasImage(context: CanvasRenderingContext2D, info: GridInfoMessage, mapData: number[]) {
-  const width = info.width
-  const height = info.height
-  context.clearRect(0, 0, width, height)
-  const imageData = context.createImageData(width, height)
-  for (let index = 0; index < mapData.length; index++) {
-    const data = mapData[index]
-    const colorVal = getColorVal(data)
-    const row = height - Math.floor(index / width) - 1
-    const col = index % width
-    const i = (col + (row * width)) * 4
-    imageData.data[i] = colorVal
-    imageData.data[i + 1] = colorVal
-    imageData.data[i + 2] = colorVal
-    imageData.data[i + 3] = 255
-  }
-  context.putImageData(imageData, 0, 0)
-}
-
-let mapArray: Uint8ClampedArray | null = null
-export function mapImageData(info: GridInfoMessage, mapData: number[]) {
-  const width = info.width
-  const height = info.height
-  if (!mapArray || mapArray.length !== width * height * 4)
-    mapArray = new Uint8ClampedArray(width * height * 4)
-  for (let index = 0; index < mapData.length; index++) {
-    const data = mapData[index]
-    const colorVal = getColorVal(data)
-    const row = height - Math.floor(index / width) - 1
-    const col = index % width
-    const i = (col + (row * width)) * 4
-    mapArray[i] = colorVal
-    mapArray[i + 1] = colorVal
-    mapArray[i + 2] = colorVal
-    mapArray[i + 3] = 255
-  }
-  return mapArray
-}
+// Worker instance
+export const mapWorker = new ComlinkWorker<typeof import('../worker')>(
+  new URL('../worker', import.meta.url), { type: 'module' },
+)

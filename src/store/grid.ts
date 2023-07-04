@@ -1,6 +1,5 @@
 import type { StateCreator } from 'zustand'
 import type { GridInfoMessage, RobotInfoMessage } from '@/types'
-import { mapImageData } from '@/util/transform'
 
 export interface GridSlice {
   scale: number
@@ -45,11 +44,3 @@ export const gridSlice: StateCreator<GridSlice> = set => ({
     })
   },
 })
-
-export function selectMapImageData(state: GridSlice) {
-  const { gridInfo, mapData } = state
-  if (!gridInfo || !mapData)
-    return null
-  const data = mapImageData(gridInfo, mapData)
-  return new ImageData(data, gridInfo.width, gridInfo.height)
-}
