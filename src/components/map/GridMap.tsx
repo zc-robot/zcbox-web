@@ -8,7 +8,7 @@ interface MapProp {
   y: number
   width?: number
   height?: number
-  data: CanvasImageSource
+  data: ImageBitmap
   rotation?: number
 }
 
@@ -18,7 +18,7 @@ const GridMap: React.FC = () => {
   const [mapState, setMapState] = useState<MapProp>()
 
   const transformMapBackground = useCallback(async () => {
-    if (!gridInfo || !mapData.length) 
+    if (!gridInfo || !mapData.length)
       return undefined
     const imageData = await mapWorker.mapImageData(gridInfo, mapData)
     return await createImageBitmap(imageData)
@@ -43,10 +43,16 @@ const GridMap: React.FC = () => {
         height: height * resolution,
         data: bitmap,
       } as MapProp
-      setMapState(state)
+      setMapState((prevState) => {
+        // Release previous ImageBitmap to avoid memory leak
+        if (prevState?.data)
+          prevState.data.close()
+
+        return state
+      })
     }
     renderMap()
-  }, [gridInfo])
+  }, [gridInfo, transformMapBackground])
 
   return (
     <>

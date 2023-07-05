@@ -21,7 +21,7 @@ interface ImageState {
 const Monitor: React.FC = () => {
   const layerRef = useRef<Konva.Layer>(null)
   const [layerState, setLayerState] = useState<ImageState>()
-  const [offset, setOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  const [offset, setOffset] = useState({ x: 0, y: 0 })
 
   const [containerRef, { width, height }] = useElementSize()
   const currentOp = useOperationStore(state => state.current)
@@ -145,7 +145,10 @@ const Monitor: React.FC = () => {
       return
 
     const evt = obj.evt
-    setOffset({ x: offset.x + evt.movementX, y: offset.y + evt.movementY })
+    setOffset(prevState => ({
+      x: prevState.x + evt.movementX,
+      y: prevState.y + evt.movementY,
+    }))
   }
 
   return (

@@ -1,4 +1,4 @@
-import { GridInfoMessage } from "./types"
+import type { GridInfoMessage } from './types'
 
 function getColorVal(value: number) {
   switch (value) {
