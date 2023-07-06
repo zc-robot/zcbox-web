@@ -1,7 +1,55 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { shallow } from 'zustand/shallow'
 import { useOperationStore, useProfileStore } from '@/store'
+import type { NavPoint } from '@/types'
+import apiServer from '@/service/apiServer'
 
 type display = 'point' | 'path'
+
+interface PointItemProps {
+  point: NavPoint
+  selected: boolean
+  onClick: (e: React.MouseEvent<HTMLDivElement, MouseEvent>) => void
+  onDoubleClick: () => void
+  onDeleteClick: () => void
+  onRelocateClick: () => void
+}
+
+const PointItem: React.FC<PointItemProps> = ({ point, selected, onClick, onDoubleClick, onDeleteClick, onRelocateClick }) => {
+  const [showMenu, setShowMenu] = useState(false)
+  useEffect(() => {
+    if (!selected)
+      setShowMenu(false)
+  }, [selected])
+
+  return (
+    <div
+      className={`cursor-default h-2rem pl-2 flex items-center hover:(outline outline-1 outline-blue-300) ${selected
+        ? 'bg-gray-300'
+        : ''}`}
+      onClick={(e) => {
+        e.preventDefault()
+        onClick(e)
+        if (showMenu)
+          setShowMenu(false)
+      }}
+      onDoubleClick={onDoubleClick}
+      onContextMenu={(e) => {
+        e.preventDefault()
+
+        if (selected)
+          setShowMenu(true)
+      }}>
+      <div className="i-material-symbols-location-on-outline text-gray-500" />
+      <div className="ml-1 text-3">{point.name}</div>
+      {showMenu
+      && <div className="z-10 relative left-5 top-5 bg-white shadow-(sm blueGray)">
+          <div className="text-sm p-1 hover:bg-gray-200" onClick={onDeleteClick}>删除</div>
+          <div className="text-sm p-1 hover:bg-gray-200" onClick={onRelocateClick}>重定位机器人</div>
+        </div>}
+    </div>
+  )
+}
 
 export interface ProfileDeckProps {
   mapId: number
@@ -10,17 +58,25 @@ export interface ProfileDeckProps {
 const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
   const [showProfileList, setShowProfileList] = useState(true)
   const [currentDisplay, setCurrentDisplay] = useState<display>('point')
-  const selectedId = useOperationStore(state => state.selectedPointId)
-  const select = useOperationStore(state => state.selectPoint)
-  const updateOp = useOperationStore(state => state.updateOp)
 
-  const profiles = useProfileStore(state => state.filterMapProfiles(mapId))
-  const currentProfileId = useProfileStore(state => state.currentProfileId)
-  const currentPoints = useProfileStore(state => state.currentProfilePoints())
-  const currentPaths = useProfileStore(state => state.currentProfilePaths())
-  const addProfile = useProfileStore(state => state.appendProfile)
-  const appendTaskPoint = useProfileStore(state => state.appendProfileTaskPoint)
-  const setCurrentProfile = useProfileStore(state => state.setCurrentProfile)
+  const { selectedId, select, updateOp } = useOperationStore(state => ({
+    selectedId: state.selectedPointId,
+    select: state.selectPoint,
+    updateOp: state.updateOp,
+  }), shallow)
+  const {
+    profiles, currentProfileId, currentPoints, currentPaths,
+    addProfile, appendTaskPoint, removeCurrentProfilePoint, setCurrentProfile,
+  } = useProfileStore(state => ({
+    profiles: state.filterMapProfiles(mapId),
+    currentProfileId: state.currentProfileId,
+    currentPoints: state.currentProfilePoints(),
+    currentPaths: state.currentProfilePaths(),
+    addProfile: state.appendProfile,
+    appendTaskPoint: state.appendProfileTaskPoint,
+    removeCurrentProfilePoint: state.removeCurrentProfilePoint,
+    setCurrentProfile: state.setCurrentProfile,
+  }))
 
   return (
     <div className="w-12rem border-(r-solid 1px gray-300)">
@@ -61,26 +117,28 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
           onClick={() => setCurrentDisplay('path')}>路径</div>
       </div>
       <div
-        className={'flex-col flex'}>
+        className={'flex-col flex'}
+        onClick={() => select(null)}>
         {currentDisplay === 'point'
-          ? currentPoints.map((p, i) => <div
-              key={i}
-              className={`cursor-default h-2rem pl-2 flex items-center hover:(outline outline-1 outline-blue-300) ${selectedId === p.uid
-                ? 'bg-gray-300'
-                : ''}`}
-              onClick={() => {
-                updateOp('select')
-                select(p.uid)
-              }}
-              onContextMenu={(e) => {
-                e.preventDefault()
-              }}
-              onDoubleClick={() => {
-                appendTaskPoint(p)
-              }}>
-              <div className="i-material-symbols-location-on-outline text-gray-500" />
-              <div className="ml-1 text-3">{p.name}</div>
-            </div>)
+          ? currentPoints.map((p, i) => <PointItem
+            key={i}
+            point={p}
+            selected={selectedId === p.uid}
+            onClick={(e) => {
+              e.stopPropagation()
+              updateOp('select')
+              select(p.uid)
+            }}
+            onDoubleClick={() => {
+              appendTaskPoint(p)
+            }}
+            onDeleteClick={() => {
+              removeCurrentProfilePoint(p.uid)
+            }}
+            onRelocateClick={async () => {
+              if (currentProfileId)
+                await apiServer.relocate(currentProfileId, p.uid)
+            }} />)
           : currentPaths.map((p, i) => <div
             key={i}
             className={`cursor-default h-2rem pl-2 flex items-center hover:(outline outline-1 outline-blue-300) ${selectedId === p.uid

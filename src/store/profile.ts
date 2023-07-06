@@ -160,6 +160,12 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
         if (index >= 0)
           p.data.waypoints.splice(index, 1)
       }
+      // Remove relative path
+      if (p && p.data && p.data.paths) {
+        const index = p.data.paths.findIndex(p => p.start.uid === pid || p.end.uid === pid)
+        if (index >= 0)
+          p.data.paths.splice(index, 1)
+      }
       return { profiles: newProfiles }
     })
   },

@@ -77,6 +77,16 @@ class ApiServer {
     return json
   }
 
+  relocate = async (profile: string, point: string) => {
+    const json = await this.client.post('deploy/relocateWithWP', {
+      json: {
+        deploy_uid: profile,
+        wp_uid: point,
+      },
+    }).json()
+    return json
+  }
+
   fetchParams = async () => {
     const json = await this.client.get('parameter/get_params').json<Resp<RobotParams>>()
     if (json.code === 0)

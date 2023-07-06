@@ -91,10 +91,12 @@ export interface NavPath {
   uid: string,
   name: string,
   start: {
+    uid: string,
     x: number,
     y: number,
   },
   end: {
+    uid: string,
     x: number,
     y: number,
   },
