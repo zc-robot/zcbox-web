@@ -37,7 +37,8 @@ class ApiServer {
   }
 
   navigation = async (id: number) => {
-    const json = await this.client.get(`navigation/${id}/diff`).json()
+    const params = useBoundStore.getState().mapParams
+    const json = await this.client.get(`navigation/${id}/${params.model}`).json()
     return json
   }
 
