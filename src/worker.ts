@@ -11,28 +11,27 @@ function getColorVal(value: number) {
   }
 }
 
-let mapArray: Uint8ClampedArray | null = null
-function transformGrid(info: GridInfoMessage, mapData: number[]) {
-  const width = info.width
-  const height = info.height
-  if (!mapArray || mapArray.length !== width * height * 4)
-    mapArray = new Uint8ClampedArray(width * height * 4)
-  for (let index = 0; index < mapData.length; index++) {
-    const data = mapData[index]
-    const colorVal = getColorVal(data)
-    const row = height - Math.floor(index / width) - 1
-    const col = index % width
-    const i = (col + (row * width)) * 4
-    mapArray[i] = colorVal
-    mapArray[i + 1] = colorVal
-    mapArray[i + 2] = colorVal
-    mapArray[i + 3] = 255
-  }
-  return mapArray
-}
+const canvas = new OffscreenCanvas(0, 0)
+export function mapImageData(info: GridInfoMessage, mapData: number[]) {
+  canvas.width = info.width
+  canvas.height = info.height
 
-export async function mapImageData(info: GridInfoMessage, mapData: number[]) {
-  const data = transformGrid(info, mapData)
-  const image = new ImageData(data, info.width, info.height)
-  return image
+  const context = canvas.getContext('2d')
+  if (context) {
+    const image = context.createImageData(info.width, info.height)
+    const data = image.data
+
+    for (let i = 0; i < data.length; i += 4) {
+      const row = info.height - Math.floor(i / info.width / 4) - 1
+      const col = (i / 4) % info.width
+      const index = col + (row * info.width)
+      const colorVal = getColorVal(mapData[index])
+      data[i] = colorVal
+      data[i + 1] = colorVal
+      data[i + 2] = colorVal
+      data[i + 3] = 255
+    }
+    context.putImageData(image, 0, 0)
+  }
+  return canvas.transferToImageBitmap()
 }

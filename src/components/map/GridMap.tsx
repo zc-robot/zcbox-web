@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Image } from 'react-konva'
+import { shallow } from 'zustand/shallow'
 import { useGridStore } from '@/store'
 import { mapWorker } from '@/util/transform'
 
@@ -13,15 +14,14 @@ interface MapProp {
 }
 
 const GridMap: React.FC = () => {
-  const gridInfo = useGridStore(state => state.gridInfo)
-  const mapData = useGridStore(state => state.mapData)
+  const [gridInfo, mapData] = useGridStore(state => [state.gridInfo, state.mapData], shallow)
   const [mapState, setMapState] = useState<MapProp>()
 
   const transformMapBackground = useCallback(async () => {
     if (!gridInfo || !mapData.length)
       return undefined
-    const imageData = await mapWorker.mapImageData(gridInfo, mapData)
-    return await createImageBitmap(imageData)
+    const bitmap = await mapWorker.mapImageData(gridInfo, mapData)
+    return bitmap
   }, [gridInfo, mapData])
 
   useEffect(() => {

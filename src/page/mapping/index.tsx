@@ -25,15 +25,6 @@ const Mapping: React.FC = () => {
   const { lastMessage: robotMessage, readyState: robotState } = useWebSocket(`${apiServer.wsDomain}/robot_data`, wsOption)
 
   useEffect(() => {
-    if (mapMessage != null) {
-      try {
-        const msg = JSON.parse(mapMessage.data) as OccupancyGridMessage
-        setMapGrid(msg.data, msg.info)
-      }
-      catch (e) {
-        console.error('Failed to parse map data', mapMessage.data, e)
-      }
-    }
     if (robotMessage != null) {
       try {
         const msg = JSON.parse(robotMessage.data) as RobotInfoMessage
@@ -43,7 +34,19 @@ const Mapping: React.FC = () => {
         console.error('Failed to parse robot data', robotMessage.data, e)
       }
     }
-  }, [mapMessage, robotMessage, setMapGrid, setRobotInfo])
+  }, [robotMessage, setRobotInfo])
+
+  useEffect(() => {
+    if (mapMessage != null) {
+      try {
+        const msg = JSON.parse(mapMessage.data) as OccupancyGridMessage
+        setMapGrid(msg.data, msg.info)
+      }
+      catch (e) {
+        console.error('Failed to parse map data', mapMessage.data, e)
+      }
+    }
+  }, [mapMessage, setMapGrid])
 
   useLayoutEffect(() => {
     const fetchData = async () => {

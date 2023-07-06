@@ -1,6 +1,7 @@
 import type Konva from 'konva'
 import React, { useEffect, useRef, useState } from 'react'
 import { Layer, Stage } from 'react-konva'
+import { shallow } from 'zustand/shallow'
 import GridMap from './GridMap'
 import Pathway from './Pathway'
 import Robot from './Robot'
@@ -24,19 +25,28 @@ const Monitor: React.FC = () => {
   const [offset, setOffset] = useState({ x: 0, y: 0 })
 
   const [containerRef, { width, height }] = useElementSize()
-  const currentOp = useOperationStore(state => state.current)
-  const updateOp = useOperationStore(state => state.updateOp)
-  const selectedId = useOperationStore(state => state.selectedPointId)
-  const selectPoint = useOperationStore(state => state.selectPoint)
-  const scale = useGridStore(state => state.scale)
-  const gridInfo = useGridStore(state => state.gridInfo)
-  const robotInfo = useGridStore(state => state.robotInfo)
-  const currentPoints = useProfileStore(state => state.currentProfilePoints())
-  const appendCurrentProfilePoint = useProfileStore(state => state.appendCurrentProfilePoint)
-  const removeCurrentProfilePoint = useProfileStore(state => state.removeCurrentProfilePoint)
-  const currentPaths = useProfileStore(state => state.currentProfilePaths())
-  const appendCurrentProfilePath = useProfileStore(state => state.appendCurrentProfilePath)
-  const removeCurrentProfilePath = useProfileStore(state => state.removeCurrentProfilePath)
+  const { currentOp, updateOp, selectedId, selectPoint } = useOperationStore(state => ({
+    currentOp: state.current,
+    updateOp: state.updateOp,
+    selectedId: state.selectedPointId,
+    selectPoint: state.selectPoint,
+  }), shallow)
+  const { scale, gridInfo, robotInfo } = useGridStore(state => ({
+    scale: state.scale,
+    gridInfo: state.gridInfo,
+    robotInfo: state.robotInfo,
+  }), shallow)
+  const {
+    currentPoints, appendCurrentProfilePoint, removeCurrentProfilePoint,
+    currentPaths, appendCurrentProfilePath, removeCurrentProfilePath,
+  } = useProfileStore(state => ({
+    currentPoints: state.currentProfilePoints(),
+    appendCurrentProfilePoint: state.appendCurrentProfilePoint,
+    removeCurrentProfilePoint: state.removeCurrentProfilePoint,
+    currentPaths: state.currentProfilePaths(),
+    appendCurrentProfilePath: state.appendCurrentProfilePath,
+    removeCurrentProfilePath: state.removeCurrentProfilePath,
+  }), shallow)
 
   useKeyPress((_, isDown) => {
     if (!selectedId || !isDown)
