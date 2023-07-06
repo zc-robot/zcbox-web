@@ -72,6 +72,9 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
                 updateOp('select')
                 select(p.uid)
               }}
+              onContextMenu={(e) => {
+                e.preventDefault()
+              }}
               onDoubleClick={() => {
                 appendTaskPoint(p)
               }}>

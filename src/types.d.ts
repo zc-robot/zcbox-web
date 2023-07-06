@@ -44,12 +44,19 @@ export interface RobotInfoMessage {
 export interface PoseMessage {
   position: PointMessage,
   orientation: QuaternionMessage,
+  pyr: EulerAnglesMessage
 }
 
 export interface PointMessage {
   x: number,
   y: number,
   z: number,
+}
+
+export interface EulerAnglesMessage {
+  pitch: number,
+  roll: number,
+  yaw: number,
 }
 
 export interface QuaternionMessage {

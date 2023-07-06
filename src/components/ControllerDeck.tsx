@@ -1,16 +1,19 @@
 import { useState } from 'react'
 import { useWebSocket } from 'react-use-websocket/dist/lib/use-websocket'
-import { ReadyState } from 'react-use-websocket'
 import { round, toNumber, toString } from 'lodash'
-import { useOperationStore } from '@/store'
+import { shallow } from 'zustand/shallow'
+import { useGridStore, useOperationStore } from '@/store'
 import { useInterval, useKeyPress } from '@/hooks'
 import apiServer from '@/service/apiServer'
+import type { PoseMessage, RobotStatus } from '@/types'
 
-const _panel: React.FC = () => {
+const Panel: React.FC = () => {
   const step = 0.02
-  const velocityInfo = useOperationStore(state => state.velocityInfo)
-  const updateLineVelocity = useOperationStore(state => state.updateLineVelocity)
-  const updateAngularVelocity = useOperationStore(state => state.updateAngularVelocity)
+  const { velocityInfo, updateLineVelocity, updateAngularVelocity } = useOperationStore(state => ({
+    velocityInfo: state.velocityInfo,
+    updateLineVelocity: state.updateLineVelocity,
+    updateAngularVelocity: state.updateAngularVelocity,
+  }), shallow)
   const [pressedKey, pressKey] = useState<string>('')
 
   const { sendJsonMessage, readyState } = useWebSocket(`${apiServer.wsDomain}/velocity_control`)
@@ -70,9 +73,6 @@ const _panel: React.FC = () => {
 
   return (
     <div className="p-2 flex flex-col justify-center items-center">
-      <div className="flex items-center mb-5 justify-center text-sm self-start">连接状态{readyState === ReadyState.OPEN
-        ? <span className="ml-1 text-green">已联通</span>
-        : <span className="ml-1 text-red">未联通</span>}</div>
       <div className="flex flex-(justify-center items-center)">
         <div className={`w-4 h-4 border-(solid 1px gray-5) rounded p-1 ${pressedKey === 'q' ? 'bg-gray-3' : ''}`}
           onPointerDown={() => pressKey('q')}
@@ -144,17 +144,54 @@ const _panel: React.FC = () => {
   )
 }
 
+const Info: React.FC<{ pose: PoseMessage; status: RobotStatus }> = ({ pose, status }) => {
+  return (
+    <div className="p-2 flex flex-col border-(t-solid 1px gray-300)">
+      <div className="flex text-sm text-dark font-bold pl-1">状态:
+        <span className="text-dark font-200">{status}</span>
+      </div>
+      <div className="flex text-sm pt-2">
+        <div className="pl-2 font-bold">X:
+          <span className="text-dark font-200">{pose.position.x}</span>
+        </div>
+        <div className="pl-2 font-bold">Y:
+          <span className="text-dark font-200">{pose.position.y}</span>
+        </div>
+        <div className="pl-2 font-bold">Z:
+          <span className="text-dark font-200">{pose.position.z}</span>
+        </div>
+      </div>
+      <div className="flex flex-col text-sm">
+        <div className="pl-2 pt-1 font-bold">Pitch:
+          <br/>
+          <span className="text-dark font-200">{pose.pyr.pitch}</span>
+        </div>
+        <div className="pl-2 pt-1 font-bold">Roll:
+          <br/>
+          <span className="text-dark font-200">{pose.pyr.roll}</span>
+        </div>
+        <div className="pl-2 pt-1 font-bold">Yaw:
+          <br/>
+          <span className="text-dark font-200">{pose.pyr.yaw}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const ControllerDeck: React.FC = () => {
   const [isDeckDisplay, displayDeck] = useState(false)
+  const robotInfo = useGridStore(state => state.robotInfo)
 
   return (
     <div className="flex='grow-0 shrink-0 basis-a'">
+      {robotInfo && <Info pose={robotInfo.pose} status={robotInfo.fsm} />}
       <div className="flex flex-(items-center justify-between) px-4 h-8 border-(t-solid b-solid 1px gray-300)"
         onClick={() => displayDeck(!isDeckDisplay)}>
         <div className="text-3 p-1 cursor-default font-bold">机器人操作</div>
         <div className="i-material-symbols-keyboard-arrow-up" />
       </div>
-      {isDeckDisplay && <_panel />}
+      {isDeckDisplay && <Panel />}
     </div>
   )
 }

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useState } from 'react'
 import useWebSocket, { ReadyState } from 'react-use-websocket'
-import ControllerDeck from '../deployment/ControllerDeck'
 import MapInfoModal from './MapInfoModal'
+import ControllerDeck from '@/components/ControllerDeck'
 import Monitor from '@/components/map/Monitor'
 import { useGridStore } from '@/store'
 import type { OccupancyGridMessage, RobotInfoMessage } from '@/types'
