@@ -43,7 +43,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
         setRobotInfo(msg)
         const status = msg.fsm
 
-        if (['success', 'failed', 'canceled'].includes(status))
+        if (['succeeded', 'failed', 'canceled'].includes(status))
           confirmStatus()
       }
       catch (e) {
