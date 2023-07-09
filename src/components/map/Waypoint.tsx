@@ -6,13 +6,12 @@ import { useParamsStore, useProfileStore } from '@/store'
 
 interface WaypointProp {
   point: NavPoint
-  width: number
-  scale: number
   onSelect: () => void
   isSelected: boolean
 }
 
 const Waypoint: React.FC<WaypointProp> = ({ point, onSelect, isSelected }) => {
+  const groupRef = useRef<Konva.Group>(null)
   const shapeRef = useRef<Konva.Arrow>(null)
   const transformRef = useRef<Konva.Transformer>(null)
   const params = useParamsStore(state => state.robotParams)
@@ -31,6 +30,11 @@ const Waypoint: React.FC<WaypointProp> = ({ point, onSelect, isSelected }) => {
     }
   }, [isSelected])
 
+  useEffect(() => {
+    // NOTE: Reset position when params changed
+    groupRef.current?.setPosition({ x: 0, y: 0 })
+  }, [point])
+
   const width = useMemo(() => {
     if (!params)
       return 0
@@ -40,10 +44,21 @@ const Waypoint: React.FC<WaypointProp> = ({ point, onSelect, isSelected }) => {
       return params.robot_footprint.robot_width / 5
   }, [params])
 
+  const onDragEnd = (obj: Konva.KonvaEventObject<DragEvent>) => {
+    updateCurrentProfilePoint(point.uid, {
+      x: point.x + obj.currentTarget.x(),
+      y: point.y + obj.currentTarget.y(),
+    })
+  }
+
   return (
     <>
       {params && (
         <Group
+          ref={groupRef}
+          clearBeforeDraw={true}
+          draggable={isSelected}
+          onDragEnd={onDragEnd}
           onClick={handleSelect}
           onTap={handleSelect}>
           <Arrow

@@ -38,15 +38,19 @@ const Monitor: React.FC = () => {
   }), shallow)
   const {
     currentPoints, appendCurrentProfilePoint, removeCurrentProfilePoint,
-    currentPaths, appendCurrentProfilePath, removeCurrentProfilePath,
+    currentPaths, appendCurrentProfilePath, removeCurrentProfilePath, updateCurrentProfilePoint,
   } = useProfileStore(state => ({
-    currentPoints: state.currentProfilePoints(),
+    currentPoints: state.currentProfilePoints,
     appendCurrentProfilePoint: state.appendCurrentProfilePoint,
     removeCurrentProfilePoint: state.removeCurrentProfilePoint,
-    currentPaths: state.currentProfilePaths(),
+    currentPaths: state.currentProfilePaths,
     appendCurrentProfilePath: state.appendCurrentProfilePath,
     removeCurrentProfilePath: state.removeCurrentProfilePath,
+    updateCurrentProfilePoint: state.updateCurrentProfilePoint,
   }), shallow)
+
+  // if (currentPoints.length > 0)
+  //   console.log('currentPoints', { x: currentPoints[0].x, y: currentPoints[0].y })
 
   useKeyPress((_, isDown) => {
     if (!selectedId || !isDown)
@@ -121,8 +125,8 @@ const Monitor: React.FC = () => {
         selectPoint(id)
       }
       else if (selectedId && selectedId !== id) {
-        const start = currentPoints.find(p => p.uid === selectedId)
-        const end = currentPoints.find(p => p.uid === id)
+        const start = currentPoints().find(p => p.uid === selectedId)
+        const end = currentPoints().find(p => p.uid === id)
         if (!start || !end)
           return
 
@@ -183,17 +187,15 @@ const Monitor: React.FC = () => {
               && <Robot
                 pose={robotInfo.pose} />
             }
-            {currentPaths.map((path, i) => <Pathway
+            {currentPaths().map((path, i) => <Pathway
               key={i}
               path={path}
               onSelect={() => handlePathClick(path.uid)}
               isSelected={selectedId === path.uid} />,
             )}
-            {currentPoints.map((wp, i) => <Waypoint
+            {currentPoints().map((wp, i) => <Waypoint
               key={i}
               point={wp}
-              scale={1}
-              width={1}
               onSelect={() => handlePointClick(wp.uid)}
               isSelected={wp.uid === selectedId} />)}
           </Layer>

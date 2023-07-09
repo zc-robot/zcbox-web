@@ -145,8 +145,10 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
       const p = newProfiles.find(p => p.uid === state.currentProfileId)
       if (p && p.data && p.data.waypoints) {
         const index = p.data.waypoints.findIndex(p => p.uid === pid)
-        if (index >= 0)
-          Object.assign(p.data.waypoints[index], point)
+        if (index >= 0) {
+          const newObj = Object.assign({}, p.data.waypoints[index], point)
+          p.data.waypoints.splice(index, 1, newObj)
+        }
       }
       return { profiles: newProfiles }
     })
