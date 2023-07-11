@@ -30,9 +30,14 @@ class ApiServer {
     return json.data
   }
 
-  mapping = async () => {
+  startMapping = async () => {
     const params = useBoundStore.getState().mapParams
     const json = await this.client.get(`mapping/${params.resolution}/${params.model}`).json()
+    return json
+  }
+
+  stopMapping = async () => {
+    const json = await this.client.get('stop').json()
     return json
   }
 
@@ -49,6 +54,11 @@ class ApiServer {
 
   saveMap = async (name: string) => {
     const json = await this.client.get(`deploy/saveMap/${name}`).json()
+    return json
+  }
+
+  deleteMap = async (id: number) => {
+    const json = await this.client.get(`deploy/deleteMap/${id}`).json()
     return json
   }
 

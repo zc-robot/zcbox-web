@@ -1,15 +1,18 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect } from 'react'
 import { Link, Outlet } from 'react-router-dom'
-import type { MapData } from '@/types'
 import apiServer from '@/service/apiServer'
+import { useGridStore } from '@/store'
 
 const Home: React.FC = () => {
-  const [maps, setMaps] = useState<MapData[]>([])
+  const { maps, setMaps } = useGridStore(state => ({
+    maps: state.maps,
+    setMaps: state.setMaps,
+  }))
 
   const initMapData = useCallback(async () => {
     const maps = await apiServer.fetchMapList()
     setMaps(maps)
-  }, [])
+  }, [setMaps])
 
   useEffect(() => {
     initMapData()
@@ -21,7 +24,6 @@ const Home: React.FC = () => {
         <nav>
           <Link
             className="flex flex-(items-center justify-center) py-4 decoration-none"
-            reloadDocument
             to="/mapping">
             <div className="bg-white hover:bg-gray-2 rounded border-(solid 1px gray-5) px-4 py-1 text-gray-5">建图</div>
           </Link>

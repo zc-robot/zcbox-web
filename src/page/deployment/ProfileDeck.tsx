@@ -44,8 +44,8 @@ const PointItem: React.FC<PointItemProps> = ({ point, selected, onClick, onDoubl
       <div className="ml-1 text-3">{point.name}</div>
       {showMenu
       && <div className="z-10 relative left-5 top-5 bg-white shadow-(sm blueGray)">
-          <div className="text-sm p-1 hover:bg-gray-200" onClick={onDeleteClick}>删除</div>
-          <div className="text-sm p-1 hover:bg-gray-200" onClick={onRelocateClick}>重定位机器人</div>
+          <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onDeleteClick}>删除</div>
+          <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onRelocateClick}>重定位机器人</div>
         </div>}
     </div>
   )

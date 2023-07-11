@@ -9,17 +9,22 @@ export interface TopDeckProps {
 }
 
 const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
-  const zoom = useGridStore(state => state.zoom)
-  const robotStatus = useGridStore(state => state.robotInfo?.fsm)
-  const setRobotInfo = useGridStore(state => state.setRobotInfo)
-  const setMapGrid = useGridStore(state => state.setMapGrid)
-
-  const currentOp = useOperationStore(state => state.current)
-  const updateOp = useOperationStore(state => state.updateOp)
-
-  const currentProfile = useProfileStore(state => state.currentProfile)
-  const currentTask = useProfileStore(state => state.getCurrentTask)
-  const addProfiles = useProfileStore(state => state.addProfiles)
+  const { setMaps, zoom, robotStatus, setRobotInfo, setMapGrid } = useGridStore(state => ({
+    setMaps: state.setMaps,
+    zoom: state.zoom,
+    robotStatus: state.robotInfo?.fsm,
+    setRobotInfo: state.setRobotInfo,
+    setMapGrid: state.setMapGrid,
+  }))
+  const { currentOp, updateOp } = useOperationStore(state => ({
+    currentOp: state.current,
+    updateOp: state.updateOp,
+  }))
+  const { currentProfile, currentTask, addProfiles } = useProfileStore(state => ({
+    currentProfile: state.currentProfile,
+    currentTask: state.getCurrentTask,
+    addProfiles: state.addProfiles,
+  }))
 
   const zoomInClick = () => zoom(1.1)
   const zoomOutClick = () => zoom(0.9)
@@ -87,6 +92,16 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     })
   }
 
+  const handleDeleteClicked = async () => {
+    // eslint-disable-next-line no-alert
+    const answer = confirm('确定删除地图？')
+    if (answer) {
+      await apiServer.deleteMap(mapId)
+      const maps = await apiServer.fetchMapList()
+      setMaps(maps)
+    }
+  }
+
   return (
     <div className="panel-container">
       <div className="flex">
@@ -150,6 +165,13 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           <div
             className="i-material-symbols-upload-rounded panel-icon" />
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">保存</span>
+        </div>
+        <div
+          className="panel-item group"
+          onClick={handleDeleteClicked}>
+          <div
+            className="i-material-symbols-delete-rounded panel-icon" />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">删除</span>
         </div>
       </div>
     </div>

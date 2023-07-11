@@ -23,8 +23,8 @@ const Monitor: React.FC = () => {
   const layerRef = useRef<Konva.Layer>(null)
   const [layerState, setLayerState] = useState<ImageState>()
   const [offset, setOffset] = useState({ x: 0, y: 0 })
-
   const [containerRef, { width, height }] = useElementSize()
+
   const { currentOp, updateOp, selectedId, selectPoint } = useOperationStore(state => ({
     currentOp: state.current,
     updateOp: state.updateOp,
@@ -38,7 +38,7 @@ const Monitor: React.FC = () => {
   }), shallow)
   const {
     currentPoints, appendCurrentProfilePoint, removeCurrentProfilePoint,
-    currentPaths, appendCurrentProfilePath, removeCurrentProfilePath, updateCurrentProfilePoint,
+    currentPaths, appendCurrentProfilePath, removeCurrentProfilePath,
   } = useProfileStore(state => ({
     currentPoints: state.currentProfilePoints,
     appendCurrentProfilePoint: state.appendCurrentProfilePoint,
@@ -46,11 +46,7 @@ const Monitor: React.FC = () => {
     currentPaths: state.currentProfilePaths,
     appendCurrentProfilePath: state.appendCurrentProfilePath,
     removeCurrentProfilePath: state.removeCurrentProfilePath,
-    updateCurrentProfilePoint: state.updateCurrentProfilePoint,
   }), shallow)
-
-  // if (currentPoints.length > 0)
-  //   console.log('currentPoints', { x: currentPoints[0].x, y: currentPoints[0].y })
 
   useKeyPress((_, isDown) => {
     if (!selectedId || !isDown)
@@ -155,7 +151,7 @@ const Monitor: React.FC = () => {
   }
 
   const handleLayerDrag = (obj: Konva.KonvaEventObject<DragEvent>) => {
-    if (currentOp !== 'move' || !layerState)
+    if (currentOp !== 'move')
       return
 
     const evt = obj.evt

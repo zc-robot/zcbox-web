@@ -1,19 +1,29 @@
-import { useEffect, useLayoutEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
 import useWebSocket, { ReadyState } from 'react-use-websocket'
+import type { unstable_BlockerFunction as BlockerFunction } from 'react-router-dom'
+import { unstable_useBlocker as useBlocker } from 'react-router-dom'
 import MapInfoModal from './MapInfoModal'
 import ControllerDeck from '@/components/ControllerDeck'
-import Monitor from '@/components/map/Monitor'
 import { useGridStore } from '@/store'
 import type { OccupancyGridMessage, RobotInfoMessage } from '@/types'
 import apiServer from '@/service/apiServer'
+import Monitor from '@/components/map/Monitor'
 
 const Mapping: React.FC = () => {
   const [showModal, setShowModal] = useState<boolean>(false)
-  const resetGrid = useGridStore(state => state.resetGrid)
-  const zoom = useGridStore(state => state.zoom)
-  const robotStatus = useGridStore(state => state.robotInfo?.fsm)
-  const setMapGrid = useGridStore(state => state.setMapGrid)
-  const setRobotInfo = useGridStore(state => state.setRobotInfo)
+  const [isMapping, setIsMapping] = useState<boolean>(false)
+  const shouldBlocker = useCallback<BlockerFunction>(({ currentLocation, nextLocation }) => {
+    return isMapping && currentLocation.pathname !== nextLocation.pathname
+  }, [isMapping])
+  const blocker = useBlocker(shouldBlocker)
+
+  const { resetGrid, zoom, robotStatus, setMapGrid, setRobotInfo } = useGridStore(state => ({
+    resetGrid: state.resetGrid,
+    zoom: state.zoom,
+    robotStatus: state.robotInfo?.fsm,
+    setMapGrid: state.setMapGrid,
+    setRobotInfo: state.setRobotInfo,
+  }))
 
   const wsOption = {
     shouldReconnect: (event: CloseEvent) => event.code !== 1000,
@@ -48,15 +58,27 @@ const Mapping: React.FC = () => {
     }
   }, [mapMessage, setMapGrid])
 
+  useEffect(() => {
+    if (blocker.state === 'blocked') {
+      // eslint-disable-next-line no-alert
+      const answer = confirm('当前正在建图，离开页面将会丢失地图数据，是否继续？')
+      if (answer)
+        blocker.proceed?.()
+      else
+        blocker.reset?.()
+    }
+  }, [blocker])
+
   useLayoutEffect(() => {
     const fetchData = async () => {
-      await apiServer.mapping()
+      await apiServer.startMapping()
+      setIsMapping(true)
     }
     fetchData()
     return () => {
       resetGrid()
     }
-  }, [resetGrid])
+  }, [blocker.state, resetGrid])
 
   const zoomInClick = () => zoom(1.1)
   const zoomOutClick = () => zoom(0.9)
@@ -67,6 +89,18 @@ const Mapping: React.FC = () => {
 
   const handleModalClose = () => {
     setShowModal(false)
+  }
+
+  const handleToggleClicked = async () => {
+    if (isMapping) {
+      await apiServer.stopMapping()
+      resetGrid()
+      setIsMapping(false)
+    }
+    else {
+      await apiServer.startMapping()
+      setIsMapping(true)
+    }
   }
 
   return (
@@ -93,6 +127,12 @@ const Mapping: React.FC = () => {
           </div>
         </div>
         <div className="flex">
+          <div
+            className="panel-item group"
+            onClick={handleToggleClicked}>
+            <div className={`${isMapping ? 'i-material-symbols-stop-circle-rounded' : 'i-material-symbols-play-circle-rounded'} panel-icon`} />
+            <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">{isMapping ? '停止' : '开启'}</span>
+          </div>
           <div className="panel-item justify-center group">
             <div className={`${robotState === ReadyState.OPEN
               ? 'border-green'
@@ -111,12 +151,11 @@ const Mapping: React.FC = () => {
       </div>
       <div className="flex flex-auto">
         <Monitor />
-        <div className="flex flex-col w-12rem border-(l-solid 1px gray-300)">
+        <div className="flex h-100% flex-col w-12rem border-(l-solid 1px gray-300)">
           <ControllerDeck />
         </div>
-        <MapInfoModal
-          visible={showModal}
-          onClose={handleModalClose} />
+        {showModal && <MapInfoModal
+          onClose={handleModalClose} />}
       </div>
     </div>
   )

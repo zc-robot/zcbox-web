@@ -51,7 +51,7 @@ const server = http.createServer((req, res) => {
     }
   }
   else {
-    res.end('Hello World')
+    res.end('{"code": 0}')
   }
 })
 
