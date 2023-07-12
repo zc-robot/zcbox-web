@@ -12,10 +12,15 @@ const TaskPoints: React.FC<TaskPointsProp> = ({ task }) => {
   const [configPoint, setConfigPoint] = useState<{ index: number; point: TaskPoint }>()
 
   const swapProfileTaskPoints = useProfileStore(state => state.swapProfileTaskPoints)
+  const currentProfilePoints = useProfileStore(state => state.currentProfilePoints)
 
   return (
     <div className="flex flex-col">
       {task.points.map((p, i) => {
+        const waypoint = currentProfilePoints().find(wp => wp.uid === p.uid)
+        if (!waypoint)
+          return null
+
         return (
           <div
             key={i}
@@ -38,7 +43,7 @@ const TaskPoints: React.FC<TaskPointsProp> = ({ task }) => {
               e.dataTransfer.dropEffect = 'move'
             }}
             draggable
-          >{p.uid}
+          >{waypoint.name}
             <div
              className="i-material-symbols-edit-outline m-2"
              onClick={() => setConfigPoint({ index: i, point: p })} />

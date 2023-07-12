@@ -44,6 +44,13 @@ const Waypoint: React.FC<WaypointProp> = ({ point, onSelect, isSelected }) => {
       return params.robot_footprint.robot_width / 5
   }, [params])
 
+  const fillColor = useMemo(() => {
+    if (isSelected)
+      return '#FF5722'
+    else
+      return '#FFC107'
+  }, [isSelected])
+
   const onDragEnd = (obj: Konva.KonvaEventObject<DragEvent>) => {
     updateCurrentProfilePoint(point.uid, {
       x: point.x + obj.currentTarget.x(),
@@ -69,7 +76,7 @@ const Waypoint: React.FC<WaypointProp> = ({ point, onSelect, isSelected }) => {
             pointerWidth={width}
             pointerLength={width * 2}
             hitStrokeWidth={width * 2}
-            fill="red"
+            fill={fillColor}
             rotation={point.rotation}
             onTransformEnd={() => {
               const node = shapeRef.current
@@ -85,7 +92,7 @@ const Waypoint: React.FC<WaypointProp> = ({ point, onSelect, isSelected }) => {
             x={point.x}
             y={point.y}
             radius={width / 2}
-            fill="red" />
+            fill={fillColor} />
         </Group>
       )}
       {isSelected && (

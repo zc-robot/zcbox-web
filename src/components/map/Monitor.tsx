@@ -48,8 +48,8 @@ const Monitor: React.FC = () => {
     removeCurrentProfilePath: state.removeCurrentProfilePath,
   }), shallow)
 
-  useKeyPress((_, isDown) => {
-    if (!selectedId || !isDown)
+  useKeyPress((event, isDown) => {
+    if (!selectedId || !isDown || !event.metaKey)
       return
 
     if (selectedId.startsWith('Point')) {
@@ -162,42 +162,40 @@ const Monitor: React.FC = () => {
   }
 
   return (
-    <>
-      <div
-        className={`flex-1 ${currentOp === 'move' ? 'cursor-pointer' : ''}`}
-        ref={containerRef}>
-        <Stage
-          width={width}
-          height={height}>
-          <Layer
-            ref={layerRef}
-            x={(layerState?.x ?? 0) + offset.x}
-            y={(layerState?.y ?? 0) + offset.y}
-            scaleX={layerState?.scale}
-            scaleY={layerState?.scale}
-            draggable={currentOp === 'move'}
-            onDragMove={handleLayerDrag}
-            onClick={handleLayerClick}>
-            <GridMap />
-            {(gridInfo && robotInfo)
-              && <Robot
-                pose={robotInfo.pose} />
-            }
-            {currentPaths().map((path, i) => <Pathway
-              key={i}
-              path={path}
-              onSelect={() => handlePathClick(path.uid)}
-              isSelected={selectedId === path.uid} />,
-            )}
-            {currentPoints().map((wp, i) => <Waypoint
-              key={i}
-              point={wp}
-              onSelect={() => handlePointClick(wp.uid)}
-              isSelected={wp.uid === selectedId} />)}
-          </Layer>
-        </Stage>
-      </div>
-    </>
+    <div
+      className={`flex-1 ${currentOp === 'move' ? 'cursor-pointer' : ''}`}
+      ref={containerRef}>
+      <Stage
+        width={width}
+        height={height}>
+        <Layer
+          ref={layerRef}
+          x={(layerState?.x ?? 0) + offset.x}
+          y={(layerState?.y ?? 0) + offset.y}
+          scaleX={layerState?.scale}
+          scaleY={layerState?.scale}
+          draggable={currentOp === 'move'}
+          onDragMove={handleLayerDrag}
+          onClick={handleLayerClick}>
+          <GridMap />
+          {(gridInfo && robotInfo)
+            && <Robot
+              pose={robotInfo.pose} />
+          }
+          {currentPaths().map((path, i) => <Pathway
+            key={i}
+            path={path}
+            onSelect={() => handlePathClick(path.uid)}
+            isSelected={selectedId === path.uid} />,
+          )}
+          {currentPoints().map((wp, i) => <Waypoint
+            key={i}
+            point={wp}
+            onSelect={() => handlePointClick(wp.uid)}
+            isSelected={wp.uid === selectedId} />)}
+        </Layer>
+      </Stage>
+    </div>
   )
 }
 

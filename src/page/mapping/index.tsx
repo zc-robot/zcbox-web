@@ -78,7 +78,7 @@ const Mapping: React.FC = () => {
     return () => {
       resetGrid()
     }
-  }, [blocker.state, resetGrid])
+  }, [resetGrid])
 
   const zoomInClick = () => zoom(1.1)
   const zoomOutClick = () => zoom(0.9)

@@ -10,17 +10,41 @@ interface PointItemProps {
   point: NavPoint
   selected: boolean
   onClick: (e: React.MouseEvent<HTMLDivElement, MouseEvent>) => void
-  onDoubleClick: () => void
-  onDeleteClick: () => void
-  onRelocateClick: () => void
+  onDoubleClicked: () => void
+  onDeleteClicked: () => void
+  onRelocateClicked: () => void
+  onPointRenamed: (name: string) => void
 }
 
-const PointItem: React.FC<PointItemProps> = ({ point, selected, onClick, onDoubleClick, onDeleteClick, onRelocateClick }) => {
+const PointItem: React.FC<PointItemProps> = ({ point, selected, onClick, onDoubleClicked, onDeleteClicked, onRelocateClicked, onPointRenamed }) => {
   const [showMenu, setShowMenu] = useState(false)
+  const [editMode, setEditMode] = useState(false)
+  const [name, setName] = useState(point.name)
+
   useEffect(() => {
     if (!selected)
       setShowMenu(false)
   }, [selected])
+
+  const handleRenameClicked = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setShowMenu(false)
+    setEditMode(true)
+  }
+
+  const handleInputChanged = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const name = event.target.value
+    setName(name)
+  }
+
+  const handleInputKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === 'Enter') {
+      if (name !== point.name) {
+        onPointRenamed(name)
+        setEditMode(false)
+      }
+    }
+  }
 
   return (
     <div
@@ -30,10 +54,11 @@ const PointItem: React.FC<PointItemProps> = ({ point, selected, onClick, onDoubl
       onClick={(e) => {
         e.preventDefault()
         onClick(e)
+        setEditMode(false)
         if (showMenu)
           setShowMenu(false)
       }}
-      onDoubleClick={onDoubleClick}
+      onDoubleClick={onDoubleClicked}
       onContextMenu={(e) => {
         e.preventDefault()
 
@@ -41,11 +66,11 @@ const PointItem: React.FC<PointItemProps> = ({ point, selected, onClick, onDoubl
           setShowMenu(true)
       }}>
       <div className="i-material-symbols-location-on-outline text-gray-500" />
-      <div className="ml-1 text-3">{point.name}</div>
-      {showMenu
-      && <div className="z-10 relative left-5 top-5 bg-white shadow-(sm blueGray)">
-          <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onDeleteClick}>删除</div>
-          <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onRelocateClick}>重定位机器人</div>
+      <div className="ml-1 text-3">{editMode ? <input value={name} onClick={e => e.stopPropagation()} onChange={handleInputChanged} onKeyDown={handleInputKeyDown}></input> : point.name}</div>
+      {showMenu && <div className="z-10 relative left-5 top-5 bg-white shadow-(sm blueGray)">
+          <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={handleRenameClicked}>重命名</div>
+          <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onDeleteClicked}>删除</div>
+          <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onRelocateClicked}>重定位机器人</div>
         </div>}
     </div>
   )
@@ -65,8 +90,8 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
     updateOp: state.updateOp,
   }), shallow)
   const {
-    profiles, currentProfileId, currentPoints, currentPaths,
-    addProfile, appendTaskPoint, removeCurrentProfilePoint, setCurrentProfile,
+    profiles, currentProfileId, currentPoints, currentPaths, addProfile,
+    appendTaskPoint, updateCurrentProfilePoint, removeCurrentProfilePoint, setCurrentProfile,
   } = useProfileStore(state => ({
     profiles: state.filterMapProfiles(mapId),
     currentProfileId: state.currentProfileId,
@@ -74,6 +99,7 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
     currentPaths: state.currentProfilePaths(),
     addProfile: state.appendProfile,
     appendTaskPoint: state.appendProfileTaskPoint,
+    updateCurrentProfilePoint: state.updateCurrentProfilePoint,
     removeCurrentProfilePoint: state.removeCurrentProfilePoint,
     setCurrentProfile: state.setCurrentProfile,
   }))
@@ -129,16 +155,19 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
               updateOp('select')
               select(p.uid)
             }}
-            onDoubleClick={() => {
+            onDoubleClicked={() => {
               appendTaskPoint(p)
             }}
-            onDeleteClick={() => {
+            onDeleteClicked={() => {
               removeCurrentProfilePoint(p.uid)
             }}
-            onRelocateClick={async () => {
+            onRelocateClicked={async () => {
               if (currentProfileId)
                 await apiServer.relocate(currentProfileId, p.uid)
-            }} />)
+            }}
+            onPointRenamed={(name) => {
+              updateCurrentProfilePoint(p.uid, { name })
+            }}/>)
           : currentPaths.map((p, i) => <div
             key={i}
             className={`cursor-default h-2rem pl-2 flex items-center hover:(outline outline-1 outline-blue-300) ${selectedId === p.uid
