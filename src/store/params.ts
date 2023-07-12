@@ -1,11 +1,11 @@
 import type { StateCreator } from 'zustand'
-import type { FootprintParams, JointParams, RobotParams } from '@/types'
-import apiServer from '@/service/apiServer'
+import type { FootprintParams, JointParams, PointAction, RobotParams } from '@/types'
 
 export interface ParamsSlice {
   apiDomain: string
   wsDomain: string
   robotParams: RobotParams | null
+  pointActions: PointAction[]
   mapParams: {
     resolution: number
     model: string
@@ -15,16 +15,17 @@ export interface ParamsSlice {
   updateApiDomain: (domain: string) => void
   updateWsDomain: (domain: string) => void
   updateMapParams: (by: { resolution?: number; model?: string }) => void
-  fetchRobotParams: () => Promise<void>
+  updateRobotParams: (by: RobotParams) => void
+  updatePointActions: (by: PointAction[]) => void
   updateJointParams: (index: number, by: JointParams) => void
   updateFootprintParams: (by: FootprintParams) => void
-  uploadParams: () => Promise<void>
 }
 
-export const paramsSlice: StateCreator<ParamsSlice> = (set, get) => ({
+export const paramsSlice: StateCreator<ParamsSlice> = set => ({
   apiDomain: '',
   wsDomain: '',
   robotParams: null,
+  pointActions: [],
   mapParams: {
     resolution: 2,
     model: 'diff',
@@ -42,9 +43,11 @@ export const paramsSlice: StateCreator<ParamsSlice> = (set, get) => ({
       return { mapParams: newMapParams }
     })
   },
-  fetchRobotParams: async () => {
-    const params = await apiServer.fetchParams()
-    set({ robotParams: params })
+  updateRobotParams: (by: RobotParams) => {
+    set({ robotParams: by })
+  },
+  updatePointActions: (by: PointAction[]) => {
+    set({ pointActions: by })
   },
   updateJointParams: (index: number, by: JointParams) => {
     set((state) => {
@@ -63,10 +66,5 @@ export const paramsSlice: StateCreator<ParamsSlice> = (set, get) => ({
       else
         return state
     })
-  },
-  uploadParams: async () => {
-    const { robotParams: params } = get()
-    if (params)
-      await apiServer.uploadParams(params)
   },
 })

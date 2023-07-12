@@ -7,6 +7,7 @@ import Settings from './settings'
 import Default from './home/Default'
 import Mapping from './mapping'
 import { useParamsStore } from '@/store'
+import apiServer from '@/service/apiServer'
 
 const router = createBrowserRouter([
   {
@@ -35,11 +36,22 @@ const router = createBrowserRouter([
 ])
 
 const App: React.FC = () => {
-  const fetchParams = useParamsStore(state => state.fetchRobotParams)
+  const { updateRobotParams, updatePointActions } = useParamsStore(state => ({
+    updateRobotParams: state.updateRobotParams,
+    updatePointActions: state.updatePointActions,
+  }))
 
   useEffect(() => {
+    const fetchParams = async () => {
+      const params = await apiServer.fetchParams()
+      if (params)
+        updateRobotParams(params)
+      const actions = await apiServer.fetchActions()
+      if (actions)
+        updatePointActions(actions)
+    }
     fetchParams()
-  }, [fetchParams])
+  }, [updatePointActions, updateRobotParams])
 
   return (
     <RouterProvider router={router} />

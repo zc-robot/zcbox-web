@@ -50,11 +50,11 @@ const TaskPoints: React.FC<TaskPointsProp> = ({ task }) => {
           </div>
         )
       })}
-      <PointModal
+      {configPoint && <PointModal
         task={task}
-        index={configPoint?.index ?? 0}
-        point={configPoint?.point}
-        onClose={() => setConfigPoint(undefined)} />
+        index={configPoint.index}
+        point={configPoint.point}
+        onClose={() => setConfigPoint(undefined)} />}
     </div>
   )
 }

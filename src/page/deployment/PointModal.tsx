@@ -1,31 +1,27 @@
-import { useEffect, useState } from 'react'
-import type { NavTask, PointNavType, TaskPoint } from '@/types'
-import { useProfileStore } from '@/store'
+import { useState } from 'react'
+import { toNumber } from 'lodash'
+import type { NavTask, PointAction, PointNavType, TaskPoint } from '@/types'
+import { useParamsStore, useProfileStore } from '@/store'
 
 interface PointModalProps {
   index: number
   task: NavTask
-  point: TaskPoint | undefined
+  point: TaskPoint
   onClose: () => void
 }
 
 const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) => {
-  const [navType, setNavType] = useState<PointNavType>('auto')
-  const [isPrecise, setPrecise] = useState<boolean>(false)
-  const [isReverse, setReverse] = useState<boolean>(false)
-  const [actions, setActions] = useState<{ type: string; args: any }[]>([])
+  const [navType, setNavType] = useState<PointNavType>(point.type)
+  const [isPrecise, setPrecise] = useState<boolean>(point.precise)
+  const [isReverse, setReverse] = useState<boolean>(point.reverse)
+  const [actions, setActions] = useState<PointAction[]>(point.actions)
+
   const removeProfileTaskPoint = useProfileStore(state => state.removeProfileTaskPoint)
   const updateProfileTaskPoint = useProfileStore(state => state.updateProfileTaskPoint)
-
-  useEffect(() => {
-    setNavType(point?.type ?? 'auto')
-    setPrecise(point?.precise ?? false)
-    setReverse(point?.reverse ?? false)
-    setActions(point?.actions ?? [])
-  }, [point])
+  const pointActions = useParamsStore(state => state.pointActions)
 
   const handleAddAction = () => {
-    setActions([...actions, { type: 'wait', args: 0 }])
+    setActions([...actions, pointActions[0]])
   }
 
   const handleRemoveAction = (index: number) => {
@@ -34,22 +30,14 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
     setActions(newActions)
   }
 
-  const handleUpdateActionType = (index: number, type: string) => {
-    const newActions = [...actions]
-    newActions[index].type = type
-    if (type === 'move') {
-      newActions[index].args = {
-        angle: 0,
-        speed: 0,
-        distance: 0,
-      }
-    }
-    setActions(newActions)
-  }
+  const handleUpdateActionType = (index: number, value: string) => {
+    const id = toNumber(value)
+    const action = pointActions.find(a => a.id === id)
+    if (!action)
+      return
 
-  const handleUpdateActionArgs = (index: number, args: any) => {
     const newActions = [...actions]
-    newActions[index].args = args
+    newActions[index] = action
     setActions(newActions)
   }
 
@@ -68,58 +56,6 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
     removeProfileTaskPoint(index)
 
     onClose()
-  }
-
-  const actionArgsComponent = (action: { type: string; args: any }, index: number) => {
-    switch (action.type) {
-      case 'wait':
-        return (
-          <input
-            className="ml-a"
-            type="number"
-            value={action.args === 0 ? '' : action.args}
-            placeholder="等待(s)"
-            onChange={e => handleUpdateActionArgs(index, e.target.value)} />
-        )
-      case 'arm':
-        return (
-          <input
-            className="ml-a"
-            type="number"
-            value={action.args === 0 ? '' : action.args}
-            placeholder="叉臂高度(m)"
-            onChange={e => handleUpdateActionArgs(index, e.target.value)} />
-        )
-      case 'move':
-        return (
-          <div className="ml-a flex flex-justify-end gap-2">
-            <input className="w-4rem"
-              type="number"
-              value={action.args.angle === 0 ? '' : action.args.angle}
-              placeholder="角度(°)"
-              onChange={e => handleUpdateActionArgs(index, {
-                ...action.args,
-                angle: e.target.value,
-              })} />
-            <input className="w-4rem"
-              type="number"
-              value={action.args.speed === 0 ? '' : action.args.speed}
-              placeholder="速度(m/s)"
-              onChange={e => handleUpdateActionArgs(index, {
-                ...action.args,
-                speed: e.target.value,
-              })} />
-            <input className="w-4rem"
-              type="number"
-              value={action.args.distance === 0 ? '' : action.args.distance}
-              placeholder="距离(m)"
-              onChange={e => handleUpdateActionArgs(index, {
-                ...action.args,
-                distance: e.target.value,
-              })} />
-          </div>
-        )
-    }
   }
 
   return (
@@ -177,13 +113,14 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
                       onClick={_ => handleRemoveAction(i)} />
                     <select
                       className="ml-2"
-                      value={action.type}
+                      value={action.id}
                       onChange={e => handleUpdateActionType(i, e.target.value)}>
-                      <option value="wait">等待</option>
-                      <option value="arm">叉臂</option>
-                      <option value="move">移动</option>
+                      {pointActions.map((action, i) => {
+                        return (
+                          <option key={i} value={action.id}>{action.name}</option>
+                        )
+                      })}
                     </select>
-                    {actionArgsComponent(action, i)}
                   </div>
                 )
               })}

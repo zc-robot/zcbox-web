@@ -9,11 +9,16 @@ import { useParamsStore } from '@/store'
 
 const Settings: React.FC = () => {
   const params = useParamsStore(state => state.robotParams)
-  const fetchParams = useParamsStore(state => state.fetchRobotParams)
+  const updateRobotParams = useParamsStore(state => state.updateRobotParams)
 
   useEffect(() => {
+    const fetchParams = async () => {
+      const params = await apiServer.fetchParams()
+      if (params)
+        updateRobotParams(params)
+    }
     fetchParams()
-  }, [fetchParams])
+  }, [updateRobotParams])
 
   const handleSubmit = async () => {
     if (!params)

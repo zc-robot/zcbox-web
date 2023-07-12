@@ -113,10 +113,7 @@ export interface TaskPoint {
   type: PointNavType,
   precise: boolean,
   reverse: boolean,
-  actions: {
-    type: string,
-    args: any,
-  }[],
+  actions: PointAction[],
 }
 
 export interface NavTask {
@@ -150,4 +147,9 @@ export interface FootprintParams {
   robot_length: number,
   robot_width: number,
   nav_center2robot_center: number,
+}
+
+export interface PointAction {
+  id: number,
+  name: string,
 }

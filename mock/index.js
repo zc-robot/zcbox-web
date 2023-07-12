@@ -50,6 +50,16 @@ const server = http.createServer((req, res) => {
     else if (req.method === 'POST') {
     }
   }
+  else if (req.url === '/deploy/getAllActions') {
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify({
+      code: 0,
+      data: [
+        { id: 1, name: '动作1' },
+        { id: 2, name: '动作2' }
+      ]
+    }))
+  }
   else {
     res.end('{"code": 0}')
   }

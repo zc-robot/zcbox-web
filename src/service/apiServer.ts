@@ -1,5 +1,5 @@
 import ky from 'ky'
-import type { MapData, MapDataDetail, RobotParams } from '@/types'
+import type { MapData, MapDataDetail, PointAction, RobotParams } from '@/types'
 import { useBoundStore } from '@/store'
 
 interface Resp<T> {
@@ -107,6 +107,13 @@ class ApiServer {
   uploadParams = async (params: RobotParams) => {
     const json = await this.client.post('parameter/get_params', { json: params }).json()
     return json
+  }
+
+  fetchActions = async () => {
+    const json = await this.client.get('deploy/getAllActions').json<Resp<PointAction[]>>()
+    if (json.code === 0)
+      return json.data
+    return null
   }
 }
 
