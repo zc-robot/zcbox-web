@@ -22,8 +22,8 @@ const MapSetting: React.FC = () => {
         <select
           value={mapParams.resolution}
           onChange={handleResolutionChange}>
-          <option value="2">2</option>
           <option value="5">5</option>
+          <option value="2">2</option>
         </select>
       </div>
       <div className="flex flex-justify-between pt-2 pb-2">
