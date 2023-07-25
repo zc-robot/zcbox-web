@@ -31,6 +31,7 @@ export interface ProfileSlice {
   setCurrentTask: (id?: string) => void
   getCurrentTask: () => NavTask | undefined
   // Modify current profile's tasks
+  updateCurrentTask: (task: Partial<NavTask>) => void
   appendProfileTask: () => void
   appendProfileTaskPoint: (point: NavPoint) => void
   updateProfileTaskPoint: (index: number, task: Partial<TaskPoint>) => void
@@ -232,6 +233,16 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
     if (p && p.tasks)
       return p.tasks.find(t => t.uid === get().currentTaskId)
     return undefined
+  },
+  updateCurrentTask: (task: Partial<NavTask>) => {
+    set((state) => {
+      const newProfiles = state.profiles.slice()
+      const p = newProfiles.find(p => p.uid === state.currentProfileId)
+      const t = p?.tasks.find(t => t.uid === state.currentTaskId)
+      if (t)
+        Object.assign(t, task)
+      return { profiles: newProfiles }
+    })
   },
   appendProfileTask: () => {
     const id = uid('Task')

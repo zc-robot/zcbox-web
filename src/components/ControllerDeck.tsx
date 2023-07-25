@@ -16,7 +16,7 @@ const Panel: React.FC = () => {
   }), shallow)
   const [pressedKey, pressKey] = useState<string>('')
 
-  const { sendJsonMessage, readyState } = useWebSocket(`${apiServer.wsDomain}/velocity_control`)
+  const { sendJsonMessage } = useWebSocket(`${apiServer.wsDomain}/velocity_control`)
 
   useKeyPress((event, isDown) => {
     if (isDown) {

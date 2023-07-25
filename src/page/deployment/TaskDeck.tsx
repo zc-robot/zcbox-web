@@ -2,6 +2,30 @@ import { useState } from 'react'
 import TaskPoints from './TaskPoints'
 import { useGridStore, useProfileStore } from '@/store'
 import apiServer from '@/service/apiServer'
+import EditableLabel from '@/components/EditableLabel'
+import type { NavTask } from '@/types'
+
+interface TaskItemProps {
+  task: NavTask
+  enabled: boolean
+  executing: boolean
+  onTaskSelected: (task: NavTask) => void
+  onTaskRenamed: (name: string) => void
+}
+
+const TaskItem: React.FC<TaskItemProps> = ({ task, enabled, executing, onTaskSelected, onTaskRenamed }) => {
+  const [name, setName] = useState(task.name)
+
+  return (
+    <div
+      className={`flex flex-items-center pl text-3 cursor-default h-2rem ${enabled && 'font-bold'} ${executing && 'text-green'}`}
+      onClick={() => onTaskSelected(task)}>
+      <div
+        className={`i-material-symbols-check-small mr-1 ${enabled ? '' : 'invisible'}`} />
+      <EditableLabel value={name} onValueChanged={setName} onValueConfirmed={onTaskRenamed} />
+    </div>
+  )
+}
 
 const TaskDeck: React.FC = () => {
   const [showTaskList, setShowTaskList] = useState(false)
@@ -15,6 +39,7 @@ const TaskDeck: React.FC = () => {
   const currentTasks = useProfileStore(state => state.currentProfileTasks())
   const currentEnabledTask = useProfileStore(state => state.getCurrentTask())
   const addTask = useProfileStore(state => state.appendProfileTask)
+  const updateCurrentTask = useProfileStore(state => state.updateCurrentTask)
 
   const toggleTask = async () => {
     if (!currentProfileId || !currentTaskId)
@@ -52,14 +77,14 @@ const TaskDeck: React.FC = () => {
           const enabled = currentTaskId === t.uid
           const executing = executingTaskId === t.uid
           return (
-            <div
+            <TaskItem
               key={i}
-              className={`flex flex-items-center pl text-3 cursor-default h-2rem ${enabled && 'font-bold'} ${executing && 'text-green'}`}
-              onClick={() => setCurrentTask(t.uid)}>
-              <div
-                className={`i-material-symbols-check-small mr-1 ${enabled ? '' : 'invisible'}`} />
-              {t.name}
-            </div>
+              enabled={enabled}
+              executing={executing}
+              task={t}
+              onTaskSelected={() => setCurrentTask(t.uid)}
+              onTaskRenamed={name => updateCurrentTask({ name })}
+              />
           )
         })}
       </div>
