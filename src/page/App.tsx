@@ -43,9 +43,9 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const fetchParams = async () => {
-      // const params = await apiServer.fetchParams()
-      // if (params)
-      //   updateRobotParams(params)
+      const params = await apiServer.fetchParams()
+      if (params)
+        updateRobotParams(params)
       const actions = await apiServer.fetchActions()
       if (actions)
         updatePointActions(actions)
