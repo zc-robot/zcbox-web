@@ -3,6 +3,7 @@ import { shallow } from 'zustand/shallow'
 import { useOperationStore, useProfileStore } from '@/store'
 import type { NavPoint } from '@/types'
 import apiServer from '@/service/apiServer'
+import EditableLabel from '@/components/EditableLabel'
 
 type display = 'point' | 'path'
 
@@ -18,33 +19,12 @@ interface PointItemProps {
 
 const PointItem: React.FC<PointItemProps> = ({ point, selected, onClick, onDoubleClicked, onDeleteClicked, onRelocateClicked, onPointRenamed }) => {
   const [showMenu, setShowMenu] = useState(false)
-  const [editMode, setEditMode] = useState(false)
   const [name, setName] = useState(point.name)
 
   useEffect(() => {
     if (!selected)
       setShowMenu(false)
   }, [selected])
-
-  const handleRenameClicked = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    setShowMenu(false)
-    setEditMode(true)
-  }
-
-  const handleInputChanged = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const name = event.target.value
-    setName(name)
-  }
-
-  const handleInputKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === 'Enter') {
-      if (name !== point.name) {
-        onPointRenamed(name)
-        setEditMode(false)
-      }
-    }
-  }
 
   return (
     <div
@@ -54,7 +34,6 @@ const PointItem: React.FC<PointItemProps> = ({ point, selected, onClick, onDoubl
       onClick={(e) => {
         e.preventDefault()
         onClick(e)
-        setEditMode(false)
         if (showMenu)
           setShowMenu(false)
       }}
@@ -66,9 +45,8 @@ const PointItem: React.FC<PointItemProps> = ({ point, selected, onClick, onDoubl
           setShowMenu(true)
       }}>
       <div className="i-material-symbols-location-on-outline text-gray-500" />
-      <div className="ml-1 text-3">{editMode ? <input value={name} onClick={e => e.stopPropagation()} onChange={handleInputChanged} onKeyDown={handleInputKeyDown}></input> : point.name}</div>
+      <EditableLabel value={name} onValueChanged={setName} onValueConfirmed={onPointRenamed} />
       {showMenu && <div className="z-10 relative left-5 top-5 bg-white shadow-(sm blueGray)">
-          <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={handleRenameClicked}>重命名</div>
           <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onDeleteClicked}>删除</div>
           <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onRelocateClicked}>重定位机器人</div>
         </div>}
