@@ -117,6 +117,7 @@ export interface TaskPoint {
 }
 
 export interface NavTask {
+  id: number,
   uid: string,
   name: string,
   description: string,

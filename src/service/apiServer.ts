@@ -77,6 +77,11 @@ class ApiServer {
     return json
   }
 
+  deleteTask = async (id: number) => {
+    const json = await this.client.get(`deploy/deleteTask/${id}`).json()
+    return json
+  }
+
   executeTask = async (id: string, repeat: boolean) => {
     const json = await this.client.post('deploy/executeTask', { json: { uid: id, repeat } }).json()
     return json

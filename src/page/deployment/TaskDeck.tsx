@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import toast from 'react-hot-toast'
 import TaskPoints from './TaskPoints'
 import { useGridStore, useProfileStore } from '@/store'
 import apiServer from '@/service/apiServer'
@@ -83,6 +84,17 @@ const TaskDeck: React.FC = () => {
     setRepeat(!repeat)
   }
 
+  const deleteTask = async (task: NavTask) => {
+    try {
+      await apiServer.deleteTask(task.id)
+      removeProfileTask(task.uid)
+      toast.success('删除成功')
+    }
+    catch (e) {
+      toast.error(`删除失败 ${e}`)
+    }
+  }
+
   return (
     <div className="flex-(grow shrink-0 basis-a) h-0 overflow-auto">
       <div className="flex flex-(justify-between items-center) pl h-8 border-(b-solid 1px gray-300)">
@@ -112,7 +124,7 @@ const TaskDeck: React.FC = () => {
               task={t}
               onTaskSelected={() => setCurrentTask(t.uid)}
               onTaskRenamed={name => updateCurrentTask({ name })}
-              onDeleteClicked={() => removeProfileTask(t.uid)}
+              onDeleteClicked={() => deleteTask(t)}
               />
           )
         })}
