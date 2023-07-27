@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react'
 import useWebSocket, { ReadyState } from 'react-use-websocket'
+import toast from 'react-hot-toast'
 import { useGridStore, useOperationStore, useProfileStore } from '@/store'
 import apiServer from '@/service/apiServer'
 import type { RobotInfoMessage } from '@/types'
@@ -63,6 +64,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     const profiles = data.deployment
     setMapGrid(mapData.data, mapData.info)
     addProfiles(profiles)
+    toast.success('地图数据获取成功')
   }
 
   const handleSubmitClicked = async () => {
@@ -70,6 +72,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     const profile = currentProfile()
     if (!profile)
       return
+
     const task = currentTask()
     if (task) {
       await apiServer.submitTask({
@@ -82,14 +85,20 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     // Submit profile
     const points = profile.data.waypoints
     const paths = profile.data.paths
-    await apiServer.submitProfile({
-      map_id: mapId,
-      uid: profile.uid,
-      name: profile.name,
-      description: profile.description,
-      waypoints: points,
-      paths,
-    })
+    try {
+      await apiServer.submitProfile({
+        map_id: mapId,
+        uid: profile.uid,
+        name: profile.name,
+        description: profile.description,
+        waypoints: points,
+        paths,
+      })
+      toast.success('保存成功')
+    }
+    catch (e) {
+      toast.error(`保存失败 ${e}`)
+    }
   }
 
   const handleDeleteClicked = async () => {

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import TaskPoints from './TaskPoints'
 import { useGridStore, useProfileStore } from '@/store'
 import apiServer from '@/service/apiServer'
@@ -15,6 +15,10 @@ interface TaskItemProps {
 
 const TaskItem: React.FC<TaskItemProps> = ({ task, enabled, executing, onTaskSelected, onTaskRenamed }) => {
   const [name, setName] = useState(task.name)
+
+  useEffect(() => {
+    setName(task.name)
+  }, [task])
 
   return (
     <div

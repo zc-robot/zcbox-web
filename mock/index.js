@@ -28,7 +28,8 @@ const server = http.createServer((req, res) => {
       code: 0,
       data: [
         { id: 1, name: '地图1' },
-        { id: 2, name: '地图2' }
+        { id: 2, name: '地图2' },
+        { id: 3, name: '地图3' }
       ]
     }))
   }
