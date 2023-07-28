@@ -91,7 +91,7 @@ const TaskDeck: React.FC = () => {
 
   const deleteTask = async (task: NavTask) => {
     try {
-      await apiServer.deleteTask(task.id)
+      await apiServer.deleteTask(task.uid)
       removeProfileTask(task.uid)
       toast.success('删除成功')
     }

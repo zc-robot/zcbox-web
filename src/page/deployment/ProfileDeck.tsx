@@ -12,11 +12,17 @@ interface ProfileItemProps {
   profile: NavProfile
   enabled: boolean
   onProfileSelected: (task: NavProfile) => void
+  onProfileRenamed: (name: string) => void
   onDeleteClicked: () => void
 }
 
-const ProfileItem: React.FC<ProfileItemProps> = ({ profile, enabled, onProfileSelected, onDeleteClicked }) => {
+const ProfileItem: React.FC<ProfileItemProps> = ({ profile, enabled, onProfileSelected, onProfileRenamed, onDeleteClicked }) => {
   const [showMenu, setShowMenu] = useState(false)
+  const [name, setName] = useState(profile.name)
+
+  useEffect(() => {
+    setName(profile.name)
+  }, [profile])
 
   useEffect(() => {
     if (!enabled)
@@ -40,7 +46,7 @@ const ProfileItem: React.FC<ProfileItemProps> = ({ profile, enabled, onProfileSe
       }}>
       <div
         className={`i-material-symbols-check-small mr-1 ${enabled ? '' : 'invisible'}`} />
-      {profile.name}
+      <EditableLabel value={name} onValueChanged={setName} onValueConfirmed={onProfileRenamed} />
       {showMenu && <div className="z-10 relative left-5 top-5 bg-white shadow-(sm blueGray)">
         <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onDeleteClicked}>删除</div>
       </div>}
@@ -109,7 +115,7 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
     updateOp: state.updateOp,
   }), shallow)
   const {
-    profiles, currentProfileId, currentPoints, currentPaths, addProfile, removeProfile,
+    profiles, currentProfileId, currentPoints, currentPaths, addProfile, removeProfile, updateCurrentProfile,
     appendTaskPoint, updateCurrentProfilePoint, removeCurrentProfilePoint, setCurrentProfile,
   } = useProfileStore(state => ({
     profiles: state.filterMapProfiles(mapId),
@@ -118,6 +124,7 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
     currentPaths: state.currentProfilePaths(),
     addProfile: state.appendProfile,
     removeProfile: state.removeProfile,
+    updateCurrentProfile: state.updateCurrentProfile,
     appendTaskPoint: state.appendProfileTaskPoint,
     updateCurrentProfilePoint: state.updateCurrentProfilePoint,
     removeCurrentProfilePoint: state.removeCurrentProfilePoint,
@@ -130,7 +137,7 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
 
   const handleProfileDeleted = async (profile: NavProfile) => {
     try {
-      await apiServer.deleteProfile(profile.id)
+      await apiServer.deleteProfile(profile.uid)
       removeProfile(profile.uid)
       toast.success('删除成功')
     }
@@ -160,6 +167,7 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
             profile={p}
             enabled={enabled}
             onProfileSelected={handleProfileSelected}
+            onProfileRenamed={name => updateCurrentProfile({ name })}
             onDeleteClicked={() => handleProfileDeleted(p)} />
         })}
       </div>

@@ -67,7 +67,7 @@ export interface QuaternionMessage {
 }
 
 export interface NavProfile {
-  id: number,
+  id?: number,
   uid: string,
   map_id: number,
   name: string,
@@ -118,7 +118,7 @@ export interface TaskPoint {
 }
 
 export interface NavTask {
-  id: number,
+  id?: number,
   uid: string,
   name: string,
   description: string,

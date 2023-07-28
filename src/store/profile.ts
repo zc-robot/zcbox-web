@@ -65,7 +65,7 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
       newProfiles.push({
         uid: id,
         map_id: mapId,
-        name: `配置 ${newProfiles.length + 1}`,
+        name: `配置 ${id.slice(-3)}`,
         description: '',
         data: {
           waypoints: [],
