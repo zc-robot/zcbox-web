@@ -17,11 +17,16 @@ const MapInfoModal: React.FC<PointModalProps> = ({ onClose }) => {
       return
 
     try {
-      await apiServer.saveMap(name)
-      const maps = await apiServer.fetchMapList()
-      setMaps(maps)
-      onClose()
-      toast.success('保存成功')
+      const resp = await apiServer.saveMap(name)
+      if (resp.code === 0) {
+        const maps = await apiServer.fetchMapList()
+        setMaps(maps)
+        onClose()
+        toast.success('保存成功')
+      }
+      else {
+        toast.success(`保存失败 ${resp.message}}`)
+      }
     }
     catch (e) {
       toast.error(`保存失败 ${e}`)

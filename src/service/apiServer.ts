@@ -4,6 +4,7 @@ import { useBoundStore } from '@/store'
 
 interface Resp<T> {
   code: number
+  message: string
   data: T
 }
 
@@ -53,7 +54,7 @@ class ApiServer {
   }
 
   saveMap = async (name: string) => {
-    const json = await this.client.get(`deploy/saveMap/${name}`).json()
+    const json = await this.client.get(`deploy/saveMap/${name}`).json<Resp<any>>()
     return json
   }
 
