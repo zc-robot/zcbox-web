@@ -67,6 +67,7 @@ export interface QuaternionMessage {
 }
 
 export interface NavProfile {
+  id: number,
   uid: string,
   map_id: number,
   name: string,

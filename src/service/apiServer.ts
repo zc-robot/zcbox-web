@@ -67,6 +67,11 @@ class ApiServer {
     return json
   }
 
+  deleteProfile = async (id: number) => {
+    const json = await this.client.get(`deploy/deleteDeployment/${id}`).json()
+    return json
+  }
+
   confirmStatus = async () => {
     const json = await this.client.get('deploy/confirmStatus').json()
     return json

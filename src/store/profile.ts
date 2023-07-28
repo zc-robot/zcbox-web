@@ -17,7 +17,7 @@ export interface ProfileSlice {
   currentProfilePoints: () => NavPoint[]
   currentProfilePaths: () => NavPath[]
   currentProfileTasks: () => NavTask[]
-  removeCurrentProfile: () => void
+  removeProfile: (id: string) => void
 
   // Modify current profile's fields
   updateCurrentProfile: (profile: Partial<NavProfile>) => void
@@ -205,10 +205,10 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
       return { profiles: newProfiles }
     })
   },
-  removeCurrentProfile: () => {
+  removeProfile: (pid: string) => {
     set((state) => {
       const newProfiles = state.profiles.slice()
-      const index = newProfiles.findIndex(p => p.uid === state.currentProfileId)
+      const index = newProfiles.findIndex(p => p.uid === pid)
       if (index >= 0)
         newProfiles.splice(index, 1)
       return {

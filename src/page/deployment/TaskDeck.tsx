@@ -23,6 +23,11 @@ const TaskItem: React.FC<TaskItemProps> = ({ task, enabled, executing, onTaskSel
     setName(task.name)
   }, [task])
 
+  useEffect(() => {
+    if (!enabled)
+      setShowMenu(false)
+  }, [enabled])
+
   return (
     <div
       className={`flex flex-items-center pl text-3 cursor-default h-2rem ${enabled && 'font-bold'} ${executing && 'text-green'}`}
