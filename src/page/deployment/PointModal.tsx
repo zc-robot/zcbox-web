@@ -100,19 +100,18 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
               </select>
             </div>
             <div className="flex flex-justify-between pt-2 pb-2 border-(b-solid 1px gray-300)">
-              <span className="font-bold">精准导航</span>
-              <select
-                value={isPrecise ? 'true' : 'false'}
-                onChange={e => setPrecise(e.target.value === 'true')}>
-                <option value="true">是</option>
-                <option value="false">否</option>
-              </select>
+              <span className="font-bold">导航精度</span>
               <Input
                 className="w-50"
                 type="number"
                 value={preciseXY}
-                onChange={e => setPreciseXY(Number(e.target.value))}
-                placeholder="0.3" />
+                onChange={e => setPreciseXY(Number(e.target.value))} />
+              <Input
+                className="w-50"
+                type="number"
+                value={preciseRad}
+                onChange={e => setPreciseRad(Number(e.target.value))}
+                placeholder="单位：rad" />
             </div>
 
 
