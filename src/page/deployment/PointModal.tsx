@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { toNumber } from 'lodash'
+import Input from '@/components/Input'
+
 import type { NavTask, PointAction, PointNavType, TaskPoint } from '@/types'
 import { useParamsStore, useProfileStore } from '@/store'
 
@@ -13,6 +15,8 @@ interface PointModalProps {
 const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) => {
   const [navType, setNavType] = useState<PointNavType>(point.type)
   const [isPrecise, setPrecise] = useState<boolean>(point.precise)
+  const [preciseXY, setPreciseXY] = useState<number>(point.precise_xy)
+  const [preciseRad, setPreciseRad] = useState<number>(point.precise_rad)
   const [isDest, setDest] = useState<boolean>(point.dest)
   const [isReverse, setReverse] = useState<boolean>(point.reverse)
   const [actions, setActions] = useState<PointAction[]>(point.actions)
@@ -46,6 +50,8 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
     updateProfileTaskPoint(index, {
       type: navType,
       precise: isPrecise,
+      precise_xy: preciseXY,
+      precise_rad: preciseRad,
       reverse: isReverse,
       dest: isDest,
       actions,
@@ -101,7 +107,14 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
                 <option value="true">是</option>
                 <option value="false">否</option>
               </select>
+              <Input
+                className="w-50"
+                type="number"
+                value={preciseXY}
+                onChange={e => setPreciseXY(Number(e.target.value))}
+                placeholder="0.3" />
             </div>
+
 
             <div className="flex flex-justify-between pt-2 pb-2 border-(b-solid 1px gray-300)">
               <span className="font-bold">倒车进入</span>

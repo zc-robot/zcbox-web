@@ -113,6 +113,8 @@ export interface TaskPoint {
   uid: string,
   type: PointNavType,
   precise: boolean,
+  precise_xy: number,
+  precise_rad: number,
   reverse: boolean,
   dest: boolean,
   actions: PointAction[],
