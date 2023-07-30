@@ -1,11 +1,58 @@
 import { useEffect, useState } from 'react'
 import { shallow } from 'zustand/shallow'
+import toast from 'react-hot-toast'
 import { useOperationStore, useProfileStore } from '@/store'
-import type { NavPoint } from '@/types'
+import type { NavPoint, NavProfile } from '@/types'
 import apiServer from '@/service/apiServer'
 import EditableLabel from '@/components/EditableLabel'
 
 type display = 'point' | 'path'
+
+interface ProfileItemProps {
+  profile: NavProfile
+  enabled: boolean
+  onProfileSelected: (task: NavProfile) => void
+  onProfileRenamed: (name: string) => void
+  onDeleteClicked: () => void
+}
+
+const ProfileItem: React.FC<ProfileItemProps> = ({ profile, enabled, onProfileSelected, onProfileRenamed, onDeleteClicked }) => {
+  const [showMenu, setShowMenu] = useState(false)
+  const [name, setName] = useState(profile.name)
+
+  useEffect(() => {
+    setName(profile.name)
+  }, [profile])
+
+  useEffect(() => {
+    if (!enabled)
+      setShowMenu(false)
+  }, [enabled])
+
+  return (
+    <div
+      className={`flex flex-items-center pl text-3 cursor-default h-2rem ${enabled ? 'font-bold' : ''}`}
+      onClick={(e) => {
+        e.preventDefault()
+        onProfileSelected(profile)
+        if (showMenu)
+          setShowMenu(false)
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault()
+
+        if (enabled)
+          setShowMenu(true)
+      }}>
+      <div
+        className={`i-material-symbols-check-small mr-1 ${enabled ? '' : 'invisible'}`} />
+      <EditableLabel value={name} onValueChanged={setName} onValueConfirmed={onProfileRenamed} />
+      {showMenu && <div className="z-10 relative left-5 top-5 bg-white shadow-(sm blueGray)">
+        <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onDeleteClicked}>删除</div>
+      </div>}
+    </div>
+  )
+}
 
 interface PointItemProps {
   point: NavPoint
@@ -47,9 +94,9 @@ const PointItem: React.FC<PointItemProps> = ({ point, selected, onClick, onDoubl
       <div className="i-material-symbols-location-on-outline text-gray-500" />
       <EditableLabel value={name} onValueChanged={setName} onValueConfirmed={onPointRenamed} />
       {showMenu && <div className="z-10 relative left-5 top-5 bg-white shadow-(sm blueGray)">
-          <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onDeleteClicked}>删除</div>
-          <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onRelocateClicked}>重定位机器人</div>
-        </div>}
+        <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onDeleteClicked}>删除</div>
+        <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onRelocateClicked}>重定位机器人</div>
+      </div>}
     </div>
   )
 }
@@ -68,7 +115,7 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
     updateOp: state.updateOp,
   }), shallow)
   const {
-    profiles, currentProfileId, currentPoints, currentPaths, addProfile,
+    profiles, currentProfileId, currentPoints, currentPaths, addProfile, removeProfile, updateCurrentProfile,
     appendTaskPoint, updateCurrentProfilePoint, removeCurrentProfilePoint, setCurrentProfile,
   } = useProfileStore(state => ({
     profiles: state.filterMapProfiles(mapId),
@@ -76,11 +123,28 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
     currentPoints: state.currentProfilePoints(),
     currentPaths: state.currentProfilePaths(),
     addProfile: state.appendProfile,
+    removeProfile: state.removeProfile,
+    updateCurrentProfile: state.updateCurrentProfile,
     appendTaskPoint: state.appendProfileTaskPoint,
     updateCurrentProfilePoint: state.updateCurrentProfilePoint,
     removeCurrentProfilePoint: state.removeCurrentProfilePoint,
     setCurrentProfile: state.setCurrentProfile,
   }))
+
+  const handleProfileSelected = (profile: NavProfile) => {
+    setCurrentProfile(profile.uid)
+  }
+
+  const handleProfileDeleted = async (profile: NavProfile) => {
+    try {
+      await apiServer.deleteProfile(profile.uid)
+      removeProfile(profile.uid)
+      toast.success('删除成功')
+    }
+    catch (e) {
+      toast.error(`删除失败 ${e}`)
+    }
+  }
 
   return (
     <div className="w-12rem border-(r-solid 1px gray-300)">
@@ -98,14 +162,13 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
         </div>
         {profiles.map((p, i) => {
           const enabled = currentProfileId === p.uid
-          return (<div
-              key={i}
-              className={`flex flex-items-center pl text-3 cursor-default h-2rem ${enabled ? 'font-bold' : ''}`}
-              onClick={() => setCurrentProfile(p.uid)}>
-              <div
-                className={`i-material-symbols-check-small mr-1 ${enabled ? '' : 'invisible'}`} />
-              {p.name}
-            </div>)
+          return <ProfileItem
+            key={i}
+            profile={p}
+            enabled={enabled}
+            onProfileSelected={handleProfileSelected}
+            onProfileRenamed={name => updateCurrentProfile({ name })}
+            onDeleteClicked={() => handleProfileDeleted(p)} />
         })}
       </div>
       <div className="flex items-center pl h-8 border-(b-solid 1px gray-300)">

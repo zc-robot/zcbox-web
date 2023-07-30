@@ -4,6 +4,7 @@ import { useBoundStore } from '@/store'
 
 interface Resp<T> {
   code: number
+  message: string
   data: T
 }
 
@@ -53,7 +54,7 @@ class ApiServer {
   }
 
   saveMap = async (name: string) => {
-    const json = await this.client.get(`deploy/saveMap/${name}`).json()
+    const json = await this.client.get(`deploy/saveMap/${name}`).json<Resp<any>>()
     return json
   }
 
@@ -67,6 +68,11 @@ class ApiServer {
     return json
   }
 
+  deleteProfile = async (id: string) => {
+    const json = await this.client.get(`deploy/deleteDeployment/${id}`).json()
+    return json
+  }
+
   confirmStatus = async () => {
     const json = await this.client.get('deploy/confirmStatus').json()
     return json
@@ -74,6 +80,11 @@ class ApiServer {
 
   submitTask = async (data: object) => {
     const json = await this.client.post('deploy/saveTask', { json: data }).json()
+    return json
+  }
+
+  deleteTask = async (id: string) => {
+    const json = await this.client.get(`deploy/deleteTask/${id}`).json()
     return json
   }
 

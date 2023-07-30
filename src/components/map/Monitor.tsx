@@ -126,9 +126,10 @@ const Monitor: React.FC = () => {
         if (!start || !end)
           return
 
+        const pid = uid('Path')
         appendCurrentProfilePath({
-          uid: uid('Path'),
-          name: `路径 ${uid('Path').slice(-3)}`,
+          uid: pid,
+          name: `路径 ${pid.slice(-3)}`,
           start,
           end,
           controls: [

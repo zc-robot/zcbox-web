@@ -1,5 +1,6 @@
 import { useCallback, useEffect } from 'react'
 import { Link, Outlet } from 'react-router-dom'
+import { Toaster } from 'react-hot-toast'
 import apiServer from '@/service/apiServer'
 import { useGridStore } from '@/store'
 
@@ -42,6 +43,7 @@ const Home: React.FC = () => {
         </div>
       </div>
       <Outlet />
+      <Toaster />
     </div>
   )
 }

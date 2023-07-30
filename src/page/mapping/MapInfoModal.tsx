@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { toast } from 'react-hot-toast'
 import Input from '@/components/Input'
 import apiServer from '@/service/apiServer'
 import { useGridStore } from '@/store'
@@ -12,11 +13,23 @@ const MapInfoModal: React.FC<PointModalProps> = ({ onClose }) => {
   const setMaps = useGridStore(state => state.setMaps)
 
   const handleSubmit = async () => {
-    if (name) {
-      await apiServer.saveMap(name)
-      const maps = await apiServer.fetchMapList()
-      setMaps(maps)
-      onClose()
+    if (!name)
+      return
+
+    try {
+      const resp = await apiServer.saveMap(name)
+      if (resp.code === 0) {
+        const maps = await apiServer.fetchMapList()
+        setMaps(maps)
+        onClose()
+        toast.success('保存成功')
+      }
+      else {
+        toast.success(`保存失败 ${resp.message}}`)
+      }
+    }
+    catch (e) {
+      toast.error(`保存失败 ${e}`)
     }
   }
 
