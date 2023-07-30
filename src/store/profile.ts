@@ -277,6 +277,7 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
             type: 'auto',
             precise: false,
             reverse: false,
+            dest: false,
             actions: [],
           })
         }

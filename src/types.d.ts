@@ -114,6 +114,7 @@ export interface TaskPoint {
   type: PointNavType,
   precise: boolean,
   reverse: boolean,
+  dest: boolean,
   actions: PointAction[],
 }
 

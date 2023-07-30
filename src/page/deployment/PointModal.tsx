@@ -13,6 +13,7 @@ interface PointModalProps {
 const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) => {
   const [navType, setNavType] = useState<PointNavType>(point.type)
   const [isPrecise, setPrecise] = useState<boolean>(point.precise)
+  const [isDest, setDest] = useState<boolean>(point.dest)
   const [isReverse, setReverse] = useState<boolean>(point.reverse)
   const [actions, setActions] = useState<PointAction[]>(point.actions)
 
@@ -46,6 +47,7 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
       type: navType,
       precise: isPrecise,
       reverse: isReverse,
+      dest: isDest,
       actions,
     })
 
@@ -92,6 +94,15 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
               </select>
             </div>
             <div className="flex flex-justify-between pt-2 pb-2 border-(b-solid 1px gray-300)">
+              <span className="font-bold">是否停靠点</span>
+              <select
+                value={isDest ? 'true' : 'false'}
+                onChange={e => setDest(e.target.value === 'true')}>
+                <option value="true">是</option>
+                <option value="false">否</option>
+              </select>
+            </div>
+            <div className="flex flex-justify-between pt-2 pb-2 border-(b-solid 1px gray-300)">
               <span className="font-bold">倒车进入</span>
               <select
                 value={isReverse ? 'true' : 'false'}
@@ -127,7 +138,7 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
             </div>
             <div className="flex flex-justify-between mt-a">
               <div className="p1 border-(solid 1px red) text='sm red' rounded-1 cursor-default"
-              onClick={() => handleDelete()}>
+                onClick={() => handleDelete()}>
                 删除
               </div>
               <div
