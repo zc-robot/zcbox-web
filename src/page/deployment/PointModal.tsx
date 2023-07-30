@@ -102,14 +102,14 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
             <div className="flex flex-justify-between pt-2 pb-2 border-(b-solid 1px gray-300)">
               <span className="font-bold">导航精度</span>
               <Input
-                className="w-50"
+                className="w-20"
                 type="number"
                 value={preciseXY}
                 defaultValue={0.3}
                 onChange={e => setPreciseXY(Number(e.target.value))} />
               米
               <Input
-                className="w-50"
+                className="w-20"
                 type="number"
                 value={preciseRad}
                 onChange={e => setPreciseRad(Number(e.target.value))}
