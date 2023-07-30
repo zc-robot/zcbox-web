@@ -105,13 +105,16 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
                 className="w-50"
                 type="number"
                 value={preciseXY}
+                defaultValue={0.3}
                 onChange={e => setPreciseXY(Number(e.target.value))} />
+              米
               <Input
                 className="w-50"
                 type="number"
                 value={preciseRad}
                 onChange={e => setPreciseRad(Number(e.target.value))}
-                placeholder="单位：rad" />
+                defaultValue={6.28} />
+              rad
             </div>
 
 
