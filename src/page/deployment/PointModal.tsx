@@ -76,6 +76,15 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
                 onClick={() => onClose()} />
             </div>
             <div className="flex flex-justify-between pt-2 pb-2 border-(b-solid 1px gray-300)">
+              <span className="font-bold">是否停靠点</span>
+              <select
+                value={isDest ? 'true' : 'false'}
+                onChange={e => setDest(e.target.value === 'true')}>
+                <option value="true">是</option>
+                <option value="false">否</option>
+              </select>
+            </div>
+            <div className="flex flex-justify-between pt-2 pb-2 border-(b-solid 1px gray-300)">
               <span className="font-bold">导航方式</span>
               <select
                 value={navType}
@@ -93,15 +102,7 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
                 <option value="false">否</option>
               </select>
             </div>
-            <div className="flex flex-justify-between pt-2 pb-2 border-(b-solid 1px gray-300)">
-              <span className="font-bold">是否停靠点</span>
-              <select
-                value={isDest ? 'true' : 'false'}
-                onChange={e => setDest(e.target.value === 'true')}>
-                <option value="true">是</option>
-                <option value="false">否</option>
-              </select>
-            </div>
+
             <div className="flex flex-justify-between pt-2 pb-2 border-(b-solid 1px gray-300)">
               <span className="font-bold">倒车进入</span>
               <select
