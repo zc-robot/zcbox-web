@@ -24,19 +24,20 @@ const Robot: React.FC<RobotProp> = ({ pose }) => {
             x={x}
             y={y}
             radius={footprint.radius}
+            offsetX={-robotCenterOffset}
             stroke="green"
-            strokeWidth={footprint.robot_width / 10} />
+            strokeWidth={footprint.robot_width / 10}
+            rotation={rotation} />
           <Circle
+            name="robotCenter"
             x={x}
             y={y}
-            offsetX={robotCenterOffset}
             radius={footprint.radius / 10}
             fill="red"
             rotation={rotation} />
           <Line
             x={x}
             y={y}
-            offsetX={robotCenterOffset}
             points={[0, 0, footprint.radius, 0]}
             stroke="red"
             strokeWidth={footprint.robot_width / 10}
@@ -51,7 +52,7 @@ const Robot: React.FC<RobotProp> = ({ pose }) => {
             x={x}
             y={y}
             offsetX={footprint.robot_width / 2}
-            offsetY={footprint.robot_length / 2}
+            offsetY={footprint.robot_length / 2 + robotCenterOffset}
             width={footprint.robot_width}
             height={footprint.robot_length}
             stroke="green"
@@ -60,16 +61,15 @@ const Robot: React.FC<RobotProp> = ({ pose }) => {
             // we need to add 90 degrees to the rotation of the robot
             rotation={rotation + 90} />
           <Circle
+            name="robotCenter"
             x={x}
             y={y}
-            offsetX={robotCenterOffset}
             radius={footprint.robot_width / 10}
             fill="red"
             rotation={rotation} />
           <Line
             x={x}
             y={y}
-            offsetX={robotCenterOffset}
             points={[0, 0, footprint.robot_length / 2, 0]}
             stroke="red"
             strokeWidth={footprint.robot_width / 10}

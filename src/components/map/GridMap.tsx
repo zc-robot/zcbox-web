@@ -44,7 +44,7 @@ const GridMap: React.FC = () => {
         data: bitmap,
       } as MapProp
       setMapState((prevState) => {
-        // Release previous ImageBitmap to avoid memory leak
+        // NOTE: Release previous ImageBitmap to avoid memory leak
         if (prevState?.data)
           prevState.data.close()
 

@@ -17,8 +17,11 @@ const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Credentials', true)
 
   if (req.url.includes('/deploy/getMapDataWithDetail')) {
+    // Get request latest segment
+    const segments = req.url.split('/')
+    const segment = segments[segments.length - 1]
     res.setHeader('Content-Type', 'application/json')
-    fs.readFile(`${dirPath}/grid.json`, (_, data) => {
+    fs.readFile(`${dirPath}/grid${segment}.json`, (_, data) => {
       res.end(data)
     })
   }
@@ -27,9 +30,8 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify({
       code: 0,
       data: [
-        { id: 1, name: '地图1' },
-        { id: 2, name: '地图2' },
-        { id: 3, name: '地图3' }
+        { id: 3, name: '地图3' },
+        { id: 4, name: '地图4' },
       ]
     }))
   }
@@ -72,7 +74,7 @@ const controlWss = new WebSocketServer({ noServer: true })
 mapWss.on('connection', (ws) => {
   ws.on('error', console.error);
 
-  fs.readFile(`${dirPath}/grid.json`, (_, data) => {
+  fs.readFile(`${dirPath}/grid3.json`, (_, data) => {
     const obj = JSON.parse(data.toString())
     const objData = JSON.stringify(obj.data.data)
     setInterval(() => {
