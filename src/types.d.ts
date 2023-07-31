@@ -38,6 +38,7 @@ export type RobotStatus =
 export interface RobotInfoMessage {
   pose: PoseMessage,
   fsm: RobotStatus,
+  localization_quality: number,
   task_uid: string,
 }
 

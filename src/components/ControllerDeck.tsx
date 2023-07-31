@@ -144,11 +144,14 @@ const Panel: React.FC = () => {
   )
 }
 
-const Info: React.FC<{ pose: PoseMessage; status: RobotStatus }> = ({ pose, status }) => {
+const Info: React.FC<{ pose: PoseMessage; status: RobotStatus; qulity: number }> = ({ pose, status, qulity }) => {
   return (
     <div className="p-2 flex flex-col border-(t-solid 1px gray-300)">
       <div className="flex text-sm text-dark font-bold pl-1">状态:
         <span className="text-dark font-200">{status}</span>
+      </div>
+      <div className="flex text-sm text-dark font-bold pl-1 pt-1">质量:
+        <span className="text-dark font-200">{qulity}</span>
       </div>
       <div className="flex text-sm pt-2">
         <div className="pl-2 font-bold">X:
@@ -162,14 +165,6 @@ const Info: React.FC<{ pose: PoseMessage; status: RobotStatus }> = ({ pose, stat
         </div>
       </div>
       <div className="flex flex-col text-sm">
-        <div className="pl-2 pt-1 font-bold">Pitch:
-          <br/>
-          <span className="text-dark font-200">{pose.pyr.pitch}</span>
-        </div>
-        <div className="pl-2 pt-1 font-bold">Roll:
-          <br/>
-          <span className="text-dark font-200">{pose.pyr.roll}</span>
-        </div>
         <div className="pl-2 pt-1 font-bold">Yaw:
           <br/>
           <span className="text-dark font-200">{pose.pyr.yaw}</span>
@@ -185,7 +180,7 @@ const ControllerDeck: React.FC = () => {
 
   return (
     <div className="flex='grow-0 shrink-0 basis-a'">
-      {robotInfo && <Info pose={robotInfo.pose} status={robotInfo.fsm} />}
+      {robotInfo && <Info pose={robotInfo.pose} status={robotInfo.fsm} qulity={robotInfo.localization_quality} />}
       <div className="flex flex-(items-center justify-between) px-4 h-8 border-(t-solid b-solid 1px gray-300)"
         onClick={() => displayDeck(!isDeckDisplay)}>
         <div className="text-3 p-1 cursor-default font-bold">机器人操作</div>

@@ -22,5 +22,6 @@
     "speed": {
         "angular": -0.006046702498634406,
         "linear": -0.0003149071475000679
-    }
+    },
+    "localization_quality": 10.1
 }
