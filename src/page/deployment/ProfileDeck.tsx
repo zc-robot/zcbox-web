@@ -1,8 +1,9 @@
+import type { MouseEvent } from 'react'
 import { useEffect, useState } from 'react'
 import { shallow } from 'zustand/shallow'
 import toast from 'react-hot-toast'
 import { useOperationStore, useProfileStore } from '@/store'
-import type { NavPoint, NavProfile } from '@/types'
+import type { NavPath, NavPoint, NavProfile } from '@/types'
 import apiServer from '@/service/apiServer'
 import EditableLabel from '@/components/EditableLabel'
 
@@ -101,6 +102,47 @@ const PointItem: React.FC<PointItemProps> = ({ point, selected, onClick, onDoubl
   )
 }
 
+interface PathItemProps {
+  path: NavPath
+  selected: boolean
+  onClick: (e: React.MouseEvent<HTMLDivElement, MouseEvent>) => void
+  onPathRenamed: (name: string) => void
+  onDeleteClicked: () => void
+}
+
+const PathItem: React.FC<PathItemProps> = ({ path, selected, onClick, onPathRenamed, onDeleteClicked }) => {
+  const [showMenu, setShowMenu] = useState(false)
+  const [name, setName] = useState(path.name)
+
+  useEffect(() => {
+    if (!selected)
+      setShowMenu(false)
+  }, [selected])
+
+  return (
+    <div
+      className={`cursor-default h-2rem pl-2 flex items-center hover:(outline outline-1 outline-blue-300) ${selected ? 'bg-gray-300' : ''}`}
+      onClick={(e) => {
+        e.preventDefault()
+        onClick(e)
+        if (showMenu)
+          setShowMenu(false)
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault()
+
+        if (selected)
+          setShowMenu(true)
+      }}>
+      <div className="i-material-symbols-location-on-outline text-gray-500" />
+      <EditableLabel value={name} onValueChanged={setName} onValueConfirmed={onPathRenamed} />
+      {showMenu && <div className="z-10 relative left-5 top-5 bg-white shadow-(sm blueGray)">
+        <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onDeleteClicked}>删除</div>
+      </div>}
+    </div>
+  )
+}
+
 export interface ProfileDeckProps {
   mapId: number
 }
@@ -117,6 +159,7 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
   const {
     profiles, currentProfileId, currentPoints, currentPaths, addProfile, removeProfile, updateCurrentProfile,
     appendTaskPoint, updateCurrentProfilePoint, removeCurrentProfilePoint, setCurrentProfile,
+    updateCurrentProfilePath, removeCurrentProfilePath,
   } = useProfileStore(state => ({
     profiles: state.filterMapProfiles(mapId),
     currentProfileId: state.currentProfileId,
@@ -129,6 +172,8 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
     updateCurrentProfilePoint: state.updateCurrentProfilePoint,
     removeCurrentProfilePoint: state.removeCurrentProfilePoint,
     setCurrentProfile: state.setCurrentProfile,
+    updateCurrentProfilePath: state.updateCurrentProfilePath,
+    removeCurrentProfilePath: state.removeCurrentProfilePath,
   }))
 
   const handleProfileSelected = (profile: NavProfile) => {
@@ -209,18 +254,21 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
             onPointRenamed={(name) => {
               updateCurrentProfilePoint(p.uid, { name })
             }}/>)
-          : currentPaths.map((p, i) => <div
+          : currentPaths.map((p, i) => <PathItem
             key={i}
-            className={`cursor-default h-2rem pl-2 flex items-center hover:(outline outline-1 outline-blue-300) ${selectedId === p.uid
-              ? 'bg-gray-300'
-              : ''}`}
-            onClick={() => {
+            path={p}
+            selected={selectedId === p.uid}
+            onClick={(e) => {
+              e.stopPropagation()
               updateOp('select')
               select(p.uid)
-            }}>
-            <div className="i-material-symbols-location-on-outline text-gray-500" />
-            <div className="ml-1 text-3">{p.name}</div>
-            </div>)}
+            }}
+            onPathRenamed={(name) => {
+              updateCurrentProfilePath(p.uid, { name })
+            }}
+            onDeleteClicked={() => {
+              removeCurrentProfilePath(p.uid)
+            }}/>)}
       </div>
     </div>
   )
