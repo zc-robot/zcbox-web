@@ -1,4 +1,4 @@
-import zhCN from '../../locales/zh-cn.json'
+import zhCN from '../../locales/zh-CN.json'
 import en from '../../locales/en.json'
 import type { LanguageCode } from '@/types'
 import { useParamsStore } from '@/store'
