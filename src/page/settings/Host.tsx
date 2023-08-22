@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import Input from '@/components/Input'
 import { useParamsStore } from '@/store'
+import { useLocales } from '@/hooks'
 
 const HostSetting: React.FC = () => {
+  const { locale } = useLocales()
   const apiDomain = useParamsStore(state => state.apiDomain)
   const wsDomain = useParamsStore(state => state.wsDomain)
   const updateApiDomain = useParamsStore(state => state.updateApiDomain)
@@ -19,10 +21,10 @@ const HostSetting: React.FC = () => {
 
   return (
     <>
-      <h3>域名配置</h3>
+      <h3>{locale('domainOption')}</h3>
       <form>
         <div className="flex flex-items-center p2 gap-2">
-          <span className="text-sm w-30">API域名</span>
+          <span className="text-sm w-30">{locale('apiDomain')}</span>
           <Input
             className="w-50"
             type="url"
@@ -31,7 +33,7 @@ const HostSetting: React.FC = () => {
             placeholder="http://localhost:1234" />
         </div>
         <div className="flex flex-items-center p2 gap-2">
-          <span className="text-sm w-30">WS域名</span>
+          <span className="text-sm w-30">{locale('wsDomain')}</span>
           <Input
             className="w-50"
             type="url"
@@ -43,7 +45,7 @@ const HostSetting: React.FC = () => {
       <div
         className="bg-gray-300 p1 rounded-1 text-(sm center) cursor-default w-10"
         onClick={() => handleSubmit()}>
-        保存
+        {locale('confirm')}
       </div>
     </>
   )

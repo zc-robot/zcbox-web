@@ -1,3 +1,5 @@
+export type LanguageCode = "en" | "zh-CN"
+
 export type Operation =
   | 'move'
   | 'select'

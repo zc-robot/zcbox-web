@@ -1,9 +1,10 @@
 import { toNumber } from 'lodash'
 import { useParamsStore } from '@/store'
+import { useLocales } from '@/hooks'
 
 const MapSetting: React.FC = () => {
+  const { locale } = useLocales()
   const mapParams = useParamsStore(state => state.mapParams)
-
   const updateMapParams = useParamsStore(state => state.updateMapParams)
 
   const handleResolutionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -16,9 +17,9 @@ const MapSetting: React.FC = () => {
 
   return (
     <>
-      <h3>建图配置</h3>
+      <h3>{locale('mapOption')}</h3>
       <div className="flex flex-justify-between pt-2 pb-2">
-        <span className="font-bold">分辨率</span>
+        <span className="font-bold">{locale('resolution')}</span>
         <select
           value={mapParams.resolution}
           onChange={handleResolutionChange}>
@@ -27,7 +28,7 @@ const MapSetting: React.FC = () => {
         </select>
       </div>
       <div className="flex flex-justify-between pt-2 pb-2">
-        <span className="font-bold">模型</span>
+        <span className="font-bold">{locale('model')}</span>
         <select
           value={mapParams.model}
           onChange={handleModelChange}>

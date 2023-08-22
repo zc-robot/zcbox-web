@@ -4,6 +4,7 @@ import Input from '@/components/Input'
 
 import type { NavTask, PointAction, PointNavType, TaskPoint } from '@/types'
 import { useParamsStore, useProfileStore } from '@/store'
+import { useLocales } from '@/hooks'
 
 interface PointModalProps {
   index: number
@@ -13,6 +14,8 @@ interface PointModalProps {
 }
 
 const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) => {
+  const { locale } = useLocales()
+
   const [navType, setNavType] = useState<PointNavType>(point.type)
   const [isPrecise, setPrecise] = useState<boolean>(point.precise)
   const [preciseXY, setPreciseXY] = useState<number>(point.precise_xy)
@@ -86,8 +89,8 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
               <select
                 value={isDest ? 'true' : 'false'}
                 onChange={e => setDest(e.target.value === 'true')}>
-                <option value="true">是</option>
-                <option value="false">否</option>
+                <option value="true">{locale('confirm')}</option>
+                <option value="false">{locale('cancel')}</option>
               </select>
             </div>
             <div className="flex flex-justify-between pt-2 pb-2 border-(b-solid 1px gray-300)">
@@ -116,7 +119,6 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
                 defaultValue={6.28} />
               rad
             </div>
-
 
             <div className="flex flex-justify-between pt-2 pb-2 border-(b-solid 1px gray-300)">
               <span className="font-bold">倒车进入</span>

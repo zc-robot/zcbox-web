@@ -1,0 +1,17 @@
+{
+  "confirm": "确认",
+  "cancel": "取消",
+  "languageOption": "语言配置",
+  "uiLanguage": "界面语言",
+  "domainOption": "域名配置",
+  "apiDomain": "API域名",
+  "wsDomain": "WS域名",
+  "mapOption": "建图配置",
+  "resolution": "分辨率",
+  "model": "模型",
+  "jointOption": "关节配置",
+  "footprintOption": "底盘配置",
+  "circleFootprint": "圆形底盘",
+  "footprintRadius": "底盘半径",
+  "firmwareOption": "固件配置"
+}

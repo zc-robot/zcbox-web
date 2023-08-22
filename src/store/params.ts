@@ -1,7 +1,8 @@
 import type { StateCreator } from 'zustand'
-import type { FootprintParams, JointParams, PointAction, RobotParams } from '@/types'
+import type { FootprintParams, JointParams, LanguageCode, PointAction, RobotParams } from '@/types'
 
 export interface ParamsSlice {
+  language: LanguageCode
   apiDomain: string
   wsDomain: string
   robotParams: RobotParams | null
@@ -12,6 +13,7 @@ export interface ParamsSlice {
   }
 
   // Actions
+  updateLanguage: (language: LanguageCode) => void
   updateApiDomain: (domain: string) => void
   updateWsDomain: (domain: string) => void
   updateMapParams: (by: { resolution?: number; model?: string }) => void
@@ -22,6 +24,7 @@ export interface ParamsSlice {
 }
 
 export const paramsSlice: StateCreator<ParamsSlice> = set => ({
+  language: 'zh-CN',
   apiDomain: '',
   wsDomain: '',
   robotParams: null,
@@ -31,6 +34,10 @@ export const paramsSlice: StateCreator<ParamsSlice> = set => ({
     model: 'diff',
   },
 
+  // Actions
+  updateLanguage: (language: LanguageCode) => {
+    set({ language })
+  },
   updateApiDomain: (domain: string) => {
     set({ apiDomain: domain })
   },
