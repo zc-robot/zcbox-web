@@ -2,5 +2,16 @@
   "confirm": "OK",
   "cancel": "Cancel",
   "language": "Language",
-  "uiLanguage": "UI Language"
+  "uiLanguage": "UI Language",
+  "domainOption": "Dodmain Configure",
+  "apiDomain": "API Dodmain",
+  "wsDomain": "WS Domain",
+  "mapOption": "Map Configure",
+  "resolution": "Resolution",
+  "model": "model",
+  "jointOption": "Joint Configure",
+  "footprintOption": "Base Configure",
+  "circleFootprint": "Circle Footprint",
+  "footprintRadius": "Footprint Radius",
+  "firmwareOption": "Firmware Configure",
 }
