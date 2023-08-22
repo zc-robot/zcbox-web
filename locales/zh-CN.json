@@ -13,5 +13,6 @@
   "footprintOption": "底盘配置",
   "circleFootprint": "圆形底盘",
   "footprintRadius": "底盘半径",
-  "firmwareOption": "固件配置"
+  "firmwareOption": "固件配置",
+  "Paths": "路径"
 }
