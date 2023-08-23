@@ -49,8 +49,8 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
         setRobotInfo(msg)
         const status = msg.fsm
 
-        if (['succeeded', 'failed', 'canceled'].includes(status))
-          confirmStatus()
+        // if (['succeeded', 'failed', 'canceled'].includes(status))
+        //   confirmStatus()
       }
       catch (e) {
         console.error('Failed to parse robot data', lastMessage.data, e)
@@ -155,10 +155,10 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
         <div className="panel-item justify-center group">
           <div className={`${readyState === ReadyState.OPEN
             ? 'border-green'
-            : 'border-red'} border-(3px solid) rd-3px self-center`}/>
-            <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
-              {`机器人: ${robotStatus ?? '未连接'}`}
-            </span>
+            : 'border-red'} border-(3px solid) rd-3px self-center`} />
+          <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
+            {`机器人: ${robotStatus ?? '未连接'}`}
+          </span>
         </div>
         <div
           className="panel-item group"
