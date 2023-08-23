@@ -21,6 +21,7 @@ export const useBoundStore = create<GridSlice & OperationSlice & ProfileSlice & 
   {
     name: 'zc-web',
     partialize: state => ({
+      language: state.language,
       apiDomain: state.apiDomain,
       wsDomain: state.wsDomain,
       robotParams: state.robotParams,
