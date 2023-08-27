@@ -17,7 +17,6 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
   const { locale } = useLocales()
 
   const [navType, setNavType] = useState<PointNavType>(point.type)
-  const [isPrecise, setPrecise] = useState<boolean>(point.precise)
   const [preciseXY, setPreciseXY] = useState<number>(point.precise_xy)
   const [preciseRad, setPreciseRad] = useState<number>(point.precise_rad)
   const [isDest, setDest] = useState<boolean>(point.dest)
@@ -29,6 +28,8 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
   const pointActions = useParamsStore(state => state.pointActions)
 
   const handleAddAction = () => {
+    if (pointActions.length === 0)
+      return
     setActions([...actions, pointActions[0]])
   }
 
@@ -52,7 +53,6 @@ const PointModal: React.FC<PointModalProps> = ({ index, task, point, onClose }) 
   const handleSubmit = () => {
     updateProfileTaskPoint(index, {
       type: navType,
-      precise: isPrecise,
       precise_xy: preciseXY,
       precise_rad: preciseRad,
       reverse: isReverse,
