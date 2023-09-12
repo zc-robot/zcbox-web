@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import PointModal from './PointModal'
+import TaskPointModal from './TaskPointModal'
 import type { NavTask, TaskPoint } from '@/types'
 import { useProfileStore } from '@/store'
 
@@ -50,7 +50,7 @@ const TaskPoints: React.FC<TaskPointsProp> = ({ task }) => {
           </div>
         )
       })}
-      {configPoint && <PointModal
+      {configPoint && <TaskPointModal
         task={task}
         index={configPoint.index}
         point={configPoint.point}

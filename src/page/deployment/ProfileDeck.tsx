@@ -2,10 +2,12 @@ import type { MouseEvent } from 'react'
 import { useEffect, useState } from 'react'
 import { shallow } from 'zustand/shallow'
 import toast from 'react-hot-toast'
-import { useOperationStore, useProfileStore } from '@/store'
+import PointModal from './PointModal'
+import { useGridStore, useOperationStore, useProfileStore } from '@/store'
 import type { NavPath, NavPoint, NavProfile } from '@/types'
 import apiServer from '@/service/apiServer'
 import EditableLabel from '@/components/EditableLabel'
+import { uid } from '@/util'
 
 type display = 'point' | 'path'
 
@@ -60,12 +62,15 @@ interface PointItemProps {
   selected: boolean
   onClick: (e: React.MouseEvent<HTMLDivElement, MouseEvent>) => void
   onDoubleClicked: () => void
+  onEditClicked: () => void
   onDeleteClicked: () => void
   onRelocateClicked: () => void
   onPointRenamed: (name: string) => void
 }
 
-const PointItem: React.FC<PointItemProps> = ({ point, selected, onClick, onDoubleClicked, onDeleteClicked, onRelocateClicked, onPointRenamed }) => {
+const PointItem: React.FC<PointItemProps> = ({
+  point, selected, onClick, onDoubleClicked, onDeleteClicked, onEditClicked, onRelocateClicked, onPointRenamed,
+}) => {
   const [showMenu, setShowMenu] = useState(false)
   const [name, setName] = useState(point.name)
 
@@ -95,6 +100,7 @@ const PointItem: React.FC<PointItemProps> = ({ point, selected, onClick, onDoubl
       <div className="i-material-symbols-location-on-outline text-gray-500" />
       <EditableLabel value={name} onValueChanged={setName} onValueConfirmed={onPointRenamed} />
       {showMenu && <div className="z-10 relative left-5 top-5 bg-white shadow-(sm blueGray)">
+        <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onEditClicked}>编辑</div>
         <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onDeleteClicked}>删除</div>
         <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onRelocateClicked}>重定位机器人</div>
       </div>}
@@ -150,6 +156,7 @@ export interface ProfileDeckProps {
 const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
   const [showProfileList, setShowProfileList] = useState(true)
   const [currentDisplay, setCurrentDisplay] = useState<display>('point')
+  const [configPoint, setConfigPoint] = useState<NavPoint>()
 
   const { selectedId, select, updateOp } = useOperationStore(state => ({
     selectedId: state.selectedPointId,
@@ -158,8 +165,8 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
   }), shallow)
   const {
     profiles, currentProfileId, currentPoints, currentPaths, addProfile, removeProfile, updateCurrentProfile,
-    appendTaskPoint, updateCurrentProfilePoint, removeCurrentProfilePoint, setCurrentProfile,
-    updateCurrentProfilePath, removeCurrentProfilePath,
+    appendCurrentProfilePoint, appendTaskPoint, updateCurrentProfilePoint, removeCurrentProfilePoint,
+    setCurrentProfile, updateCurrentProfilePath, removeCurrentProfilePath,
   } = useProfileStore(state => ({
     profiles: state.filterMapProfiles(mapId),
     currentProfileId: state.currentProfileId,
@@ -168,6 +175,7 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
     addProfile: state.appendProfile,
     removeProfile: state.removeProfile,
     updateCurrentProfile: state.updateCurrentProfile,
+    appendCurrentProfilePoint: state.appendCurrentProfilePoint,
     appendTaskPoint: state.appendProfileTaskPoint,
     updateCurrentProfilePoint: state.updateCurrentProfilePoint,
     removeCurrentProfilePoint: state.removeCurrentProfilePoint,
@@ -175,6 +183,7 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
     updateCurrentProfilePath: state.updateCurrentProfilePath,
     removeCurrentProfilePath: state.removeCurrentProfilePath,
   }))
+  const robotInfo = useGridStore(state => state.robotInfo)
 
   const handleProfileSelected = (profile: NavProfile) => {
     setCurrentProfile(profile.uid)
@@ -189,6 +198,20 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
     catch (e) {
       toast.error(`删除失败 ${e}`)
     }
+  }
+
+  const addRobotPoint = () => {
+    if (!robotInfo)
+      return
+
+    const id = uid('Point')
+    appendCurrentProfilePoint({
+      x: robotInfo.pose.position.x,
+      y: -robotInfo.pose.position.y,
+      name: `路径点 ${id.slice(-3)}`,
+      uid: id,
+      rotation: 0,
+    })
   }
 
   return (
@@ -227,6 +250,9 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
           ? 'font-bold'
           : 'color-gray-500 hover:color-black'}`}
           onClick={() => setCurrentDisplay('path')}>路径</div>
+        <div
+            className="i-material-symbols-add-location-outline ml-a mr-4"
+            onClick={() => addRobotPoint()} />
       </div>
       <div
         className={'flex-col flex'}
@@ -240,6 +266,9 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
               e.stopPropagation()
               updateOp('select')
               select(p.uid)
+            }}
+            onEditClicked={() => {
+              setConfigPoint(p)
             }}
             onDoubleClicked={() => {
               appendTaskPoint(p)
@@ -270,6 +299,9 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
               removeCurrentProfilePath(p.uid)
             }}/>)}
       </div>
+      {configPoint && <PointModal
+        point={configPoint}
+        onClose={() => setConfigPoint(undefined)} />}
     </div>
   )
 }
