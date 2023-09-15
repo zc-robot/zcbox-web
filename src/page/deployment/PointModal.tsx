@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { toNumber, toString } from 'lodash'
 import Input from '@/components/Input'
 import { useProfileStore } from '@/store'
 import type { NavPoint } from '@/types'
@@ -10,13 +11,17 @@ interface PointModalProps {
 
 const PointModal: React.FC<PointModalProps> = ({ point, onClose }) => {
   const updateCurrentProfilePoint = useProfileStore(state => state.updateCurrentProfilePoint)
-  const [pointProp, setPointProp] = useState<{ x: number; y: number; rotation: number }>(point)
+  const [pointProp, setPointProp] = useState<{ x: string; y: string; rotation: string }>({
+    x: toString(point.x),
+    y: toString(point.y),
+    rotation: toString(point.rotation),
+  })
 
   const handleSubmit = () => {
     updateCurrentProfilePoint(point.uid, {
-      x: pointProp.x,
-      y: pointProp.y,
-      rotation: pointProp.rotation,
+      x: toNumber(pointProp.x),
+      y: toNumber(pointProp.y),
+      rotation: toNumber(pointProp.rotation),
     })
 
     onClose()
@@ -39,7 +44,7 @@ const PointModal: React.FC<PointModalProps> = ({ point, onClose }) => {
             type="number"
             value={pointProp.x}
             onChange={(e) => {
-              setPointProp({ ...pointProp, x: Number(e.target.value) })
+              setPointProp({ ...pointProp, x: e.target.value })
             }} />
         </div>
         <div className="flex flex-justify-between pt-2 pb-2 border-(b-solid 1px gray-300)">
@@ -49,7 +54,7 @@ const PointModal: React.FC<PointModalProps> = ({ point, onClose }) => {
             type="number"
             value={pointProp.y}
             onChange={(e) => {
-              setPointProp({ ...pointProp, y: Number(e.target.value) })
+              setPointProp({ ...pointProp, y: e.target.value })
             }} />
         </div>
         <div className="flex flex-justify-between pt-2 pb-2 border-(b-solid 1px gray-300)">
@@ -59,7 +64,7 @@ const PointModal: React.FC<PointModalProps> = ({ point, onClose }) => {
             type="number"
             value={pointProp.rotation}
             onChange={(e) => {
-              setPointProp({ ...pointProp, rotation: Number(e.target.value) })
+              setPointProp({ ...pointProp, rotation: e.target.value })
             }} />
         </div>
         <div className="flex flex-justify-end mt-a">
