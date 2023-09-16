@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { toNumber } from 'lodash'
+import { toNumber, toString } from 'lodash'
 import Input from '@/components/Input'
 
 import type { NavTask, PointAction, PointNavType, TaskPoint } from '@/types'
@@ -17,8 +17,8 @@ const TaskPointModal: React.FC<TaskPointModalProps> = ({ index, task, point, onC
   const { locale } = useLocales()
 
   const [navType, setNavType] = useState<PointNavType>(point.type)
-  const [preciseXY, setPreciseXY] = useState<number>(point.precise_xy)
-  const [preciseRad, setPreciseRad] = useState<number>(point.precise_rad)
+  const [preciseXY, setPreciseXY] = useState<string>(toString(point.precise_xy))
+  const [preciseRad, setPreciseRad] = useState<string>(toString(point.precise_rad))
   const [isDest, setDest] = useState<boolean>(point.dest)
   const [isReverse, setReverse] = useState<boolean>(point.reverse)
   const [actions, setActions] = useState<PointAction[]>(point.actions)
@@ -105,13 +105,13 @@ const TaskPointModal: React.FC<TaskPointModalProps> = ({ index, task, point, onC
             type="number"
             value={preciseXY}
             defaultValue={0.3}
-            onChange={e => setPreciseXY(Number(e.target.value))} />
+            onChange={e => setPreciseXY(e.target.value)} />
           米
           <Input
             className="w-20"
             type="number"
             value={preciseRad}
-            onChange={e => setPreciseRad(Number(e.target.value))}
+            onChange={e => setPreciseRad(e.target.value)}
             defaultValue={6.28} />
           rad
         </div>
