@@ -9,18 +9,26 @@ interface PointModalProps {
   onClose: () => void
 }
 
+// NOTE: As the point is in the coordinate system of the robot, the y-axis is reversed
+//       when update the point, the y-axis should be reverse again
 const PointModal: React.FC<PointModalProps> = ({ point, onClose }) => {
   const updateCurrentProfilePoint = useProfileStore(state => state.updateCurrentProfilePoint)
+  const removeCurrentProfilePoint = useProfileStore(state => state.removeCurrentProfilePoint)
   const [pointProp, setPointProp] = useState<{ x: string; y: string; rotation: string }>({
     x: toString(point.x),
-    y: toString(point.y),
+    y: toString(-point.y),
     rotation: toString(point.rotation),
   })
+
+  const handleDelete = () => {
+    removeCurrentProfilePoint(point.uid)
+    onClose()
+  }
 
   const handleSubmit = () => {
     updateCurrentProfilePoint(point.uid, {
       x: toNumber(pointProp.x),
-      y: toNumber(pointProp.y),
+      y: toNumber(-pointProp.y),
       rotation: toNumber(pointProp.rotation),
     })
 
@@ -67,7 +75,11 @@ const PointModal: React.FC<PointModalProps> = ({ point, onClose }) => {
               setPointProp({ ...pointProp, rotation: e.target.value })
             }} />
         </div>
-        <div className="flex flex-justify-end mt-a">
+        <div className="flex flex-justify-between mt-a">
+          <div className="p1 border-(solid 1px red) text='sm red' rounded-1 cursor-default"
+            onClick={() => handleDelete()}>
+            删除
+          </div>
           <div
             className="bg-gray-300 p1 rounded-1 text-sm cursor-default"
             onClick={() => handleSubmit()}>
