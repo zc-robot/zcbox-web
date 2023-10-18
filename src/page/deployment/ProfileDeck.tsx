@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { shallow } from 'zustand/shallow'
 import toast from 'react-hot-toast'
 import PointModal from './PointModal'
+import PathModal from './PathModal'
 import { useGridStore, useOperationStore, useProfileStore } from '@/store'
 import type { NavPath, NavPoint, NavProfile } from '@/types'
 import apiServer from '@/service/apiServer'
@@ -113,10 +114,11 @@ interface PathItemProps {
   selected: boolean
   onClick: (e: React.MouseEvent<HTMLDivElement, MouseEvent>) => void
   onPathRenamed: (name: string) => void
+  onEditClicked: () => void
   onDeleteClicked: () => void
 }
 
-const PathItem: React.FC<PathItemProps> = ({ path, selected, onClick, onPathRenamed, onDeleteClicked }) => {
+const PathItem: React.FC<PathItemProps> = ({ path, selected, onClick, onPathRenamed, onEditClicked, onDeleteClicked }) => {
   const [showMenu, setShowMenu] = useState(false)
   const [name, setName] = useState(path.name)
 
@@ -143,6 +145,7 @@ const PathItem: React.FC<PathItemProps> = ({ path, selected, onClick, onPathRena
       <div className="i-material-symbols-location-on-outline text-gray-500" />
       <EditableLabel value={name} onValueChanged={setName} onValueConfirmed={onPathRenamed} />
       {showMenu && <div className="z-10 relative left-5 top-5 bg-white shadow-(sm blueGray)">
+        <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onEditClicked}>编辑</div>
         <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onDeleteClicked}>删除</div>
       </div>}
     </div>
@@ -157,6 +160,7 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
   const [showProfileList, setShowProfileList] = useState(true)
   const [currentDisplay, setCurrentDisplay] = useState<display>('point')
   const [configPoint, setConfigPoint] = useState<NavPoint>()
+  const [configPath, setConfigPath] = useState<NavPath>()
 
   const { selectedId, select, updateOp } = useOperationStore(state => ({
     selectedId: state.selectedPointId,
@@ -295,6 +299,9 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
             onPathRenamed={(name) => {
               updateCurrentProfilePath(p.uid, { name })
             }}
+            onEditClicked={() => {
+              setConfigPath(p)
+            }}
             onDeleteClicked={() => {
               removeCurrentProfilePath(p.uid)
             }}/>)}
@@ -302,6 +309,9 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
       {configPoint && <PointModal
         point={configPoint}
         onClose={() => setConfigPoint(undefined)} />}
+      {configPath && <PathModal
+        path={configPath}
+        onClose={() => setConfigPath(undefined)} />}
     </div>
   )
 }

@@ -45,7 +45,7 @@ const PointModal: React.FC<PointModalProps> = ({ point, onClose }) => {
             className="i-material-symbols-cancel-outline-rounded flex-self-center ml-a text-5"
             onClick={() => onClose()} />
         </div>
-        <div className="flex flex-justify-between pt-2 pb-2 border-(b-solid 1px gray-300)">
+        <div className="flex flex-justify-between items-center mt-4 pt-2 pb-2 border-(b-solid 1px gray-300)">
           <span className="font-bold">X</span>
           <Input
             className="w-40"

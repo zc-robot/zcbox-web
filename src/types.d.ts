@@ -94,6 +94,7 @@ export interface NavPoint {
 export interface NavPath {
   uid: string,
   name: string,
+  thickness: number,
   start: {
     uid: string,
     x: number,
