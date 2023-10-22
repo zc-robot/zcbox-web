@@ -17,6 +17,9 @@ const Panel: React.FC = () => {
   const [pressedKey, pressKey] = useState<string>('')
 
   const { sendJsonMessage } = useWebSocket(`${apiServer.wsDomain}/velocity_control`)
+  const confirmStatus = async () => {
+    await apiServer.confirmStatus()
+  }
 
   useKeyPress((event, isDown) => {
     if (isDown) {
@@ -139,6 +142,11 @@ const Panel: React.FC = () => {
           value={toString(velocityInfo.angular)}
           onChange={(e) => { updateAngularVelocity(round(toNumber(e.target.value), 2)) }}
         />
+      </div>
+      <div
+        className="border-(solid 1px gray-5) rounded mt-2 p-2 text-3 cursor-default"
+        onClick={confirmStatus}>
+        确认机器人位置
       </div>
     </div>
   )
