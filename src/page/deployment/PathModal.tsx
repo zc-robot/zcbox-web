@@ -12,7 +12,7 @@ interface PathModalProps {
 const PathModal: React.FC<PathModalProps> = ({ path, onClose }) => {
   const updateCurrentProfilePath = useProfileStore(state => state.updateCurrentProfilePath)
   const removeCurrentProfilePath = useProfileStore(state => state.removeCurrentProfilePath)
-  const [pathProp, setPointProp] = useState<{ thickness: string }>({
+  const [pathProp, setPointProp] = useState < { : string } > ({
     thickness: toString(path.thickness),
   })
 
