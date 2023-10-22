@@ -39,18 +39,10 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const { lastMessage, readyState } = useWebSocket(`${apiServer.wsDomain}/robot_data`, wsOption)
 
   useEffect(() => {
-    const confirmStatus = async () => {
-      await apiServer.confirmStatus()
-    }
-
     if (lastMessage !== null) {
       try {
         const msg = JSON.parse(lastMessage.data) as RobotInfoMessage
         setRobotInfo(msg)
-        const status = msg.fsm
-
-        // if (['succeeded', 'failed', 'canceled'].includes(status))
-        //   confirmStatus()
       }
       catch (e) {
         console.error('Failed to parse robot data', lastMessage.data, e)
