@@ -56,6 +56,7 @@ const TaskItem: React.FC<TaskItemProps> = ({ task, enabled, executing, onTaskSel
 const TaskDeck: React.FC = () => {
   const [showTaskList, setShowTaskList] = useState(false)
   const [repeat, setRepeat] = useState(false)
+  const [use_path_map, setUsePathMap] = useState(false)
 
   const { robotStatus, executingTaskId } = useGridStore(state => ({
     robotStatus: state.robotInfo?.fsm,
@@ -82,11 +83,14 @@ const TaskDeck: React.FC = () => {
       await apiServer.stopTask()
 
     else
-      await apiServer.executeTask(currentTaskId, repeat)
+      await apiServer.executeTask(currentTaskId, repeat, use_path_map)
   }
 
   const toggleRepeat = () => {
     setRepeat(!repeat)
+  }
+  const toggleUsePathMap = () => {
+    setUsePathMap(!use_path_map)
   }
 
   const deleteTask = async (task: NavTask) => {
@@ -106,7 +110,8 @@ const TaskDeck: React.FC = () => {
         <div
           className={`color-gray-500 ${robotStatus === 'idle' ? 'i-material-symbols-play-arrow-outline' : 'i-material-symbols-pause-outline'}`}
           onClick={toggleTask} />
-        <input type="checkbox" className="text-sm mr-a" title="多次运行" checked={repeat} onChange={toggleRepeat}/>
+        <input type="checkbox" className="text-sm mr-a" title="多次运行" checked={repeat} onChange={toggleRepeat} />
+        <input type="checkbox" className="text-sm mr-a" title="使用路径地图" checked={use_path_map} onChange={toggleUsePathMap} />
         <div className="flex flex-items-center text-3 p-1 cursor-default color-gray-500"
           onClick={() => setShowTaskList(!showTaskList)}>
           {currentTaskId ?? '任务列表'}<div className="i-material-symbols-keyboard-arrow-down" />
@@ -130,7 +135,7 @@ const TaskDeck: React.FC = () => {
               onTaskSelected={() => setCurrentTask(t.uid)}
               onTaskRenamed={name => updateCurrentTask({ name })}
               onDeleteClicked={() => deleteTask(t)}
-              />
+            />
           )
         })}
       </div>

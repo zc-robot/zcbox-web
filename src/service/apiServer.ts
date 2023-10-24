@@ -88,8 +88,8 @@ class ApiServer {
     return json
   }
 
-  executeTask = async (id: string, repeat: boolean) => {
-    const json = await this.client.post('deploy/executeTask', { json: { uid: id, repeat } }).json()
+  executeTask = async (id: string, repeat: boolean, use_path_map: boolean) => {
+    const json = await this.client.post('deploy/executeTask', { json: { uid: id, repeat, use_path_map } }).json()
     return json
   }
 
