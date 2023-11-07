@@ -6,6 +6,7 @@ import GridMap from './GridMap'
 import Pathway from './Pathway'
 import Robot from './Robot'
 import Waypoint from './Waypoint'
+import PathPoint from './PathPoint'
 import { uid } from '@/util'
 import { useGridStore, useOperationStore, useProfileStore } from '@/store'
 import { useElementSize, useKeyPress } from '@/hooks'
@@ -31,10 +32,11 @@ const Monitor: React.FC = () => {
     selectedId: state.selectedPointId,
     selectPoint: state.selectPoint,
   }), shallow)
-  const { scale, gridInfo, robotInfo } = useGridStore(state => ({
+  const { scale, gridInfo, robotInfo, pathPointInfo } = useGridStore(state => ({
     scale: state.scale,
     gridInfo: state.gridInfo,
     robotInfo: state.robotInfo,
+    pathPointInfo: state.pathPointInfo,
   }), shallow)
   const {
     currentPoints, appendCurrentProfilePoint, removeCurrentProfilePoint,
@@ -132,6 +134,7 @@ const Monitor: React.FC = () => {
           name: `路径 ${pid.slice(-3)}`,
           start,
           end,
+          thickness: 2,
           controls: [
             { x: start.x + (end.x - start.x) / 4, y: start.y + (end.y - start.y) / 4 },
             { x: start.x + (end.x - start.x) / 4 * 3, y: start.y + (end.y - start.y) / 4 * 3 },
@@ -194,6 +197,9 @@ const Monitor: React.FC = () => {
             point={wp}
             onSelect={() => handlePointClick(wp.uid)}
             isSelected={wp.uid === selectedId} />)}
+          {pathPointInfo.map((p, i) => <PathPoint
+            key={i}
+            point={p} />)}
         </Layer>
       </Stage>
     </div>

@@ -3,19 +3,20 @@ import useWebSocket, { ReadyState } from 'react-use-websocket'
 import toast from 'react-hot-toast'
 import { useGridStore, useOperationStore, useProfileStore } from '@/store'
 import apiServer from '@/service/apiServer'
-import type { RobotInfoMessage } from '@/types'
+import type { PointMessage, RobotInfoMessage } from '@/types'
 
 export interface TopDeckProps {
   mapId: number
 }
 
 const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
-  const { setMaps, zoom, robotStatus, setRobotInfo, setMapGrid } = useGridStore(state => ({
+  const { setMaps, zoom, robotStatus, setRobotInfo, setMapGrid, setPathPointInfo } = useGridStore(state => ({
     setMaps: state.setMaps,
     zoom: state.zoom,
     robotStatus: state.robotInfo?.fsm,
     setRobotInfo: state.setRobotInfo,
     setMapGrid: state.setMapGrid,
+    setPathPointInfo: state.setPathPointInfo,
   }))
   const { currentOp, updateOp } = useOperationStore(state => ({
     currentOp: state.current,
@@ -36,19 +37,29 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     reconnectInterval: 2000,
     retryOnError: true,
   }
-  const { lastMessage, readyState } = useWebSocket(`${apiServer.wsDomain}/robot_data`, wsOption)
+  const { lastMessage: robotMessage, readyState: robotState } = useWebSocket(`${apiServer.wsDomain}/robot_data`, wsOption)
+  const { lastMessage: pathMessage, readyState: pathState } = useWebSocket(`${apiServer.wsDomain}/path_plan`, wsOption)
 
   useEffect(() => {
-    if (lastMessage !== null) {
+    if (robotMessage !== null) {
       try {
-        const msg = JSON.parse(lastMessage.data) as RobotInfoMessage
+        const msg = JSON.parse(robotMessage.data) as RobotInfoMessage
         setRobotInfo(msg)
       }
       catch (e) {
-        console.error('Failed to parse robot data', lastMessage.data, e)
+        console.error('Failed to parse robot data', robotMessage.data, e)
       }
     }
-  }, [lastMessage, setRobotInfo])
+    if (pathMessage !== null) {
+      try {
+        const msg = JSON.parse(pathMessage.data) as { path: PointMessage[] }
+        setPathPointInfo(msg.path)
+      }
+      catch (e) {
+        console.error('Failed to parse path data', pathMessage.data, e)
+      }
+    }
+  }, [pathMessage, robotMessage, setPathPointInfo, setRobotInfo])
 
   const handleFetchClicked = async () => {
     const data = await apiServer.fetchMap(mapId)
@@ -145,7 +156,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">缩小</span>
         </div>
         <div className="panel-item justify-center group">
-          <div className={`${readyState === ReadyState.OPEN
+          <div className={`${robotState === ReadyState.OPEN
             ? 'border-green'
             : 'border-red'} border-(3px solid) rd-3px self-center`} />
           <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
