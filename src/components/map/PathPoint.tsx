@@ -21,7 +21,7 @@ const PathPoint: React.FC<PathPointProp> = ({ point }) => {
 
   return (<Circle
     x={point.x}
-    y={point.y}
+    y={-point.y}
     radius={width}
     stroke="red"
     strokeWidth={width} />)
