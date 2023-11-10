@@ -6,6 +6,8 @@ function getColorVal(value: number) {
       return 0
     case 0:
       return 255
+    case 2:
+      return 255
     default:
       return 127
   }
@@ -29,7 +31,12 @@ export function mapImageData(info: GridInfoMessage, mapData: number[]) {
       data[i] = colorVal
       data[i + 1] = colorVal
       data[i + 2] = colorVal
-      data[i + 3] = 255
+      if (mapData[index] === 2) {
+        data[i + 3] = 100
+      }
+      else {
+        data[i + 3] = 255
+      }
     }
     context.putImageData(image, 0, 0)
   }
