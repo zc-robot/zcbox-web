@@ -7,7 +7,7 @@ function getColorVal(value: number) {
     case 0:
       return 255
     case 2:
-      return 255
+      return 0
     default:
       return 127
   }
