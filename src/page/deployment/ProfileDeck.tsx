@@ -263,7 +263,7 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
         onClick={() => select(null)}>
         {currentDisplay === 'point'
           ? currentPoints.map((p, i) => <PointItem
-            key={i}
+            key={p.uid}
             point={p}
             selected={selectedId === p.uid}
             onClick={(e) => {
@@ -288,7 +288,7 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
               updateCurrentProfilePoint(p.uid, { name })
             }}/>)
           : currentPaths.map((p, i) => <PathItem
-            key={i}
+            key={p.uid}
             path={p}
             selected={selectedId === p.uid}
             onClick={(e) => {
