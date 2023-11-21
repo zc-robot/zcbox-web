@@ -82,7 +82,7 @@ const PointItem: React.FC<PointItemProps> = ({
 
   return (
     <div
-      className={`cursor-default h-2rem pl-2 flex items-center hover:(outline outline-1 outline-blue-300) ${selected
+      className={`cursor-default h-2rem pl-2 shrink-0 flex items-center hover:(outline outline-1 outline-blue-300) ${selected
         ? 'bg-gray-300'
         : ''}`}
       onClick={(e) => {
@@ -129,7 +129,7 @@ const PathItem: React.FC<PathItemProps> = ({ path, selected, onClick, onPathRena
 
   return (
     <div
-      className={`cursor-default h-2rem pl-2 flex items-center hover:(outline outline-1 outline-blue-300) ${selected ? 'bg-gray-300' : ''}`}
+      className={`cursor-default h-2rem pl-2 shrink-0 flex items-center hover:(outline outline-1 outline-blue-300) ${selected ? 'bg-gray-300' : ''}`}
       onClick={(e) => {
         e.preventDefault()
         onClick(e)
@@ -226,7 +226,7 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
           <div className="i-material-symbols-keyboard-arrow-down" />配置列表
         </div>
       </div>
-      <div className={showProfileList ? 'flex flex-col' : 'hidden'}>
+      <div className={showProfileList ? 'flex flex-col h-40 overflow-auto' : 'hidden'}>
         <div className="flex justify-between items-center pl pr h-8>">
           <div className="text-3 p-1 cursor-default font-bold">配置</div>
           <div className="i-material-symbols-add"
@@ -259,7 +259,7 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
             onClick={() => addRobotPoint()} />
       </div>
       <div
-        className={'flex-col flex'}
+        className={'flex flex-col h-[calc(100vh-17.5rem)] overflow-auto'}
         onClick={() => select(null)}>
         {currentDisplay === 'point'
           ? currentPoints.map((p, i) => <PointItem

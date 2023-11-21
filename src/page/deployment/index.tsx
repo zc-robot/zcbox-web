@@ -36,7 +36,7 @@ const Deployment: React.FC = () => {
     <div className="flex flex-(col 1) h-full">
       <TopDeck mapId={parseMapId()} />
       <div className="flex flex-auto">
-      <ProfileDeck mapId={parseMapId()} />
+        <ProfileDeck mapId={parseMapId()} />
         <Monitor />
         <div className="flex flex-col w-12rem border-(l-solid 1px gray-300)">
           <TaskDeck />
