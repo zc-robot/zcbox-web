@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 import { useGridStore, useOperationStore, useProfileStore } from '@/store'
 import apiServer from '@/service/apiServer'
 import type { PointMessage, RobotInfoMessage } from '@/types'
+import { useKeyPress } from '@/hooks'
 
 export interface TopDeckProps {
   mapId: number
@@ -113,6 +114,13 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
       setMaps(maps)
     }
   }
+
+  useKeyPress((event, isDown) => {
+    if (isDown) {
+      if (event.ctrlKey)
+        handleSubmitClicked()
+    }
+  }, ['s', 'S'])
 
   return (
     <div className="panel-container">

@@ -31,12 +31,11 @@ export function mapImageData(info: GridInfoMessage, mapData: number[]) {
       data[i] = colorVal
       data[i + 1] = colorVal
       data[i + 2] = colorVal
-      if (mapData[index] === 2) {
+      if (mapData[index] === 2)
         data[i + 3] = 100
-      }
-      else {
+
+      else
         data[i + 3] = 255
-      }
     }
     context.putImageData(image, 0, 0)
   }
