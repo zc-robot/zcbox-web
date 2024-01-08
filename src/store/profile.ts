@@ -161,11 +161,8 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
       const p = newProfiles.find(p => p.uid === state.currentProfileId)
       if (p && p.data && p.data.waypoints) {
         const index = p.data.waypoints.findIndex(p => p.uid === pid)
-        console.log(index, p.data.waypoints)
-        if (index >= 0) {
+        if (index >= 0)
           p.data.waypoints.splice(index, 1)
-          console.log(p.data.waypoints)
-        }
       }
       // Remove relative path
       if (p && p.data && p.data.paths) {
@@ -173,7 +170,16 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
         if (index >= 0)
           p.data.paths.splice(index, 1)
       }
-      console.log(newProfiles)
+      // Remove point in task
+      if (p && p.tasks) {
+        p.tasks.forEach((t) => {
+          if (t.points) {
+            const index = t.points.findIndex(p => p.uid === pid)
+            if (index >= 0)
+              t.points.splice(index, 1)
+          }
+        })
+      }
       return { profiles: newProfiles }
     })
   },
