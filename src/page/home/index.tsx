@@ -2,13 +2,14 @@ import { useCallback, useEffect } from 'react'
 import { Link, Outlet } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import apiServer from '@/service/apiServer'
-import { useGridStore } from '@/store'
+import { useGridStore, useParamsStore } from '@/store'
 
 const Home: React.FC = () => {
   const { maps, setMaps } = useGridStore(state => ({
     maps: state.maps,
     setMaps: state.setMaps,
   }))
+  const wsDomain = useParamsStore(state => state.wsDomain)
 
   const initMapData = useCallback(async () => {
     const maps = await apiServer.fetchMapList()
@@ -17,7 +18,7 @@ const Home: React.FC = () => {
 
   useEffect(() => {
     initMapData()
-  }, [initMapData])
+  }, [initMapData, wsDomain])
 
   return (
     <div className="flex h-full">

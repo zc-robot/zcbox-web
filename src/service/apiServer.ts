@@ -22,10 +22,9 @@ class ApiServer {
   private get client() {
     let domain = useBoundStore.getState().apiDomain
     if (domain === '')
-      domain = import.meta.env.VITE_API_DOMAIN || 'http://localhost:1234';
-      const timeoutDuration = 50000;
-    return ky.create({ prefixUrl: domain,
-                        timeout: timeoutDuration })
+      domain = import.meta.env.VITE_API_DOMAIN || 'http://localhost:1234'
+    const timeoutDuration = 50000
+    return ky.create({ prefixUrl: domain, timeout: timeoutDuration })
   }
 
   fetchMapList = async () => {

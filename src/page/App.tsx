@@ -48,7 +48,7 @@ const App: React.FC = () => {
     const url = new URL(currentUrl)
     const host = url.hostname
     const wsDomain = `ws://${host}:1234`
-    const apiDomain = `http://${host}:1234`
+    const apiDomain = `http://${host}:5000`
     updateApiDomain(apiDomain)
     updateWsDomain(wsDomain)
     const fetchParams = async () => {
