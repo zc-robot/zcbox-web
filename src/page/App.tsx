@@ -60,7 +60,7 @@ const App: React.FC = () => {
         updatePointActions(actions)
     }
     fetchParams()
-  }, [updatePointActions, updateRobotParams])
+  }, [updateApiDomain, updatePointActions, updateRobotParams, updateWsDomain])
 
   return (
     <RouterProvider router={router} />

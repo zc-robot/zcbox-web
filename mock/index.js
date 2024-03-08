@@ -6,7 +6,7 @@ import { WebSocketServer } from 'ws'
 import { parse } from 'url'
 
 const host = 'localhost'
-const port = 1234
+const port = 5555
 const dirPath = path.join(process.cwd(), 'mock')
 
 const server = http.createServer((req, res) => {
@@ -89,7 +89,7 @@ robotWss.on('connection', (ws) => {
   const positions = JSON.parse(positionData)
   fs.readFile(`${dirPath}/pose.json`, (_, data) => {
     let obj = JSON.parse(data.toString())
-    
+
     let index = 0
     setInterval(() => {
       obj.pose.orientation = positions[index]
