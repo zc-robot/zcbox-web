@@ -6,7 +6,7 @@ import { WebSocketServer } from 'ws'
 import { parse } from 'url'
 
 const host = 'localhost'
-const port = 5555
+const port = 1234
 const dirPath = path.join(process.cwd(), 'mock')
 
 const server = http.createServer((req, res) => {

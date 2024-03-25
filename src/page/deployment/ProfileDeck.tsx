@@ -9,6 +9,7 @@ import type { NavPath, NavPoint, NavProfile } from '@/types'
 import apiServer from '@/service/apiServer'
 import EditableLabel from '@/components/EditableLabel'
 import { uid } from '@/util'
+import { quaternionToCanvasAngle } from '@/util/transform'
 
 type display = 'point' | 'path'
 
@@ -214,7 +215,7 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
       y: -robotInfo.pose.position.y,
       name: `路径点 ${id.slice(-3)}`,
       uid: id,
-      rotation: 0,
+      rotation: quaternionToCanvasAngle(robotInfo.pose.orientation),
     })
   }
 
