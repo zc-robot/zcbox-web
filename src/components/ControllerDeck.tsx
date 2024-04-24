@@ -49,7 +49,7 @@ const Panel: React.FC = () => {
       sendJsonMessage({ linear: 0, angular: 0.0 })
       pressKey('')
     }
-  }, ['w', 's', 'a', 'd', 'q', 'e', 'W', 'S', 'A', 'D'])
+  }, ['w', 's', 'a', 'd', 'q', 'e', 'z', 'c', 'W', 'S', 'A', 'D'])
 
   useInterval(async () => {
     switch (pressedKey) {
@@ -70,6 +70,12 @@ const Panel: React.FC = () => {
         break
       case 'e':
         sendJsonMessage({ linear: velocityInfo.line, angular: -velocityInfo.angular })
+        break
+      case 'z':
+        sendJsonMessage({ linear_y: velocityInfo.line, angular: 0.0 })
+        break
+      case 'c':
+        sendJsonMessage({ linear_y: -velocityInfo.line, angular: 0.0 })
         break
     }
   }, pressedKey === '' ? undefined : 50)
