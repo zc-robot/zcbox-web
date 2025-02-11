@@ -137,7 +137,6 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
       const p = newProfiles.find(p => p.uid === state.currentProfileId)
       if (p && p.data && p.data.waypoints)
         p.data.waypoints.push(point)
-      console.log(newProfiles)
       return { profiles: newProfiles }
     })
   },

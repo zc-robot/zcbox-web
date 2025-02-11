@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useWebSocket } from 'react-use-websocket/dist/lib/use-websocket'
 import { round, toNumber, toString } from 'lodash'
 import { shallow } from 'zustand/shallow'
@@ -24,7 +24,7 @@ const Panel: React.FC = () => {
   useKeyPress((event, isDown) => {
     if (isDown) {
       if (event.shiftKey) {
-        switch (event.key) {
+        switch (event.key.toUpperCase()) {
           case 'W':
             updateLineVelocity(round(velocityInfo.line + step, 2))
             break
@@ -39,17 +39,29 @@ const Panel: React.FC = () => {
         }
       }
       else {
-        pressKey(event.key)
+        pressKey(event.key.toLowerCase())
       }
     }
     else {
-      if (event.shiftKey)
-        return
+      if (!event.shiftKey) {
+        sendJsonMessage({ linear: 0, angular: 0.0 })
+        pressKey('')
+      }
+    }
+  }, ['w', 's', 'a', 'd', 'q', 'e', 'z', 'c', 'W', 'S', 'A', 'D'])
 
+  useEffect(() => {
+    const handleBlur = () => {
       sendJsonMessage({ linear: 0, angular: 0.0 })
       pressKey('')
     }
-  }, ['w', 's', 'a', 'd', 'q', 'e', 'z', 'c', 'W', 'S', 'A', 'D'])
+
+    window.addEventListener('blur', handleBlur)
+
+    return () => {
+      window.removeEventListener('blur', handleBlur)
+    }
+  }, [sendJsonMessage])
 
   useInterval(async () => {
     switch (pressedKey) {
