@@ -2,13 +2,16 @@ import { useState } from 'react'
 import Input from '@/components/Input'
 import { useParamsStore } from '@/store'
 import { useLocales } from '@/hooks'
+import Switcher from '@/components/Switcher'
 
 const HostSetting: React.FC = () => {
   const { locale } = useLocales()
   const apiDomain = useParamsStore(state => state.apiDomain)
   const wsDomain = useParamsStore(state => state.wsDomain)
+  const isGetDomainAuto = useParamsStore(state => state.isGetDomainAuto)
   const updateApiDomain = useParamsStore(state => state.updateApiDomain)
   const updateWsDomain = useParamsStore(state => state.updateWsDomain)
+  const updateIsGetDomainAuto = useParamsStore(state => state.updateIsGetDomainAuto)
   const [domain, setDomain] = useState({
     api: apiDomain,
     ws: wsDomain,
@@ -23,6 +26,12 @@ const HostSetting: React.FC = () => {
     <>
       <h3>{locale('domainOption')}</h3>
       <form>
+        <div className="flex flex-items-center p2 gap-2">
+          <span className="text-sm w-30">{locale('domainAuto')}</span>
+          <Switcher
+            isChecked={isGetDomainAuto}
+            setChecked={() => updateIsGetDomainAuto(!isGetDomainAuto)} />
+        </div>
         <div className="flex flex-items-center p2 gap-2">
           <span className="text-sm w-30">{locale('apiDomain')}</span>
           <Input

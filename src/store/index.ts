@@ -24,6 +24,7 @@ export const useBoundStore = create<GridSlice & OperationSlice & ProfileSlice & 
       language: state.language,
       apiDomain: state.apiDomain,
       wsDomain: state.wsDomain,
+      isGetDomainAuto: state.isGetDomainAuto,
       robotParams: state.robotParams,
       mapParams: state.mapParams,
     }),

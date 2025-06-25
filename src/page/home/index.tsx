@@ -22,9 +22,6 @@ const Home: React.FC = () => {
   return (
     <div className="flex h-full">
       <div className="flex flex-col w-40 bg-gray-100 border-(r-solid 1px gray-3)">
-        <div className="flex flex-(items-center justify-center) decoration-none">
-          <div className="bg-white hover:bg-gray-2 rounded border-(solid 1px gray-5) px-4 py-1 text-gray-5 cursor-pointer" onClick={() => initMapData()}>连接</div>
-        </div>
         <nav>
           <Link
             className="flex flex-(items-center justify-center) py-4 decoration-none"

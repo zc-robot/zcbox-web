@@ -40,18 +40,21 @@ const App: React.FC = () => {
     updateRobotParams: state.updateRobotParams,
     updatePointActions: state.updatePointActions,
   }))
-  // const updateApiDomain = useParamsStore(state => state.updateApiDomain)
-  // const updateWsDomain = useParamsStore(state => state.updateWsDomain)
+  const isGetDomainAuto = useParamsStore(state => state.isGetDomainAuto)
+  const updateApiDomain = useParamsStore(state => state.updateApiDomain)
+  const updateWsDomain = useParamsStore(state => state.updateWsDomain)
 
   useEffect(() => {
-    // const currentUrl = window.location.href
-    // const url = new URL(currentUrl)
-    // const host = url.hostname
-    // const wsDomain = `ws://${host}:1234`
-    // const apiDomain = `http://${host}:5000`
-    // // const apiDomain = `http://${host}:1234`
-    // updateApiDomain(apiDomain)
-    // updateWsDomain(wsDomain)
+    if (isGetDomainAuto) {
+      const currentUrl = window.location.href
+      const url = new URL(currentUrl)
+      const host = url.hostname
+      const wsDomain = `ws://${host}:1234`
+      const apiDomain = `http://${host}:5000`
+      // const apiDomain = `http://${host}:1234`
+      updateApiDomain(apiDomain)
+      updateWsDomain(wsDomain)
+    }
     const fetchParams = async () => {
       const params = await apiServer.fetchParams()
       if (params)

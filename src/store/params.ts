@@ -5,6 +5,7 @@ export interface ParamsSlice {
   language: LanguageCode
   apiDomain: string
   wsDomain: string
+  isGetDomainAuto: boolean
   robotParams: RobotParams | null
   pointActions: PointAction[]
   mapParams: {
@@ -16,6 +17,7 @@ export interface ParamsSlice {
   updateLanguage: (language: LanguageCode) => void
   updateApiDomain: (domain: string) => void
   updateWsDomain: (domain: string) => void
+  updateIsGetDomainAuto: (domainAuto: boolean) => void
   updateMapParams: (by: { resolution?: number; model?: string }) => void
   updateRobotParams: (by: RobotParams) => void
   updatePointActions: (by: PointAction[]) => void
@@ -27,6 +29,7 @@ export const paramsSlice: StateCreator<ParamsSlice> = set => ({
   language: 'zh-CN',
   apiDomain: '',
   wsDomain: '',
+  isGetDomainAuto: false,
   robotParams: null,
   pointActions: [],
   mapParams: {
@@ -43,6 +46,9 @@ export const paramsSlice: StateCreator<ParamsSlice> = set => ({
   },
   updateWsDomain: (domain: string) => {
     set({ wsDomain: domain })
+  },
+  updateIsGetDomainAuto: (domainAuto: boolean) => {
+    set({ isGetDomainAuto: domainAuto })
   },
   updateMapParams: (by: { resolution?: number; model?: string }) => {
     set((state) => {

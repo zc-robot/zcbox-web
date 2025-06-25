@@ -6,6 +6,7 @@
   "domainOption": "域名配置",
   "apiDomain": "API域名",
   "wsDomain": "WS域名",
+  "domainAuto": "自动获取域名",
   "mapOption": "建图配置",
   "resolution": "分辨率",
   "model": "模型",

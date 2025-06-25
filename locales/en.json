@@ -6,6 +6,7 @@
   "domainOption": "Dodmain Configure",
   "apiDomain": "API Dodmain",
   "wsDomain": "WS Domain",
+  "domainAuto": "Get Domain Auto",
   "mapOption": "Map Configure",
   "resolution": "Resolution",
   "model": "model",
