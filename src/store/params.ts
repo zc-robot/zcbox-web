@@ -29,7 +29,7 @@ export const paramsSlice: StateCreator<ParamsSlice> = set => ({
   language: 'zh-CN',
   apiDomain: '',
   wsDomain: '',
-  isGetDomainAuto: false,
+  isGetDomainAuto: true,
   robotParams: null,
   pointActions: [],
   mapParams: {

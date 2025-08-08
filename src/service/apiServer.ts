@@ -50,7 +50,10 @@ class ApiServer {
   }
 
   fetchMap = async (id: number) => {
-    const json = await this.client.get(`deploy/getMapDataWithDetail/${id}`).json<Resp<MapDataDetail>>()
+    const timeoutDuration = 30 * 60 * 1000
+    const json = await this.client.get(`deploy/getMapDataWithDetail/${id}`, {
+    timeout: timeoutDuration
+  }).json<Resp<MapDataDetail>>()
     return json.data
   }
 

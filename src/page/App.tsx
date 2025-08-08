@@ -43,6 +43,7 @@ const App: React.FC = () => {
   const isGetDomainAuto = useParamsStore(state => state.isGetDomainAuto)
   const updateApiDomain = useParamsStore(state => state.updateApiDomain)
   const updateWsDomain = useParamsStore(state => state.updateWsDomain)
+  const apiDomain = useParamsStore(state => state.apiDomain)
 
   useEffect(() => {
     if (isGetDomainAuto) {
@@ -55,6 +56,9 @@ const App: React.FC = () => {
       updateApiDomain(apiDomain)
       updateWsDomain(wsDomain)
     }
+  }, [isGetDomainAuto, updateApiDomain, updateWsDomain])
+
+  useEffect(() => {
     const fetchParams = async () => {
       const params = await apiServer.fetchParams()
       if (params)
@@ -63,8 +67,12 @@ const App: React.FC = () => {
       if (actions)
         updatePointActions(actions)
     }
-    fetchParams()
-  }, [updatePointActions, updateRobotParams])
+    
+    // 只有当apiDomain不为空时才获取参数
+    if (apiDomain) {
+      fetchParams()
+    }
+  }, [apiDomain, updatePointActions, updateRobotParams])
 
   return (
     <RouterProvider router={router} />

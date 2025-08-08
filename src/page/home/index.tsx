@@ -2,13 +2,15 @@ import { useCallback, useEffect } from 'react'
 import { Link, Outlet } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import apiServer from '@/service/apiServer'
-import { useGridStore } from '@/store'
+import { useGridStore, useParamsStore } from '@/store'
 
 const Home: React.FC = () => {
   const { maps, setMaps } = useGridStore(state => ({
     maps: state.maps,
     setMaps: state.setMaps,
   }))
+  
+  const apiDomain = useParamsStore(state => state.apiDomain)
 
   const initMapData = useCallback(async () => {
     const maps = await apiServer.fetchMapList()
@@ -16,8 +18,14 @@ const Home: React.FC = () => {
   }, [setMaps])
 
   useEffect(() => {
-    initMapData()
-  }, [initMapData])
+    // 只有当apiDomain不为空时才获取地图数据
+    if (apiDomain) {
+      // 添加小延迟确保apiServer能够正确获取到新的域名设置
+      setTimeout(() => {
+        initMapData()
+      }, 100)
+    }
+  }, [initMapData, apiDomain])
 
   return (
     <div className="flex h-full">
