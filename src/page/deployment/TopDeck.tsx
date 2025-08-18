@@ -37,7 +37,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
 
   const wsOption = {
     shouldReconnect: (event: CloseEvent) => event.code !== 1000,
-    reconnectAttempts: 10,
+    reconnectAttempts: 100,
     reconnectInterval: 2000,
     retryOnError: true,
   }
