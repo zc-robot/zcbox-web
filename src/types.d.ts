@@ -53,6 +53,7 @@ export interface RobotInfoMessage {
   fsm: RobotStatus,
   localization_quality: number,
   task_uid: string,
+  battery: number
 }
 
 export interface PoseMessage {
