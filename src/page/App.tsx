@@ -67,11 +67,10 @@ const App: React.FC = () => {
       if (actions)
         updatePointActions(actions)
     }
-    
+
     // 只有当apiDomain不为空时才获取参数
-    if (apiDomain) {
+    if (apiDomain)
       fetchParams()
-    }
   }, [apiDomain, updatePointActions, updateRobotParams])
 
   return (

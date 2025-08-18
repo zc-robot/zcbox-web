@@ -1,9 +1,10 @@
 import type { StateCreator } from 'zustand'
-import type { GridInfoMessage, MapData, PointMessage, RobotInfoMessage } from '@/types'
+import type { GridInfoMessage, MapData, MapListItem, PointMessage, RobotInfoMessage } from '@/types'
 
 export interface GridSlice {
   scale: number
   maps: MapData[]
+  mapsNew: MapListItem[]
   gridInfo: GridInfoMessage | null
   pathPointInfo: PointMessage[]
   mapData: number[]
@@ -11,6 +12,7 @@ export interface GridSlice {
 
   // Actions
   setMaps: (maps: MapData[]) => void
+  setMapsNew: (maps: MapListItem[]) => void
   setMapGrid: (data: number[], grid: GridInfoMessage) => void
   setPathPointInfo: (points: PointMessage[]) => void
   setRobotInfo: (robot: RobotInfoMessage) => void
@@ -21,6 +23,7 @@ export interface GridSlice {
 export const gridSlice: StateCreator<GridSlice> = set => ({
   scale: 2,
   maps: [],
+  mapsNew: [],
   gridInfo: null,
   pathPointInfo: [],
   mapData: [],
@@ -29,6 +32,9 @@ export const gridSlice: StateCreator<GridSlice> = set => ({
   // Actions
   setMaps: (maps) => {
     set({ maps })
+  },
+  setMapsNew: (mapsNew) => {
+    set({ mapsNew })
   },
   setMapGrid: (data, grid) => {
     set({ mapData: data, gridInfo: grid })

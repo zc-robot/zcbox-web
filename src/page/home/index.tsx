@@ -5,17 +5,21 @@ import apiServer from '@/service/apiServer'
 import { useGridStore, useParamsStore } from '@/store'
 
 const Home: React.FC = () => {
-  const { maps, setMaps } = useGridStore(state => ({
+  const { maps, setMaps, setMapsNew } = useGridStore(state => ({
     maps: state.maps,
     setMaps: state.setMaps,
+    setMapsNew: state.setMapsNew,
   }))
-  
+
   const apiDomain = useParamsStore(state => state.apiDomain)
 
   const initMapData = useCallback(async () => {
     const maps = await apiServer.fetchMapList()
+    const mapsNew = await apiServer.fetchMapListNew()
+
     setMaps(maps)
-  }, [setMaps])
+    setMapsNew(mapsNew)
+  }, [setMaps, setMapsNew])
 
   useEffect(() => {
     // 只有当apiDomain不为空时才获取地图数据

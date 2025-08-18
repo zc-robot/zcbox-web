@@ -1,5 +1,5 @@
 import ky from 'ky'
-import type { MapData, MapDataDetail, PointAction, RobotParams } from '@/types'
+import type { MapData, MapDataDetail, MapListItem, NavProfile, PointAction, RobotParams } from '@/types'
 import { useBoundStore } from '@/store'
 
 interface Resp<T> {
@@ -24,11 +24,34 @@ class ApiServer {
     if (domain === '')
       domain = import.meta.env.VITE_API_DOMAIN || 'http://localhost:1234'
     const timeoutDuration = 50000
-    return ky.create({ prefixUrl: domain, timeout: timeoutDuration })
+    return ky.create({
+      prefixUrl: domain,
+      timeout: timeoutDuration,
+      headers: {
+        'x-api-key': '1234567890',
+      },
+    })
+  }
+
+  fetchMapListNew = async () => {
+    const json = await this.client.get('map/getMapList').json<MapListItem[]>()
+    return json
   }
 
   fetchMapList = async () => {
     const json = await this.client.get('deploy/getMaps').json<Resp<MapData[]>>()
+    return json.data
+  }
+
+  downloadMap = async (filepath: string) => {
+    const url = `map/download?filename=${filepath}`
+    const response = await this.client.get(url).blob()
+    return response
+  }
+
+  fetchMapDeployment = async (mapId: number) => {
+    const url = `deploy/getAllDeploymentOfMap/${mapId}`
+    const json = await this.client.get(url).json<Resp<NavProfile[]>>()
     return json.data
   }
 
@@ -52,8 +75,8 @@ class ApiServer {
   fetchMap = async (id: number) => {
     const timeoutDuration = 30 * 60 * 1000
     const json = await this.client.get(`deploy/getMapDataWithDetail/${id}`, {
-    timeout: timeoutDuration
-  }).json<Resp<MapDataDetail>>()
+      timeout: timeoutDuration,
+    }).json<Resp<MapDataDetail>>()
     return json.data
   }
 

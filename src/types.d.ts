@@ -6,6 +6,17 @@ export type Operation =
   | 'waypoint'
   | 'pathway'
 
+export interface MapListItem {
+  id: number
+  name: string
+  deploy: string
+  localization_map_file_path: string
+  localization_map_yaml_file_path: string
+  navigation_map_file_path: string
+  navigation_map_yaml_file_path: string
+  info: GridInfoMessage
+}
+  
 export interface MapData {
   id: number,
   name: string,

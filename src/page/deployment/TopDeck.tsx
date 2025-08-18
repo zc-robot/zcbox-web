@@ -5,19 +5,22 @@ import { useGridStore, useOperationStore, useProfileStore } from '@/store'
 import apiServer from '@/service/apiServer'
 import type { PointMessage, RobotInfoMessage } from '@/types'
 import { useKeyPress } from '@/hooks'
+import { parsePgm } from '@/util/transform'
 
 export interface TopDeckProps {
   mapId: number
 }
 
 const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
-  const { setMaps, zoom, robotStatus, setRobotInfo, setMapGrid, setPathPointInfo } = useGridStore(state => ({
+  const { setMaps, setMapsNew, zoom, robotStatus, setRobotInfo, setMapGrid, setPathPointInfo, mapsNew } = useGridStore(state => ({
     setMaps: state.setMaps,
+    setMapsNew: state.setMapsNew,
     zoom: state.zoom,
     robotStatus: state.robotInfo?.fsm,
     setRobotInfo: state.setRobotInfo,
     setMapGrid: state.setMapGrid,
     setPathPointInfo: state.setPathPointInfo,
+    mapsNew: state.mapsNew,
   }))
   const { currentOp, updateOp } = useOperationStore(state => ({
     currentOp: state.current,
@@ -63,12 +66,39 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   }, [pathMessage, robotMessage, setPathPointInfo, setRobotInfo])
 
   const handleFetchClicked = async () => {
-    const data = await apiServer.fetchMap(mapId)
-    const mapData = data.data
-    const profiles = data.deployment
-    setMapGrid(mapData.data, mapData.info)
-    addProfiles(profiles)
-    toast.success('地图数据获取成功')
+    try {
+      const foundMap = mapsNew.find(map => map.id === mapId)
+      if (foundMap == null)
+        return
+
+      // 显示加载提示
+      const loadingToast = toast.loading('正在加载地图数据...')
+
+      const blob = await apiServer.downloadMap(foundMap.navigation_map_file_path)
+      const arrayBuffer = await blob.arrayBuffer()
+      const uint8Array = new Uint8Array(arrayBuffer)
+      const pgmData = parsePgm(uint8Array)
+      const mapData = pgmData.data
+
+      // 检查地图数据大小并提示用户
+      if (mapData.length > 10000000)
+        console.log(`加载了大型地图数据: ${mapData.length} 个元素`)
+
+      // 获取部署配置
+      const profiles = await apiServer.fetchMapDeployment(mapId)
+
+      // 更新状态（这会触发Redux DevTools的序列化，但我们已经添加了状态净化功能）
+      setMapGrid(mapData, foundMap.info)
+      addProfiles(profiles)
+
+      // 关闭加载提示并显示成功消息
+      toast.dismiss(loadingToast)
+      toast.success('地图数据获取成功')
+    }
+    catch (error) {
+      console.error('加载地图数据失败:', error)
+      toast.error('加载地图数据失败')
+    }
   }
 
   const handleSubmitClicked = async () => {
@@ -111,7 +141,9 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     if (answer) {
       await apiServer.deleteMap(mapId)
       const maps = await apiServer.fetchMapList()
+      const mapsNew = await apiServer.fetchMapListNew()
       setMaps(maps)
+      setMapsNew(mapsNew)
     }
   }
 
