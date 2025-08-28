@@ -22,6 +22,11 @@ export interface MapData {
   name: string,
 }
 
+export interface CurrentMapData {
+  map_id: number,
+  map_name: string,
+}
+
 export interface MapDataDetail {
   id: number,
   name: string,

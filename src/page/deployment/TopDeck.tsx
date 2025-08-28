@@ -67,7 +67,8 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
 
   const handleFetchClicked = async () => {
     try {
-      const foundMap = mapsNew.find(map => map.id === mapId)
+      const currentMap = await apiServer.fetchCurrentMap()
+      const foundMap = mapsNew.find(map => map.id === currentMap.map_id)
       if (foundMap == null)
         return
 
@@ -85,7 +86,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
         console.log(`加载了大型地图数据: ${mapData.length} 个元素`)
 
       // 获取部署配置
-      const profiles = await apiServer.fetchMapDeployment(mapId)
+      const profiles = await apiServer.fetchMapDeployment(currentMap.map_id)
 
       // 更新状态（这会触发Redux DevTools的序列化，但我们已经添加了状态净化功能）
       setMapGrid(mapData, foundMap.info)

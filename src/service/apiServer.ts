@@ -1,5 +1,5 @@
 import ky from 'ky'
-import type { MapData, MapDataDetail, MapListItem, NavProfile, PointAction, RobotParams } from '@/types'
+import type { CurrentMapData, MapData, MapDataDetail, MapListItem, NavProfile, PointAction, RobotParams } from '@/types'
 import { useBoundStore } from '@/store'
 
 interface Resp<T> {
@@ -40,6 +40,11 @@ class ApiServer {
 
   fetchMapList = async () => {
     const json = await this.client.get('deploy/getMaps').json<Resp<MapData[]>>()
+    return json.data
+  }
+
+  fetchCurrentMap = async () => {
+    const json = await this.client.get('deploy/getCurrentMap').json<Resp<CurrentMapData>>()
     return json.data
   }
 
