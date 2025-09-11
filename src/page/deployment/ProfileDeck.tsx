@@ -1,5 +1,5 @@
-import type { MouseEvent } from 'react'
-import { useEffect, useState } from 'react'
+import type { MouseEvent, RefObject } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { shallow } from 'zustand/shallow'
 import toast from 'react-hot-toast'
 import PointModal from './PointModal'
@@ -10,6 +10,7 @@ import apiServer from '@/service/apiServer'
 import EditableLabel from '@/components/EditableLabel'
 import { uid } from '@/util'
 import { quaternionToCanvasAngle } from '@/util/transform'
+import { useMenuPosition } from '@/hooks/useMenuPosition'
 
 type display = 'point' | 'path'
 
@@ -24,6 +25,12 @@ interface ProfileItemProps {
 const ProfileItem: React.FC<ProfileItemProps> = ({ profile, enabled, onProfileSelected, onProfileRenamed, onDeleteClicked }) => {
   const [showMenu, setShowMenu] = useState(false)
   const [name, setName] = useState(profile.name)
+  const [editing, setEditing] = useState(false) // 添加编辑状态
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 }) // 添加鼠标位置状态
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // 使用自定义 Hook 计算菜单位置
+  const menuPosition = useMenuPosition(menuRef, showMenu, mousePosition)
 
   useEffect(() => {
     setName(profile.name)
@@ -33,6 +40,12 @@ const ProfileItem: React.FC<ProfileItemProps> = ({ profile, enabled, onProfileSe
     if (!enabled)
       setShowMenu(false)
   }, [enabled])
+
+  // 当点击重命名时，设置编辑状态为true
+  const handleRenameClicked = () => {
+    setShowMenu(false)
+    setEditing(true)
+  }
 
   return (
     <div
@@ -46,15 +59,37 @@ const ProfileItem: React.FC<ProfileItemProps> = ({ profile, enabled, onProfileSe
       onContextMenu={(e) => {
         e.preventDefault()
 
+        // 记录鼠标位置
+        setMousePosition({ x: e.clientX, y: e.clientY })
+
         if (enabled)
           setShowMenu(true)
       }}>
       <div
         className={`i-material-symbols-check-small mr-1 ${enabled ? '' : 'invisible'}`} />
-      <EditableLabel value={name} onValueChanged={setName} onValueConfirmed={onProfileRenamed} />
-      {showMenu && <div className="z-10 relative left-5 top-5 bg-white shadow-(sm blueGray)">
-        <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onDeleteClicked}>删除</div>
-      </div>}
+      <EditableLabel 
+        value={name} 
+        onValueChanged={setName} 
+        onValueConfirmed={(newName) => {
+          onProfileRenamed(newName)
+          setEditing(false)
+        }} 
+        editing={editing}
+        setEditing={setEditing}
+      />
+      {showMenu && (
+        <div 
+          ref={menuRef}
+          className="z-10 absolute bg-white shadow-(lg blueGray) rounded border border-gray-200 min-w-120px"
+          style={{
+            top: `${menuPosition.top}px`,
+            left: `${menuPosition.left}px`,
+          }}
+        >
+          <div className="text-(sm dark-100) p-2 hover:bg-gray-100 cursor-pointer" onClick={handleRenameClicked}>重命名</div>
+          <div className="text-(sm dark-100) p-2 hover:bg-gray-100 cursor-pointer" onClick={onDeleteClicked}>删除</div>
+        </div>
+      )}
     </div>
   )
 }
@@ -70,12 +105,26 @@ interface PointItemProps {
   onPointRenamed: (name: string) => void
 }
 
+interface PathItemProps {
+  path: NavPath
+  selected: boolean
+  onClick: (e: React.MouseEvent<HTMLDivElement>) => void
+  onPathRenamed: (name: string) => void
+  onEditClicked: () => void
+  onDeleteClicked: () => void
+}
+
 const PointItem: React.FC<PointItemProps> = ({
   point, selected, onClick, onDoubleClicked, onDeleteClicked, onEditClicked, onRelocateClicked, onPointRenamed,
 }) => {
   const [showMenu, setShowMenu] = useState(false)
   const [name, setName] = useState(point.name)
-  const [editing, setEditing] = useState(false) // 添加编辑状态
+  const [editing, setEditing] = useState(false)
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 }) // 添加鼠标位置状态
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // 使用自定义 Hook 计算菜单位置
+  const menuPosition = useMenuPosition(menuRef, showMenu, mousePosition)
 
   useEffect(() => {
     if (!selected)
@@ -103,6 +152,9 @@ const PointItem: React.FC<PointItemProps> = ({
       onContextMenu={(e) => {
         e.preventDefault()
 
+        // 记录鼠标位置
+        setMousePosition({ x: e.clientX, y: e.clientY })
+
         if (selected)
           setShowMenu(true)
       }}>
@@ -117,29 +169,34 @@ const PointItem: React.FC<PointItemProps> = ({
         editing={editing}
         setEditing={setEditing}
       />
-      {showMenu && <div className="z-10 relative left-5 top-5 bg-white shadow-(sm blueGray)">
-        <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onEditClicked}>编辑</div>
-        <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={handleRenameClicked}>重命名</div>
-        <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onDeleteClicked}>删除</div>
-        <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onRelocateClicked}>重定位机器人</div>
-      </div>}
+      {showMenu && (
+        <div 
+          ref={menuRef}
+          className="z-10 absolute bg-white shadow-(lg blueGray) rounded border border-gray-200 min-w-120px"
+          style={{
+            top: `${menuPosition.top}px`,
+            left: `${menuPosition.left}px`,
+          }}
+        >
+          <div className="text-(sm dark-100) p-2 hover:bg-gray-100 cursor-pointer" onClick={onEditClicked}>编辑</div>
+          <div className="text-(sm dark-100) p-2 hover:bg-gray-100 cursor-pointer" onClick={handleRenameClicked}>重命名</div>
+          <div className="text-(sm dark-100) p-2 hover:bg-gray-100 cursor-pointer" onClick={onDeleteClicked}>删除</div>
+          <div className="text-(sm dark-100) p-2 hover:bg-gray-100 cursor-pointer" onClick={onRelocateClicked}>重定位机器人</div>
+        </div>
+      )}
     </div>
   )
-}
-
-interface PathItemProps {
-  path: NavPath
-  selected: boolean
-  onClick: (e: React.MouseEvent<HTMLDivElement>) => void
-  onPathRenamed: (name: string) => void
-  onEditClicked: () => void
-  onDeleteClicked: () => void
 }
 
 const PathItem: React.FC<PathItemProps> = ({ path, selected, onClick, onPathRenamed, onEditClicked, onDeleteClicked }) => {
   const [showMenu, setShowMenu] = useState(false)
   const [name, setName] = useState(path.name)
-  const [editing, setEditing] = useState(false) // 添加编辑状态
+  const [editing, setEditing] = useState(false)
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 }) // 添加鼠标位置状态
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // 使用自定义 Hook 计算菜单位置
+  const menuPosition = useMenuPosition(menuRef, showMenu, mousePosition)
 
   useEffect(() => {
     if (!selected)
@@ -164,6 +221,9 @@ const PathItem: React.FC<PathItemProps> = ({ path, selected, onClick, onPathRena
       onContextMenu={(e) => {
         e.preventDefault()
 
+        // 记录鼠标位置
+        setMousePosition({ x: e.clientX, y: e.clientY })
+
         if (selected)
           setShowMenu(true)
       }}>
@@ -178,11 +238,20 @@ const PathItem: React.FC<PathItemProps> = ({ path, selected, onClick, onPathRena
         editing={editing}
         setEditing={setEditing}
       />
-      {showMenu && <div className="z-10 relative left-5 top-5 bg-white shadow-(sm blueGray)">
-        <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onEditClicked}>编辑</div>
-        <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={handleRenameClicked}>重命名</div>
-        <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onDeleteClicked}>删除</div>
-      </div>}
+      {showMenu && (
+        <div 
+          ref={menuRef}
+          className="z-10 absolute bg-white shadow-(lg blueGray) rounded border border-gray-200 min-w-120px"
+          style={{
+            top: `${menuPosition.top}px`,
+            left: `${menuPosition.left}px`,
+          }}
+        >
+          <div className="text-(sm dark-100) p-2 hover:bg-gray-100 cursor-pointer" onClick={onEditClicked}>编辑</div>
+          <div className="text-(sm dark-100) p-2 hover:bg-gray-100 cursor-pointer" onClick={handleRenameClicked}>重命名</div>
+          <div className="text-(sm dark-100) p-2 hover:bg-gray-100 cursor-pointer" onClick={onDeleteClicked}>删除</div>
+        </div>
+      )}
     </div>
   )
 }
@@ -332,7 +401,7 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
               updateOp('select')
               select(p.uid)
             }}
-            onPathRenamed={(name) => {
+            onPathRenamed={(name: string) => {
               updateCurrentProfilePath(p.uid, { name })
             }}
             onEditClicked={() => {
