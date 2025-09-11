@@ -62,7 +62,7 @@ const ProfileItem: React.FC<ProfileItemProps> = ({ profile, enabled, onProfileSe
 interface PointItemProps {
   point: NavPoint
   selected: boolean
-  onClick: (e: React.MouseEvent<HTMLDivElement, MouseEvent>) => void
+  onClick: (e: React.MouseEvent<HTMLDivElement>) => void
   onDoubleClicked: () => void
   onEditClicked: () => void
   onDeleteClicked: () => void
@@ -75,18 +75,25 @@ const PointItem: React.FC<PointItemProps> = ({
 }) => {
   const [showMenu, setShowMenu] = useState(false)
   const [name, setName] = useState(point.name)
+  const [editing, setEditing] = useState(false) // 添加编辑状态
 
   useEffect(() => {
     if (!selected)
       setShowMenu(false)
   }, [selected])
 
+  // 当点击重命名时，设置编辑状态为true
+  const handleRenameClicked = () => {
+    setShowMenu(false)
+    setEditing(true)
+  }
+
   return (
     <div
       className={`cursor-default h-2rem pl-2 shrink-0 flex items-center hover:(outline outline-1 outline-blue-300) ${selected
         ? 'bg-gray-300'
         : ''}`}
-      onClick={(e) => {
+      onClick={(e: React.MouseEvent<HTMLDivElement>) => {
         e.preventDefault()
         onClick(e)
         if (showMenu)
@@ -100,9 +107,19 @@ const PointItem: React.FC<PointItemProps> = ({
           setShowMenu(true)
       }}>
       <div className="i-material-symbols-location-on-outline text-gray-500" />
-      <EditableLabel value={name} onValueChanged={setName} onValueConfirmed={onPointRenamed} />
+      <EditableLabel 
+        value={name} 
+        onValueChanged={setName} 
+        onValueConfirmed={(newName) => {
+          onPointRenamed(newName)
+          setEditing(false)
+        }} 
+        editing={editing}
+        setEditing={setEditing}
+      />
       {showMenu && <div className="z-10 relative left-5 top-5 bg-white shadow-(sm blueGray)">
         <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onEditClicked}>编辑</div>
+        <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={handleRenameClicked}>重命名</div>
         <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onDeleteClicked}>删除</div>
         <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onRelocateClicked}>重定位机器人</div>
       </div>}
@@ -113,7 +130,7 @@ const PointItem: React.FC<PointItemProps> = ({
 interface PathItemProps {
   path: NavPath
   selected: boolean
-  onClick: (e: React.MouseEvent<HTMLDivElement, MouseEvent>) => void
+  onClick: (e: React.MouseEvent<HTMLDivElement>) => void
   onPathRenamed: (name: string) => void
   onEditClicked: () => void
   onDeleteClicked: () => void
@@ -122,16 +139,23 @@ interface PathItemProps {
 const PathItem: React.FC<PathItemProps> = ({ path, selected, onClick, onPathRenamed, onEditClicked, onDeleteClicked }) => {
   const [showMenu, setShowMenu] = useState(false)
   const [name, setName] = useState(path.name)
+  const [editing, setEditing] = useState(false) // 添加编辑状态
 
   useEffect(() => {
     if (!selected)
       setShowMenu(false)
   }, [selected])
 
+  // 当点击重命名时，设置编辑状态为true
+  const handleRenameClicked = () => {
+    setShowMenu(false)
+    setEditing(true)
+  }
+
   return (
     <div
       className={`cursor-default h-2rem pl-2 shrink-0 flex items-center hover:(outline outline-1 outline-blue-300) ${selected ? 'bg-gray-300' : ''}`}
-      onClick={(e) => {
+      onClick={(e: React.MouseEvent<HTMLDivElement>) => {
         e.preventDefault()
         onClick(e)
         if (showMenu)
@@ -144,9 +168,19 @@ const PathItem: React.FC<PathItemProps> = ({ path, selected, onClick, onPathRena
           setShowMenu(true)
       }}>
       <div className="i-material-symbols-location-on-outline text-gray-500" />
-      <EditableLabel value={name} onValueChanged={setName} onValueConfirmed={onPathRenamed} />
+      <EditableLabel 
+        value={name} 
+        onValueChanged={setName} 
+        onValueConfirmed={(newName) => {
+          onPathRenamed(newName)
+          setEditing(false)
+        }} 
+        editing={editing}
+        setEditing={setEditing}
+      />
       {showMenu && <div className="z-10 relative left-5 top-5 bg-white shadow-(sm blueGray)">
         <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onEditClicked}>编辑</div>
+        <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={handleRenameClicked}>重命名</div>
         <div className="text-(sm dark-100) p-1 hover:bg-gray-200" onClick={onDeleteClicked}>删除</div>
       </div>}
     </div>
@@ -287,7 +321,8 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
             }}
             onPointRenamed={(name) => {
               updateCurrentProfilePoint(p.uid, { name })
-            }}/>)
+            }}
+          />)
           : currentPaths.map((p, i) => <PathItem
             key={p.uid}
             path={p}
@@ -305,7 +340,8 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
             }}
             onDeleteClicked={() => {
               removeCurrentProfilePath(p.uid)
-            }}/>)}
+            }}
+          />)}
       </div>
       {configPoint && <PointModal
         point={configPoint}

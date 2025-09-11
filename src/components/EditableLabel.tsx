@@ -4,23 +4,20 @@ interface EditableLabelProps {
   value: string
   onValueChanged?: (value: string) => void
   onValueConfirmed?: (value: string) => void
+  editing?: boolean
+  setEditing?: (editing: boolean) => void
 }
 
-const EditableLabel: React.FC<EditableLabelProps> = ({ value, onValueChanged, onValueConfirmed }) => {
-  const [editing, isEditing] = useState(false)
+const EditableLabel: React.FC<EditableLabelProps> = ({ value, onValueChanged, onValueConfirmed, editing, setEditing }) => {
   const inputRef = createRef<HTMLInputElement>()
 
-  const handleDoubleClick = () => {
-    isEditing(true)
-  }
-
   const handleBlur = () => {
-    isEditing(false)
+    setEditing?.(false)
   }
 
   const handleInputKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === 'Enter') {
-      isEditing(false)
+      setEditing?.(false)
       onValueConfirmed?.(value)
     }
   }
@@ -35,14 +32,13 @@ const EditableLabel: React.FC<EditableLabelProps> = ({ value, onValueChanged, on
       {editing
         ? <input
         ref={inputRef}
-        className={editing ? 'ml-1 text-3' : 'hidden'}
+        className={'ml-1 text-3'}
         autoFocus={true}
         value={value}
         onBlur={handleBlur}
-        // onClick={e => e.stopPropagation()}
         onChange={handleInputChanged}
         onKeyDown={handleInputKeyDown}/>
-        : <div className={!editing ? 'ml-1 text-3' : 'hidden'} onDoubleClick={handleDoubleClick}>{value}</div>}
+        : <div className={'ml-1 text-3'}>{value}</div>}
     </section>
   )
 }
