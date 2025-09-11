@@ -10,7 +10,7 @@ import apiServer from '@/service/apiServer'
 import EditableLabel from '@/components/EditableLabel'
 import { uid } from '@/util'
 import { quaternionToCanvasAngle } from '@/util/transform'
-import { useMenuPosition } from '@/hooks/useMenuPosition'
+import { useMenuPosition, useClickOutside } from '@/hooks'
 
 type display = 'point' | 'path'
 
@@ -31,6 +31,9 @@ const ProfileItem: React.FC<ProfileItemProps> = ({ profile, enabled, onProfileSe
 
   // 使用自定义 Hook 计算菜单位置
   const menuPosition = useMenuPosition(menuRef, showMenu, mousePosition)
+  
+  // 点击外部关闭菜单
+  useClickOutside(menuRef, () => setShowMenu(false), showMenu)
 
   useEffect(() => {
     setName(profile.name)
@@ -125,6 +128,9 @@ const PointItem: React.FC<PointItemProps> = ({
 
   // 使用自定义 Hook 计算菜单位置
   const menuPosition = useMenuPosition(menuRef, showMenu, mousePosition)
+  
+  // 点击外部关闭菜单
+  useClickOutside(menuRef, () => setShowMenu(false), showMenu)
 
   useEffect(() => {
     if (!selected)
@@ -197,6 +203,9 @@ const PathItem: React.FC<PathItemProps> = ({ path, selected, onClick, onPathRena
 
   // 使用自定义 Hook 计算菜单位置
   const menuPosition = useMenuPosition(menuRef, showMenu, mousePosition)
+  
+  // 点击外部关闭菜单
+  useClickOutside(menuRef, () => setShowMenu(false), showMenu)
 
   useEffect(() => {
     if (!selected)
