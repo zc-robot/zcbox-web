@@ -100,123 +100,67 @@ export function parsePgm(data: Uint8Array): { width: number; height: number; dat
 
   return { width, height, data: Array.from(result) }; // Convert to regular array if needed
 }
-// export function parsePgm(data: Uint8Array): { width: number; height: number; data: number[] } {
-//   let position = 0
+/**
+ * 解压 RLE 压缩的 occupancy grid data
+ * @param data - 原始压缩数据，每个元素是 0~255 的整数（Uint8Array 形式更合适，但兼容 number[]）
+ * @returns 解压后的 number[]，每个值在 -128~127 或 0~255 范围（根据原始语义）
+ */
+export function decodeRLE(data: number[]): number[] {
+  // 将输入转换为 Uint8Array 以便用 DataView 操作
+  const uint8 = new Uint8Array(data)
+  const buffer = uint8.buffer
+  const view = new DataView(buffer)
 
-//   // Read magic number (P2 or P5)
-//   let magicNumber = ''
-//   while (position < data.length && data[position] !== 10) { // 10 is '\n'
-//     magicNumber += String.fromCharCode(data[position])
-//     position++
-//   }
-//   position++ // skip '\n'
+  let offset = 0
 
-//   if (magicNumber !== 'P2' && magicNumber !== 'P5')
-//     throw new Error('Unsupported PGM format, only P2 and P5 are supported.')
+  // // Step 1: 跳过前 4 字节
+  // offset += 4;
 
-//   // Skip comments and whitespaces
-//   while (position < data.length) {
-//     const char = String.fromCharCode(data[position])
-//     if (char === '#')
-//       while (position < data.length && data[position] !== 10) position++
-//     else if (char === ' ' || char === '\t' || char === '\r' || char === '\n')
-//       position++
-//     else
-//       break
-//   }
+  // Step 2: 读取 4 字节压缩方法
+  let method = ''
+  for (let i = 0; i < 4; i++)
+    method += String.fromCharCode(uint8[offset + i])
 
-//   // Read width
-//   let widthStr = ''
-//   while (position < data.length && data[position] !== 32 && data[position] !== 10) {
-//     widthStr += String.fromCharCode(data[position])
-//     position++
-//   }
-//   const width = Number.parseInt(widthStr, 10)
+  offset += 4
 
-//   // Skip whitespace
-//   while (position < data.length && (data[position] === 32 || data[position] === 10)) position++
+  if (method !== 'RLE ')
+    throw new Error(`Unsupported compression method: "${method}"`)
 
-//   // Read height
-//   let heightStr = ''
-//   while (position < data.length && data[position] !== 32 && data[position] !== 10) {
-//     heightStr += String.fromCharCode(data[position])
-//     position++
-//   }
-//   const height = Number.parseInt(heightStr, 10)
+  // Step 3: 读取原始长度（小端 or 大端？Kotlin ByteBuffer 默认是大端，但 ROS 通常小端）
+  // 注意：Kotlin 的 ByteBuffer 默认是 BIG_ENDIAN，但 ROS2 /大多数系统用 LITTLE_ENDIAN
+  // 根据你的数据示例：[82,76,69,32,...] -> "RLE "，后面是长度，需确认字节序
+  // 假设是 LITTLE_ENDIAN（常见于 x86），若不对可改为 false
+  const originalLength = view.getInt32(offset, true) // true = littleEndian
+  offset += 4
 
-//   // Skip whitespace
-//   while (position < data.length && (data[position] === 32 || data[position] === 10)) position++
+  const result: number[] = []
 
-//   // Read max value
-//   let maxValueStr = ''
-//   while (position < data.length && data[position] !== 10) {
-//     maxValueStr += String.fromCharCode(data[position])
-//     position++
-//   }
-//   const maxValue = Number.parseInt(maxValueStr, 10)
-//   position++
+  // Step 4: RLE 解压
+  while (result.length < originalLength) {
+    if (offset >= uint8.length)
+      throw new Error('Unexpected end of data during RLE decompression')
 
-//   // Pixel data
-//   const totalPixels = width * height
-//   const result: number[] = new Array(totalPixels)
+    const value = uint8[offset]
+    offset += 1
 
-//   if (magicNumber === 'P2') {
-//     // ASCII format
-//     let pixelIndex = 0
-//     while (pixelIndex < totalPixels && position < data.length) {
-//       let numStr = ''
-//       // Skip whitespace
-//       while (position < data.length && (data[position] <= 32 || data[position] > 126)) position++
-//       if (position >= data.length) break
+    if (offset + 4 > uint8.length)
+      throw new Error('Incomplete count in RLE stream')
 
-//       // Read number
-//       while (position < data.length && data[position] > 32 && data[position] <= 126) {
-//         numStr += String.fromCharCode(data[position])
-//         position++
-//       }
-//       if (numStr === '') break
+    const count = view.getInt32(offset, true) // littleEndian
+    offset += 4
 
-//       const pixelValue = Number.parseInt(numStr, 10)
+    if (count < 0)
+      throw new Error(`Invalid RLE count: ${count}`)
 
-//       if (pixelValue === 0)
-//         result[pixelIndex] = 0 // occupied
-//       else if (pixelValue === 255 || (maxValue === 255 && pixelValue > 200))
-//         result[pixelIndex] = 100 // free
-//       else
-//         result[pixelIndex] = -1 // unknown
+    for (let i = 0; i < count; i++)
+      result.push(value)
+  }
 
-//       pixelIndex++
-//     }
-//   }
-//   else if (magicNumber === 'P5') {
-//     // Binary format
-//     for (let i = 0; i < totalPixels; i++) {
-//       const pixelValue = data[position++]
-//       if (pixelValue === 0) {
-//         result[i] = 100 // occupied
-//       } else if (pixelValue >= 250) {
-//         result[i] = 0 // free
-//       } else {
-//         result[i] = -1 // unknown
-//       }
-//     }
-//   }
+  if (result.length !== originalLength)
+    console.warn('Decoded length mismatch:', result.length, 'vs expected', originalLength)
 
-//   // ✅ 关键修改：将 result 按行上下翻转（Y 轴翻转）
-//   // 即：第 0 行 <-> 第 height-1 行
-//   const flippedResult: number[] = new Array(totalPixels)
-//   for (let y = 0; y < height; y++) {
-//     const srcRow = y
-//     const dstRow = height - 1 - y // 翻转行
-//     for (let x = 0; x < width; x++) {
-//       const srcIndex = srcRow * width + x
-//       const dstIndex = dstRow * width + x
-//       flippedResult[srcIndex] = result[dstIndex]
-//     }
-//   }
-
-//   return { width, height, data: flippedResult }
-// }
+  return result
+}
 
 // Worker instance
 export const mapWorker = new ComlinkWorker<typeof import('../worker')>(
