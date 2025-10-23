@@ -3,13 +3,16 @@ import { Image } from 'react-konva'
 import { shallow } from 'zustand/shallow'
 import { useGridStore } from '@/store'
 import { mapWorker } from '@/util/transform'
+import type { GridInfoMessage } from '@/types'
+import type { MapRenderResult } from '@/worker'
 
 interface MapProp {
   x: number
   y: number
-  width?: number
-  height?: number
+  width: number
+  height: number
   data: ImageBitmap
+  info: GridInfoMessage
   rotation?: number
 }
 
@@ -17,11 +20,10 @@ const GridMap: React.FC = () => {
   const [gridInfo, mapData] = useGridStore(state => [state.gridInfo, state.mapData], shallow)
   const [mapState, setMapState] = useState<MapProp>()
 
-  const transformMapBackground = useCallback(async () => {
+  const transformMapBackground = useCallback(async (): Promise<MapRenderResult | undefined> => {
     if (!gridInfo || !mapData.length)
       return undefined
-    const bitmap = await mapWorker.mapImageData(gridInfo, mapData)
-    return bitmap
+    return mapWorker.mapImageData(gridInfo, mapData)
   }, [gridInfo, mapData])
 
   useEffect(() => {
@@ -31,18 +33,26 @@ const GridMap: React.FC = () => {
         return
       }
 
-      const width = gridInfo.width
-      const height = gridInfo.height
-      const resolution = gridInfo.resolution
-      const bitmap = await transformMapBackground()
+      const mapResult = await transformMapBackground()
+      if (!mapResult) {
+        setMapState(undefined)
+        return
+      }
 
-      const state = {
-        x: gridInfo.origin.position.x,
-        y: -(gridInfo.origin.position.y + height * resolution),
+      const { bitmap, optimizedInfo } = mapResult
+
+      const { width, height, resolution, origin } = optimizedInfo
+      const positionX = origin.position.x
+      const positionY = -(origin.position.y + height * resolution)
+
+      const state: MapProp = {
+        x: positionX,
+        y: positionY,
         width: width * resolution,
         height: height * resolution,
         data: bitmap,
-      } as MapProp
+        info: optimizedInfo,
+      }
       setMapState((prevState) => {
         // NOTE: Release previous ImageBitmap to avoid memory leak
         if (prevState?.data)

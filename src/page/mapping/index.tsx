@@ -8,7 +8,7 @@ import { useGridStore } from '@/store'
 import type { OccupancyGridMessage, RobotInfoMessage } from '@/types'
 import apiServer from '@/service/apiServer'
 import Monitor from '@/components/map/Monitor'
-import { decodeRLE } from '@/util/transform'
+import { mapWorker } from '@/util/transform'
 
 const Mapping: React.FC = () => {
   const [showModal, setShowModal] = useState<boolean>(false)
@@ -48,15 +48,27 @@ const Mapping: React.FC = () => {
   }, [robotMessage, setRobotInfo])
 
   useEffect(() => {
-    if (mapMessage != null) {
+    if (mapMessage == null)
+      return
+
+    let isCancelled = false
+
+    const processMapMessage = async () => {
       try {
         const msg = JSON.parse(mapMessage.data) as OccupancyGridMessage
-        const decompressedData = decodeRLE(msg.data)
-        setMapGrid(decompressedData, msg.info)
+        const decompressedData = await mapWorker.decodeRLE(msg.data)
+        if (!isCancelled)
+          setMapGrid(decompressedData, msg.info)
       }
       catch (e) {
-        console.error('Failed to parse map data', mapMessage.data, e)
+        console.error('Failed to parse map data', mapMessage?.data, e)
       }
+    }
+
+    processMapMessage()
+
+    return () => {
+      isCancelled = true
     }
   }, [mapMessage, setMapGrid])
 

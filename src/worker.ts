@@ -1,5 +1,11 @@
 import type { GridInfoMessage } from './types'
 
+export interface MapRenderResult {
+  bitmap: ImageBitmap
+  optimizedInfo: GridInfoMessage
+  scaleRatio: number
+}
+
 function getColorVal(value: number) {
   switch (value) {
     case 100:
@@ -13,61 +19,124 @@ function getColorVal(value: number) {
   }
 }
 
-const canvas = new OffscreenCanvas(0, 0)
-// export function mapImageData(info: GridInfoMessage, mapData: number[]) {
-//   canvas.width = info.width
-//   canvas.height = info.height
+const baseCanvas = new OffscreenCanvas(0, 0)
+const scaledCanvas = new OffscreenCanvas(0, 0)
+const MAX_BITMAP_SIZE = 1500
 
-//   const context = canvas.getContext('2d')
-//   if (context) {
-//     const image = context.createImageData(info.width, info.height)
-//     const data = image.data
+const RLE_SIGNATURE = [82, 76, 69, 32] // 'RLE '
 
-//     for (let i = 0; i < mapData.length; i++) {
-//       const value = mapData[i]
-//       const colorVal = getColorVal(value)
+export function decodeRLE(data: number[] | Uint8Array): number[] {
+  const source = data instanceof Uint8Array ? data : new Uint8Array(data)
+  if (source.length < 8)
+    throw new Error('RLE 数据长度不足')
 
-//       // 计算像素在画布上的位置 (x, y)
-//       const x = i % info.width
-//       const y = Math.floor(i / info.width) // 假设 mapData 是从上到下存储的
-
-//       // 在 ImageData 中，每个像素占 4 个字节 (R, G, B, A)
-//       const dataIndex = (y * info.width + x) * 4
-
-//       data[dataIndex] = colorVal
-//       data[dataIndex + 1] = colorVal
-//       data[dataIndex + 2] = colorVal
-//       data[dataIndex + 3] = value === 2 ? 100 : 255
-//     }
-
-//     context.putImageData(image, 0, 0)
-//   }
-//   return canvas.transferToImageBitmap()
-// }
-export function mapImageData(info: GridInfoMessage, mapData: number[]) {
-  canvas.width = info.width
-  canvas.height = info.height
-
-  const context = canvas.getContext('2d')
-  if (context) {
-    const image = context.createImageData(info.width, info.height)
-    const data = image.data
-
-    for (let i = 0; i < data.length; i += 4) {
-      const row = info.height - Math.floor(i / info.width / 4) - 1
-      const col = (i / 4) % info.width
-      const index = col + (row * info.width)
-      const colorVal = getColorVal(mapData[index])
-      data[i] = colorVal
-      data[i + 1] = colorVal
-      data[i + 2] = colorVal
-      if (mapData[index] === 2)
-        data[i + 3] = 100
-
-      else
-        data[i + 3] = 255
-    }
-    context.putImageData(image, 0, 0)
+  for (let i = 0; i < RLE_SIGNATURE.length; i++) {
+    if (source[i] !== RLE_SIGNATURE[i])
+      throw new Error('不支持的压缩格式')
   }
-  return canvas.transferToImageBitmap()
+
+  const view = new DataView(source.buffer, source.byteOffset, source.byteLength)
+  let offset = 4
+  const originalLength = view.getUint32(offset, true)
+  offset += 4
+
+  if (originalLength <= 0)
+    return []
+
+  const result = new Array<number>(originalLength)
+  let writeIndex = 0
+
+  while (writeIndex < originalLength) {
+    if (offset >= source.length)
+      throw new Error('RLE 数据异常，提前结束')
+
+    const value = source[offset++]
+
+    if (offset + 4 > source.length)
+      throw new Error('RLE 数据缺少计数信息')
+
+    const count = view.getUint32(offset, true)
+    offset += 4
+
+    if (count <= 0)
+      throw new Error(`非法的 RLE 计数: ${count}`)
+
+    const end = writeIndex + count
+    if (end > originalLength)
+      throw new Error('解压长度超过预期')
+
+    result.fill(value, writeIndex, end)
+    writeIndex = end
+  }
+
+  return result
+}
+
+export function mapImageData(info: GridInfoMessage, mapData: number[]): MapRenderResult {
+  const { width, height } = info
+
+  baseCanvas.width = width
+  baseCanvas.height = height
+
+  const baseContext = baseCanvas.getContext('2d')
+  if (!baseContext)
+    throw new Error('无法创建基础画布上下文')
+
+  const image = baseContext.createImageData(width, height)
+  const data = image.data
+
+  let dataIndex = 0
+  for (let y = height - 1; y >= 0; y--) {
+    const rowOffset = y * width
+    for (let x = 0; x < width; x++) {
+      const mapValue = mapData[rowOffset + x]
+      const colorValue = getColorVal(mapValue)
+      data[dataIndex++] = colorValue
+      data[dataIndex++] = colorValue
+      data[dataIndex++] = colorValue
+      data[dataIndex++] = mapValue === 2 ? 100 : 255
+    }
+  }
+
+  baseContext.putImageData(image, 0, 0)
+
+  const maxDimension = Math.max(width, height)
+  const needsScaling = maxDimension > MAX_BITMAP_SIZE
+  const scaleRatio = needsScaling ? MAX_BITMAP_SIZE / maxDimension : 1
+
+  let outputCanvas = baseCanvas
+
+  if (needsScaling) {
+    const targetWidth = Math.max(1, Math.round(width * scaleRatio))
+    const targetHeight = Math.max(1, Math.round(height * scaleRatio))
+
+    scaledCanvas.width = targetWidth
+    scaledCanvas.height = targetHeight
+
+    const scaledContext = scaledCanvas.getContext('2d')
+    if (!scaledContext)
+      throw new Error('无法创建缩放画布上下文')
+
+    scaledContext.imageSmoothingEnabled = false
+    scaledContext.clearRect(0, 0, targetWidth, targetHeight)
+    scaledContext.drawImage(baseCanvas, 0, 0, targetWidth, targetHeight)
+    outputCanvas = scaledCanvas
+  }
+
+  const optimizedWidth = outputCanvas.width
+  const optimizedHeight = outputCanvas.height
+  const optimizedResolution = info.resolution / scaleRatio
+
+  const optimizedInfo: GridInfoMessage = {
+    ...info,
+    width: optimizedWidth,
+    height: optimizedHeight,
+    resolution: optimizedResolution,
+  }
+
+  return {
+    bitmap: outputCanvas.transferToImageBitmap(),
+    optimizedInfo,
+    scaleRatio,
+  }
 }
