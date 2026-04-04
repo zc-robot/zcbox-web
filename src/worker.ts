@@ -25,15 +25,23 @@ const MAX_BITMAP_SIZE = 1500
 
 const RLE_SIGNATURE = [82, 76, 69, 32] // 'RLE '
 
-export function decodeRLE(data: number[] | Uint8Array): number[] {
-  const source = data instanceof Uint8Array ? data : new Uint8Array(data)
-  if (source.length < 8)
-    throw new Error('RLE 数据长度不足')
+function hasRLESignature(data: number[] | Uint8Array) {
+  if (data.length < 8)
+    return false
 
   for (let i = 0; i < RLE_SIGNATURE.length; i++) {
-    if (source[i] !== RLE_SIGNATURE[i])
-      throw new Error('不支持的压缩格式')
+    if (data[i] !== RLE_SIGNATURE[i])
+      return false
   }
+
+  return true
+}
+
+export function decodeRLE(data: number[] | Uint8Array): number[] {
+  if (!hasRLESignature(data))
+    return Array.isArray(data) ? data : Array.from(data)
+
+  const source = data instanceof Uint8Array ? data : new Uint8Array(data)
 
   const view = new DataView(source.buffer, source.byteOffset, source.byteLength)
   let offset = 4
