@@ -95,7 +95,7 @@ class ApiServer {
   }
 
   deleteMap = async (id: number) => {
-    const json = await this.client.get(`deploy/deleteMap/${id}`).json()
+    const json = await this.client.get(`deploy/deleteMap/${id}`).json<Resp<null>>()
     return json
   }
 

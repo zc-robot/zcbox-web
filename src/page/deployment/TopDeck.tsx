@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react'
 import useWebSocket, { ReadyState } from 'react-use-websocket'
 import toast from 'react-hot-toast'
+import { useNavigate } from 'react-router-dom'
 import { useGridStore, useOperationStore, useProfileStore } from '@/store'
 import apiServer from '@/service/apiServer'
 import type { PointMessage, RobotInfoMessage } from '@/types'
@@ -12,6 +13,7 @@ export interface TopDeckProps {
 }
 
 const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
+  const navigate = useNavigate()
   const { setMaps, setMapsNew, zoom, robotStatus, setRobotInfo, setMapGrid, setPathPointInfo, mapsNew } = useGridStore(state => ({
     setMaps: state.setMaps,
     setMapsNew: state.setMapsNew,
@@ -140,11 +142,23 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     // eslint-disable-next-line no-alert
     const answer = confirm('确定删除地图？')
     if (answer) {
-      await apiServer.deleteMap(mapId)
-      const maps = await apiServer.fetchMapList()
-      const mapsNew = await apiServer.fetchMapListNew()
-      setMaps(maps)
-      setMapsNew(mapsNew)
+      try {
+        const resp = await apiServer.deleteMap(mapId)
+        if (resp.code !== 0) {
+          toast.error(resp.message || '删除失败')
+          return
+        }
+
+        const maps = await apiServer.fetchMapList()
+        const mapsNew = await apiServer.fetchMapListNew()
+        setMaps(maps)
+        setMapsNew(mapsNew)
+        toast.success('删除成功')
+        navigate('/')
+      }
+      catch (e) {
+        toast.error(`删除失败 ${e}`)
+      }
     }
   }
 
