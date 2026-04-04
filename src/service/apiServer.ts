@@ -86,7 +86,11 @@ class ApiServer {
   }
 
   saveMap = async (name: string) => {
-    const json = await this.client.get(`deploy/saveMap/${name}`).json<Resp<any>>()
+    const json = await this.client.post('slam/saveMap', {
+      json: {
+        map_name: name,
+      },
+    }).json<Resp<{ map_name: string }>>()
     return json
   }
 
