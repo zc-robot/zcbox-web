@@ -7,6 +7,10 @@ import { useInterval, useKeyPress } from '@/hooks'
 import apiServer from '@/service/apiServer'
 import type { PoseMessage, RobotStatus } from '@/types'
 
+function formatDisplayValue(value: number) {
+  return value.toFixed(2)
+}
+
 const Panel: React.FC = () => {
   const step = 0.02
   const { velocityInfo, updateLineVelocity, updateAngularVelocity } = useOperationStore(state => ({
@@ -184,19 +188,19 @@ const Info: React.FC<{ pose: PoseMessage; status: RobotStatus; qulity: number; b
       </div>
       <div className="flex text-sm pt-2">
         <div className="pl-2 font-bold">X:
-          <span className="text-dark font-200">{pose.position.x}</span>
+          <span className="text-dark font-200">{formatDisplayValue(pose.position.x)}</span>
         </div>
         <div className="pl-2 font-bold">Y:
-          <span className="text-dark font-200">{pose.position.y}</span>
+          <span className="text-dark font-200">{formatDisplayValue(pose.position.y)}</span>
         </div>
         <div className="pl-2 font-bold">Z:
-          <span className="text-dark font-200">{pose.position.z}</span>
+          <span className="text-dark font-200">{formatDisplayValue(pose.position.z)}</span>
         </div>
       </div>
       <div className="flex flex-col text-sm">
         <div className="pl-2 pt-1 font-bold">Yaw:
           <br/>
-          <span className="text-dark font-200">{pose.pyr.yaw}</span>
+          <span className="text-dark font-200">{formatDisplayValue(pose.pyr.yaw)}</span>
         </div>
       </div>
     </div>
