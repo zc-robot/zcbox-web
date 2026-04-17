@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { useGridStore, useOperationStore, useProfileStore } from '@/store'
 import apiServer from '@/service/apiServer'
 import type { PointMessage, RobotInfoMessage } from '@/types'
-import { useKeyPress } from '@/hooks'
+import { useKeyPress, useRobotPoseMqtt } from '@/hooks'
 import { parsePgm } from '@/util/transform'
 
 export interface TopDeckProps {
@@ -13,6 +13,7 @@ export interface TopDeckProps {
 }
 
 const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
+  useRobotPoseMqtt()
   const navigate = useNavigate()
   const { setMaps, setMapsNew, zoom, robotStatus, setRobotInfo, setMapGrid, setPathPointInfo, mapsNew } = useGridStore(state => ({
     setMaps: state.setMaps,

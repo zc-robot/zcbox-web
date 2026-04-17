@@ -9,6 +9,24 @@ interface Resp<T> {
 }
 
 class ApiServer {
+  private get derivedRealtimeHost() {
+    const state = useBoundStore.getState()
+
+    if (state.isGetDomainAuto && typeof window !== 'undefined')
+      return window.location.hostname
+
+    return new URL(this.wsDomain).hostname
+  }
+
+  private get derivedRealtimeWsProtocol() {
+    const state = useBoundStore.getState()
+
+    if (state.isGetDomainAuto && typeof window !== 'undefined')
+      return window.location.protocol === 'https:' ? 'wss' : 'ws'
+
+    return new URL(this.wsDomain).protocol === 'wss:' ? 'wss' : 'ws'
+  }
+
   get wsDomain() {
     let d = useBoundStore.getState().wsDomain
     if (d === '')
@@ -21,14 +39,13 @@ class ApiServer {
 
   get robotDataWsUrl() {
     const url = new URL(`${this.wsDomain}/robot_data`)
-    const state = useBoundStore.getState()
-
-    if (state.isGetDomainAuto && typeof window !== 'undefined')
-      url.searchParams.set('mqtt_host', window.location.hostname)
-    else
-      url.searchParams.set('mqtt_host', new URL(this.wsDomain).hostname)
+    url.searchParams.set('mqtt_host', this.derivedRealtimeHost)
 
     return url.toString()
+  }
+
+  get robotPoseMqttWsUrl() {
+    return `${this.derivedRealtimeWsProtocol}://${this.derivedRealtimeHost}:9001`
   }
 
   private get client() {

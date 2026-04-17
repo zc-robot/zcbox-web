@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand'
-import type { GridInfoMessage, MapData, MapListItem, PointMessage, RobotInfoMessage } from '@/types'
+import type { GridInfoMessage, MapData, MapListItem, PointMessage, PoseMessage, RobotInfoMessage } from '@/types'
 
 export interface GridSlice {
   scale: number
@@ -16,8 +16,36 @@ export interface GridSlice {
   setMapGrid: (data: number[], grid: GridInfoMessage) => void
   setPathPointInfo: (points: PointMessage[]) => void
   setRobotInfo: (robot: RobotInfoMessage) => void
+  updateRobotPose: (pose: PoseMessage) => void
   resetGrid: () => void
   zoom: (scale: number) => void
+}
+
+function createDefaultRobotInfo(pose?: PoseMessage): RobotInfoMessage {
+  return {
+    pose: pose ?? {
+      position: {
+        x: 0,
+        y: 0,
+        z: 0,
+      },
+      orientation: {
+        x: 0,
+        y: 0,
+        z: 0,
+        w: 1,
+      },
+      pyr: {
+        pitch: 0,
+        roll: 0,
+        yaw: 0,
+      },
+    },
+    fsm: 'idle',
+    localization_quality: 0,
+    task_uid: '',
+    battery: 0,
+  }
 }
 
 export const gridSlice: StateCreator<GridSlice> = set => ({
@@ -43,7 +71,18 @@ export const gridSlice: StateCreator<GridSlice> = set => ({
     set({ pathPointInfo: points })
   },
   setRobotInfo: (robot) => {
-    set({ robotInfo: robot })
+    set(state => ({
+      robotInfo: state.robotInfo
+        ? { ...robot, pose: state.robotInfo.pose }
+        : robot,
+    }))
+  },
+  updateRobotPose: (pose) => {
+    set(state => ({
+      robotInfo: state.robotInfo
+        ? { ...state.robotInfo, pose }
+        : createDefaultRobotInfo(pose),
+    }))
   },
   resetGrid: () => {
     set({

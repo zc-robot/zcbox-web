@@ -8,9 +8,11 @@ import { useGridStore } from '@/store'
 import type { OccupancyGridMessage, RobotInfoMessage } from '@/types'
 import apiServer from '@/service/apiServer'
 import Monitor from '@/components/map/Monitor'
+import { useRobotPoseMqtt } from '@/hooks'
 import { mapWorker } from '@/util/transform'
 
 const Mapping: React.FC = () => {
+  useRobotPoseMqtt()
   const [showModal, setShowModal] = useState<boolean>(false)
   const [isMapping, setIsMapping] = useState<boolean>(false)
   const shouldBlocker = useCallback<BlockerFunction>(({ currentLocation, nextLocation }) => {
