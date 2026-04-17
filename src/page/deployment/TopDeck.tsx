@@ -43,8 +43,8 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     reconnectInterval: 2000,
     retryOnError: true,
   }
-  const { lastMessage: robotMessage, readyState: robotState } = useWebSocket(`${apiServer.wsDomain}/robot_data`, wsOption)
-  const { lastMessage: pathMessage, readyState: pathState } = useWebSocket(`${apiServer.wsDomain}/path_plan`, wsOption)
+  const { lastMessage: robotMessage, readyState: robotState } = useWebSocket(apiServer.robotDataWsUrl, wsOption)
+  const { lastMessage: pathMessage } = useWebSocket(`${apiServer.wsDomain}/path_plan`, wsOption)
 
   useEffect(() => {
     if (robotMessage !== null) {
@@ -82,10 +82,6 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
       const uint8Array = new Uint8Array(arrayBuffer)
       const pgmData = parsePgm(uint8Array)
       const mapData = pgmData.data
-
-      // 检查地图数据大小并提示用户
-      if (mapData.length > 10000000)
-        console.log(`加载了大型地图数据: ${mapData.length} 个元素`)
 
       // 获取部署配置
       const profiles = await apiServer.fetchMapDeployment(currentMap.map_id)

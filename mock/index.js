@@ -3,11 +3,12 @@ import console from 'node:console'
 import fs from 'node:fs'
 import path from 'node:path'
 import { WebSocketServer } from 'ws'
-import { parse } from 'url'
+import { createRobotPoseBridge } from './mqttRobotPose.js'
 
 const host = 'localhost'
 const port = 1234
 const dirPath = path.join(process.cwd(), 'mock')
+const robotDataSource = process.env.ROBOT_DATA_SOURCE || 'mqtt'
 
 const server = http.createServer((req, res) => {
   res.statusCode = 200
@@ -71,6 +72,31 @@ const server = http.createServer((req, res) => {
 const mapWss = new WebSocketServer({ noServer: true })
 const robotWss = new WebSocketServer({ noServer: true })
 const controlWss = new WebSocketServer({ noServer: true })
+
+function startMockRobotStream(ws) {
+  const positionData = fs.readFileSync(`${dirPath}/positions.json`).toString()
+  const positions = JSON.parse(positionData)
+  const basePose = JSON.parse(fs.readFileSync(`${dirPath}/pose.json`).toString())
+  let index = 0
+
+  const timer = setInterval(() => {
+    const obj = {
+      ...basePose,
+      pose: {
+        ...basePose.pose,
+        orientation: positions[index],
+      },
+    }
+    ws.send(JSON.stringify(obj))
+    index = (index + 1) % positions.length
+  }, 500)
+
+  const stop = () => clearInterval(timer)
+  ws.once('close', stop)
+  ws.once('error', stop)
+  return stop
+}
+
 mapWss.on('connection', (ws) => {
   ws.on('error', console.error);
 
@@ -82,21 +108,35 @@ mapWss.on('connection', (ws) => {
     }, 500)
   })
 })
-robotWss.on('connection', (ws) => {
+robotWss.on('connection', (ws, request) => {
   ws.on('error', console.error);
 
-  const positionData = fs.readFileSync(`${dirPath}/positions.json`).toString()
-  const positions = JSON.parse(positionData)
-  fs.readFile(`${dirPath}/pose.json`, (_, data) => {
-    let obj = JSON.parse(data.toString())
+  if (robotDataSource === 'mock') {
+    startMockRobotStream(ws)
+    return
+  }
 
-    let index = 0
-    setInterval(() => {
-      obj.pose.orientation = positions[index]
-      ws.send(JSON.stringify(obj))
-      index = (index + 1) % positions.length
-    }, 500)
+  const requestUrl = new URL(request.url, `http://${request.headers.host}`)
+  const requestedHost = requestUrl.searchParams.get('mqtt_host')
+  const fallbackHost = request.headers.host?.split(':')[0]
+  const mqttHost = requestedHost || fallbackHost || host
+
+  const bridge = createRobotPoseBridge({
+    host: mqttHost,
+    onPose: (robotInfo) => {
+      if (ws.readyState === 1)
+        ws.send(JSON.stringify(robotInfo))
+    },
+    onError: (error) => {
+      console.error(`MQTT robot pose bridge failed for ${mqttHost}:`, error)
+      if (ws.readyState === 1)
+        ws.close(1011, 'MQTT bridge unavailable')
+    },
   })
+
+  const closeBridge = () => bridge.close()
+  ws.once('close', closeBridge)
+  ws.once('error', closeBridge)
 })
 controlWss.on('connection', (ws) => {
   ws.on('message', (message) => {
@@ -105,7 +145,8 @@ controlWss.on('connection', (ws) => {
 })
 
 server.on('upgrade', function upgrade(request, socket, head) {
-  const { pathname } = parse(request.url)
+  const requestUrl = new URL(request.url, `http://${request.headers.host}`)
+  const { pathname } = requestUrl
 
   if (pathname === '/map') {
     mapWss.handleUpgrade(request, socket, head, function done(ws) {

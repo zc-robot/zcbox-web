@@ -19,6 +19,18 @@ class ApiServer {
     return d
   }
 
+  get robotDataWsUrl() {
+    const url = new URL(`${this.wsDomain}/robot_data`)
+    const state = useBoundStore.getState()
+
+    if (state.isGetDomainAuto && typeof window !== 'undefined')
+      url.searchParams.set('mqtt_host', window.location.hostname)
+    else
+      url.searchParams.set('mqtt_host', new URL(this.wsDomain).hostname)
+
+    return url.toString()
+  }
+
   private get client() {
     let domain = useBoundStore.getState().apiDomain
     if (domain === '')

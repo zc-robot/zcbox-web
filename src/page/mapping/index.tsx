@@ -33,7 +33,7 @@ const Mapping: React.FC = () => {
     retryOnError: true,
   }
   const { lastMessage: mapMessage, readyState: mapState } = useWebSocket(`${apiServer.wsDomain}/map`, wsOption)
-  const { lastMessage: robotMessage, readyState: robotState } = useWebSocket(`${apiServer.wsDomain}/robot_data`, wsOption)
+  const { lastMessage: robotMessage, readyState: robotState } = useWebSocket(apiServer.robotDataWsUrl, wsOption)
 
   useEffect(() => {
     if (robotMessage != null) {
