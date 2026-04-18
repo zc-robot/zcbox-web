@@ -1,6 +1,8 @@
 import type { StateCreator } from 'zustand'
 import type { GridInfoMessage, LaserScanMessage, MapData, MapListItem, PointMessage, PoseMessage, RobotInfoMessage } from '@/types'
 
+const defaultScanPointSize = 0.08
+
 export interface GridSlice {
   scale: number
   maps: MapData[]
@@ -87,7 +89,7 @@ export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
   hasMqttPose: false,
   hasMqttBattery: false,
   isScanVisible: false,
-  scanPointSize: 0.05,
+  scanPointSize: defaultScanPointSize,
   centerRobotRequestId: 0,
   relocalizationPose: null,
 
@@ -192,6 +194,7 @@ export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
       hasMqttPose: false,
       hasMqttBattery: false,
       isScanVisible: false,
+      scanPointSize: defaultScanPointSize,
       relocalizationPose: null,
     })
   },

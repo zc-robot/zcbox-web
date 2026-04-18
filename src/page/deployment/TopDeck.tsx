@@ -262,9 +262,9 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
         </div>
         {currentOp === 'relocalize' && (
           <div
-            className="panel-item group"
+            className="panel-item group bg-green-600 hover:bg-green-700"
             onClick={handleRelocalizationConfirm}>
-            <div className="i-material-symbols-check-rounded panel-icon" />
+            <div className="i-material-symbols-check-small panel-icon text-white" />
             <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
               发送重定位
             </span>
