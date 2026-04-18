@@ -224,7 +224,7 @@ const ControllerDeck: React.FC = () => {
       {currentOp === 'relocalize' && relocalizationPose && (
         <div className="p-2 flex flex-col border-(t-solid 1px gray-300) text-sm">
           <div className="flex items-center font-bold pl-1">
-            <div className="i-material-symbols-gps-fixed-rounded text-4 mr-1 text-blue-6" />
+            <div className="i-material-symbols-location-on-outline text-4 mr-1 text-blue-6" />
             <span>重定位目标:</span>
             <span className="font-200 pl-1">X {formatDisplayValue(relocalizationPose.position.x)}</span>
             <span className="font-200 pl-2">Y {formatDisplayValue(relocalizationPose.position.y)}</span>
@@ -233,7 +233,7 @@ const ControllerDeck: React.FC = () => {
             <span className="font-200 pl-1">{formatDisplayValue(relocalizationPose.pyr.yaw)}</span>
           </div>
           <div className="flex items-start text-3 text-gray-6 pl-1 pt-2">
-            <div className="i-material-symbols-gesture-select-rounded text-4 mr-1 text-blue-6 shrink-0" />
+            <div className="i-material-symbols-back-hand-outline-rounded text-4 mr-1 text-blue-6 shrink-0" />
             <span>
             拖动机器人并旋转蓝色手柄，对齐扫描后点击顶部对勾发送。
             </span>

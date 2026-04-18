@@ -255,7 +255,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
         <div
           className={`${currentOp === 'relocalize' ? 'panel-item-enabled' : 'panel-item'} group`}
           onClick={toggleRelocalization}>
-          <div className="i-material-symbols-gps-fixed-rounded panel-icon" />
+          <div className="i-material-symbols-location-on-outline panel-icon text-white" />
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
             {currentOp === 'relocalize' ? '关闭重定位' : '重定位'}
           </span>
