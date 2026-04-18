@@ -5,9 +5,10 @@ import type { LaserScanMessage, PoseMessage } from '@/types'
 interface LaserScanProps {
   pose: PoseMessage
   scan: LaserScanMessage
+  pointSize: number
 }
 
-const LaserScan: React.FC<LaserScanProps> = ({ pose, scan }) => {
+const LaserScan: React.FC<LaserScanProps> = ({ pose, scan, pointSize }) => {
   return (
     <Shape
       listening={false}
@@ -26,7 +27,7 @@ const LaserScan: React.FC<LaserScanProps> = ({ pose, scan }) => {
           const angle = baseAngle + i * scan.angleIncrement
           const x = originX + range * Math.cos(angle)
           const y = originY - range * Math.sin(angle)
-          context.fillRect(x - 0.025, y - 0.025, 0.05, 0.05)
+          context.fillRect(x - pointSize / 2, y - pointSize / 2, pointSize, pointSize)
         }
 
         context.fillStyle = 'rgba(249, 115, 22, 0.95)'

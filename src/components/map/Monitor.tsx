@@ -43,7 +43,7 @@ const Monitor: React.FC = () => {
     selectedId: state.selectedPointId,
     selectPoint: state.selectPoint,
   }), shallow)
-  const { scale, gridInfo, robotInfo, pathPointInfo, isScanVisible, laserPose, laserScan, centerRobotRequestId } = useGridStore(state => ({
+  const { scale, gridInfo, robotInfo, pathPointInfo, isScanVisible, laserPose, laserScan, scanPointSize, centerRobotRequestId } = useGridStore(state => ({
     scale: state.scale,
     gridInfo: state.gridInfo,
     robotInfo: state.robotInfo,
@@ -51,6 +51,7 @@ const Monitor: React.FC = () => {
     isScanVisible: state.isScanVisible,
     laserPose: state.laserPose,
     laserScan: state.laserScan,
+    scanPointSize: state.scanPointSize,
     centerRobotRequestId: state.centerRobotRequestId,
   }), shallow)
   const {
@@ -214,7 +215,8 @@ const Monitor: React.FC = () => {
           {(gridInfo && isScanVisible && laserPose && laserScan)
             && <LaserScan
               pose={laserPose}
-              scan={laserScan} />
+              scan={laserScan}
+              pointSize={scanPointSize} />
           }
           {currentPaths().map((path, i) => <Pathway
             key={i}

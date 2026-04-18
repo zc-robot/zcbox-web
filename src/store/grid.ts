@@ -14,6 +14,7 @@ export interface GridSlice {
   hasMqttPose: boolean
   hasMqttBattery: boolean
   isScanVisible: boolean
+  scanPointSize: number
   centerRobotRequestId: number
 
   // Actions
@@ -27,6 +28,7 @@ export interface GridSlice {
   updateLaserPose: (pose: PoseMessage) => void
   updateLaserScan: (scan: LaserScanMessage) => void
   setScanVisibility: (visible: boolean) => void
+  updateScanPointSize: (delta: number) => void
   requestCenterRobot: () => void
   resetGrid: () => void
   zoom: (scale: number) => void
@@ -73,6 +75,7 @@ export const gridSlice: StateCreator<GridSlice> = set => ({
   hasMqttPose: false,
   hasMqttBattery: false,
   isScanVisible: false,
+  scanPointSize: 0.05,
   centerRobotRequestId: 0,
 
   // Actions
@@ -141,6 +144,11 @@ export const gridSlice: StateCreator<GridSlice> = set => ({
       laserPose: null,
       laserScan: null,
     })
+  },
+  updateScanPointSize: (delta) => {
+    set(state => ({
+      scanPointSize: Math.min(0.3, Math.max(0.01, Number((state.scanPointSize + delta).toFixed(3)))),
+    }))
   },
   requestCenterRobot: () => {
     set(state => ({

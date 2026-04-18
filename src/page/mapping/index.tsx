@@ -22,7 +22,7 @@ const Mapping: React.FC = () => {
   }, [isMapping])
   const blocker = useBlocker(shouldBlocker)
 
-  const { resetGrid, zoom, robotStatus, setMapGrid, setRobotInfo, isScanVisible, setScanVisibility } = useGridStore(state => ({
+  const { resetGrid, zoom, robotStatus, setMapGrid, setRobotInfo, isScanVisible, setScanVisibility, updateScanPointSize } = useGridStore(state => ({
     resetGrid: state.resetGrid,
     zoom: state.zoom,
     robotStatus: state.robotInfo?.fsm,
@@ -30,6 +30,7 @@ const Mapping: React.FC = () => {
     setRobotInfo: state.setRobotInfo,
     isScanVisible: state.isScanVisible,
     setScanVisibility: state.setScanVisibility,
+    updateScanPointSize: state.updateScanPointSize,
   }))
 
   const wsOption = {
@@ -103,6 +104,8 @@ const Mapping: React.FC = () => {
   const zoomInClick = () => zoom(1.1)
   const zoomOutClick = () => zoom(0.9)
   const toggleScanVisibility = () => setScanVisibility(!isScanVisible)
+  const increaseScanPointSize = () => updateScanPointSize(0.01)
+  const decreaseScanPointSize = () => updateScanPointSize(-0.01)
 
   const handleSaveClicked = async () => {
     setShowModal(true)
@@ -154,6 +157,26 @@ const Mapping: React.FC = () => {
               {isScanVisible ? '隐藏扫描' : '显示扫描'}
             </span>
           </div>
+          {isScanVisible && (
+            <>
+              <div
+                className="panel-item group"
+                onClick={decreaseScanPointSize}>
+                <div className="i-material-symbols-remove-rounded panel-icon" />
+                <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
+                  减小扫描点
+                </span>
+              </div>
+              <div
+                className="panel-item group"
+                onClick={increaseScanPointSize}>
+                <div className="i-material-symbols-add-rounded panel-icon" />
+                <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
+                  增大扫描点
+                </span>
+              </div>
+            </>
+          )}
         </div>
         <div className="flex">
           <div

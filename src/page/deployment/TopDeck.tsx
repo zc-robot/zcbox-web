@@ -17,7 +17,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   useBatteryStateMqtt()
   useLaserScanMqtt()
   const navigate = useNavigate()
-  const { setMaps, setMapsNew, zoom, robotStatus, setRobotInfo, setMapGrid, setPathPointInfo, mapsNew, isScanVisible, setScanVisibility, requestCenterRobot } = useGridStore(state => ({
+  const { setMaps, setMapsNew, zoom, robotStatus, setRobotInfo, setMapGrid, setPathPointInfo, mapsNew, isScanVisible, setScanVisibility, updateScanPointSize, requestCenterRobot } = useGridStore(state => ({
     setMaps: state.setMaps,
     setMapsNew: state.setMapsNew,
     zoom: state.zoom,
@@ -28,6 +28,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     mapsNew: state.mapsNew,
     isScanVisible: state.isScanVisible,
     setScanVisibility: state.setScanVisibility,
+    updateScanPointSize: state.updateScanPointSize,
     requestCenterRobot: state.requestCenterRobot,
   }))
   const { currentOp, updateOp } = useOperationStore(state => ({
@@ -43,6 +44,8 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const zoomInClick = () => zoom(1.1)
   const zoomOutClick = () => zoom(0.9)
   const toggleScanVisibility = () => setScanVisibility(!isScanVisible)
+  const increaseScanPointSize = () => updateScanPointSize(0.01)
+  const decreaseScanPointSize = () => updateScanPointSize(-0.01)
 
   const wsOption = {
     shouldReconnect: (event: CloseEvent) => event.code !== 1000,
@@ -222,6 +225,26 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
             {isScanVisible ? '隐藏扫描' : '显示扫描'}
           </span>
         </div>
+        {isScanVisible && (
+          <>
+            <div
+              className="panel-item group"
+              onClick={decreaseScanPointSize}>
+              <div className="i-material-symbols-remove-rounded panel-icon" />
+              <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
+                减小扫描点
+              </span>
+            </div>
+            <div
+              className="panel-item group"
+              onClick={increaseScanPointSize}>
+              <div className="i-material-symbols-add-rounded panel-icon" />
+              <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
+                增大扫描点
+              </span>
+            </div>
+          </>
+        )}
         <div className="panel-item justify-center group">
           <div className={`${robotState === ReadyState.OPEN
             ? 'border-green'
