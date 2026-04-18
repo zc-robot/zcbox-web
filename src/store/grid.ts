@@ -9,6 +9,8 @@ export interface GridSlice {
   pathPointInfo: PointMessage[]
   mapData: number[]
   robotInfo: RobotInfoMessage | null
+  hasMqttPose: boolean
+  hasMqttBattery: boolean
 
   // Actions
   setMaps: (maps: MapData[]) => void
@@ -17,6 +19,7 @@ export interface GridSlice {
   setPathPointInfo: (points: PointMessage[]) => void
   setRobotInfo: (robot: RobotInfoMessage) => void
   updateRobotPose: (pose: PoseMessage) => void
+  updateRobotBattery: (battery: number, batteryCurrent: number) => void
   resetGrid: () => void
   zoom: (scale: number) => void
 }
@@ -45,6 +48,7 @@ function createDefaultRobotInfo(pose?: PoseMessage): RobotInfoMessage {
     localization_quality: 0,
     task_uid: '',
     battery: 0,
+    batteryCurrent: 0,
   }
 }
 
@@ -56,6 +60,8 @@ export const gridSlice: StateCreator<GridSlice> = set => ({
   pathPointInfo: [],
   mapData: [],
   robotInfo: null,
+  hasMqttPose: false,
+  hasMqttBattery: false,
 
   // Actions
   setMaps: (maps) => {
@@ -73,15 +79,37 @@ export const gridSlice: StateCreator<GridSlice> = set => ({
   setRobotInfo: (robot) => {
     set(state => ({
       robotInfo: state.robotInfo
-        ? { ...robot, pose: state.robotInfo.pose }
-        : robot,
+        ? {
+            ...robot,
+            pose: state.hasMqttPose ? state.robotInfo.pose : robot.pose,
+            battery: state.hasMqttBattery ? state.robotInfo.battery : robot.battery,
+            batteryCurrent: state.hasMqttBattery ? state.robotInfo.batteryCurrent : (robot.batteryCurrent ?? 0),
+          }
+        : {
+            ...createDefaultRobotInfo(),
+            ...robot,
+            batteryCurrent: robot.batteryCurrent ?? 0,
+          },
     }))
   },
   updateRobotPose: (pose) => {
     set(state => ({
+      hasMqttPose: true,
       robotInfo: state.robotInfo
         ? { ...state.robotInfo, pose }
         : createDefaultRobotInfo(pose),
+    }))
+  },
+  updateRobotBattery: (battery, batteryCurrent) => {
+    set(state => ({
+      hasMqttBattery: true,
+      robotInfo: state.robotInfo
+        ? { ...state.robotInfo, battery, batteryCurrent }
+        : {
+            ...createDefaultRobotInfo(),
+            battery,
+            batteryCurrent,
+          },
     }))
   },
   resetGrid: () => {
@@ -91,6 +119,8 @@ export const gridSlice: StateCreator<GridSlice> = set => ({
       pathPointInfo: [],
       mapData: [],
       robotInfo: null,
+      hasMqttPose: false,
+      hasMqttBattery: false,
     })
   },
   zoom: (scale: number) => {

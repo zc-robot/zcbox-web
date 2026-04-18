@@ -174,14 +174,17 @@ const Panel: React.FC = () => {
   )
 }
 
-const Info: React.FC<{ pose: PoseMessage; status: RobotStatus; qulity: number; battery: number }> = ({ pose, status, qulity, battery }) => {
+const Info: React.FC<{ pose: PoseMessage; status: RobotStatus; qulity: number; battery: number; batteryCurrent: number }> = ({ pose, status, qulity, battery, batteryCurrent }) => {
   return (
     <div className="p-2 flex flex-col border-(t-solid 1px gray-300)">
       <div className="flex text-sm text-dark font-bold pl-1">状态:
         <span className="text-dark font-200">{status}</span>
       </div>
       <div className="flex text-sm text-dark font-bold pl-1 pt-1">电量:
-        <span className="text-dark font-200">{battery}%</span>
+        <span className="text-dark font-200">{formatDisplayValue(battery)}%</span>
+        <span className="pl-3">电流:
+          <span className="text-dark font-200">{formatDisplayValue(batteryCurrent)}A</span>
+        </span>
       </div>
       <div className="flex text-sm text-dark font-bold pl-1 pt-1">质量:
         <span className="text-dark font-200">{qulity}</span>
@@ -213,7 +216,7 @@ const ControllerDeck: React.FC = () => {
 
   return (
     <div className="flex='grow-0 shrink-0 basis-a'">
-      {robotInfo && <Info pose={robotInfo.pose} status={robotInfo.fsm} qulity={robotInfo.localization_quality} battery={robotInfo.battery}/>}
+      {robotInfo && <Info pose={robotInfo.pose} status={robotInfo.fsm} qulity={robotInfo.localization_quality} battery={robotInfo.battery} batteryCurrent={robotInfo.batteryCurrent}/>}
       <div className="flex flex-(items-center justify-between) px-4 h-8 border-(t-solid b-solid 1px gray-300)"
         onClick={() => displayDeck(!isDeckDisplay)}>
         <div className="text-3 p-1 cursor-default font-bold">机器人操作</div>

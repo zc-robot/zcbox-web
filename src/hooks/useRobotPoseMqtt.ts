@@ -36,7 +36,7 @@ export function useRobotPoseMqtt() {
   const updateRobotPose = useGridStore(state => state.updateRobotPose)
 
   useEffect(() => {
-    const client = mqtt.connect(apiServer.robotPoseMqttWsUrl, {
+    const client = mqtt.connect(apiServer.mqttWsUrl, {
       username: 'zc',
       password: '8888',
       protocolVersion: 4,

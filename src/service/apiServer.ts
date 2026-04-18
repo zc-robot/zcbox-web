@@ -44,8 +44,12 @@ class ApiServer {
     return url.toString()
   }
 
-  get robotPoseMqttWsUrl() {
+  get mqttWsUrl() {
     return `${this.derivedRealtimeWsProtocol}://${this.derivedRealtimeHost}:9001`
+  }
+
+  get robotPoseMqttWsUrl() {
+    return this.mqttWsUrl
   }
 
   private get client() {
