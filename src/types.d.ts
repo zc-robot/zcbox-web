@@ -5,6 +5,7 @@ export type Operation =
   | 'select'
   | 'waypoint'
   | 'pathway'
+  | 'relocalize'
 
 export interface MapListItem {
   id: number

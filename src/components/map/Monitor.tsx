@@ -5,12 +5,15 @@ import { shallow } from 'zustand/shallow'
 import GridMap from './GridMap'
 import LaserScan from './LaserScan'
 import Pathway from './Pathway'
+import RelocalizationRobot from './RelocalizationRobot'
 import Robot from './Robot'
 import Waypoint from './Waypoint'
 import PathPoint from './PathPoint'
 import { uid } from '@/util'
 import { useGridStore, useOperationStore, useProfileStore } from '@/store'
 import { useElementSize, useKeyPress } from '@/hooks'
+import { composePose, getRelativePose } from '@/util/transform'
+import type { PoseMessage } from '@/types'
 
 interface ImageState {
   x: number
@@ -33,6 +36,7 @@ function getLayerState(resolution: number, imageX: number, imageY: number, scale
 const Monitor: React.FC = () => {
   const layerRef = useRef<Konva.Layer>(null)
   const lastHandledCenterRequestId = useRef(0)
+  const relocalizationLaserOffset = useRef<PoseMessage | null>(null)
   const [layerState, setLayerState] = useState<ImageState>()
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [containerRef, { width, height }] = useElementSize()
@@ -43,7 +47,7 @@ const Monitor: React.FC = () => {
     selectedId: state.selectedPointId,
     selectPoint: state.selectPoint,
   }), shallow)
-  const { scale, gridInfo, robotInfo, pathPointInfo, isScanVisible, laserPose, laserScan, scanPointSize, centerRobotRequestId } = useGridStore(state => ({
+  const { scale, gridInfo, robotInfo, pathPointInfo, isScanVisible, laserPose, laserScan, scanPointSize, centerRobotRequestId, relocalizationPose, updateRelocalizationPose, cancelRelocalization } = useGridStore(state => ({
     scale: state.scale,
     gridInfo: state.gridInfo,
     robotInfo: state.robotInfo,
@@ -53,6 +57,9 @@ const Monitor: React.FC = () => {
     laserScan: state.laserScan,
     scanPointSize: state.scanPointSize,
     centerRobotRequestId: state.centerRobotRequestId,
+    relocalizationPose: state.relocalizationPose,
+    updateRelocalizationPose: state.updateRelocalizationPose,
+    cancelRelocalization: state.cancelRelocalization,
   }), shallow)
   const {
     currentPoints, appendCurrentProfilePoint, removeCurrentProfilePoint,
@@ -117,6 +124,25 @@ const Monitor: React.FC = () => {
     if (currentOp !== 'select')
       selectPoint(null)
   }, [currentOp, selectPoint])
+
+  useEffect(() => {
+    if (currentOp !== 'relocalize') {
+      relocalizationLaserOffset.current = null
+      if (relocalizationPose)
+        cancelRelocalization()
+      return
+    }
+
+    if (!relocalizationLaserOffset.current && robotInfo && laserPose)
+      relocalizationLaserOffset.current = getRelativePose(robotInfo.pose, laserPose)
+  }, [cancelRelocalization, currentOp, laserPose, relocalizationPose, robotInfo])
+
+  const displayedRobotPose = currentOp === 'relocalize' && relocalizationPose
+    ? relocalizationPose
+    : robotInfo?.pose
+  const displayedLaserPose = currentOp === 'relocalize' && relocalizationPose && relocalizationLaserOffset.current
+    ? composePose(relocalizationPose, relocalizationLaserOffset.current)
+    : laserPose
 
   const handleLayerClick = (obj: Konva.KonvaEventObject<MouseEvent>) => {
     const layer = layerRef.current
@@ -193,7 +219,7 @@ const Monitor: React.FC = () => {
 
   return (
     <div
-      className={`flex-1 ${currentOp === 'move' ? 'cursor-pointer' : ''}`}
+      className={`flex-1 ${currentOp === 'move' ? 'cursor-pointer' : currentOp === 'relocalize' ? 'cursor-crosshair' : ''}`}
       ref={containerRef}>
       <Stage
         width={width}
@@ -208,13 +234,18 @@ const Monitor: React.FC = () => {
           onDragMove={handleLayerDrag}
           onClick={handleLayerClick}>
           <GridMap />
-          {(gridInfo && robotInfo)
+          {(gridInfo && displayedRobotPose && currentOp !== 'relocalize')
             && <Robot
-              pose={robotInfo.pose} />
+              pose={displayedRobotPose} />
           }
-          {(gridInfo && isScanVisible && laserPose && laserScan)
+          {(gridInfo && relocalizationPose && currentOp === 'relocalize')
+            && <RelocalizationRobot
+              pose={relocalizationPose}
+              onPoseChange={updateRelocalizationPose} />
+          }
+          {(gridInfo && isScanVisible && displayedLaserPose && laserScan)
             && <LaserScan
-              pose={laserPose}
+              pose={displayedLaserPose}
               scan={laserScan}
               pointSize={scanPointSize} />
           }

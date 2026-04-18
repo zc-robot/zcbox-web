@@ -17,10 +17,11 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   useBatteryStateMqtt()
   useLaserScanMqtt()
   const navigate = useNavigate()
-  const { setMaps, setMapsNew, zoom, robotStatus, setRobotInfo, setMapGrid, setPathPointInfo, mapsNew, isScanVisible, setScanVisibility, updateScanPointSize, requestCenterRobot } = useGridStore(state => ({
+  const { setMaps, setMapsNew, zoom, robotInfo, robotStatus, setRobotInfo, setMapGrid, setPathPointInfo, mapsNew, isScanVisible, setScanVisibility, updateScanPointSize, requestCenterRobot, relocalizationPose, beginRelocalization, cancelRelocalization } = useGridStore(state => ({
     setMaps: state.setMaps,
     setMapsNew: state.setMapsNew,
     zoom: state.zoom,
+    robotInfo: state.robotInfo,
     robotStatus: state.robotInfo?.fsm,
     setRobotInfo: state.setRobotInfo,
     setMapGrid: state.setMapGrid,
@@ -30,6 +31,9 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     setScanVisibility: state.setScanVisibility,
     updateScanPointSize: state.updateScanPointSize,
     requestCenterRobot: state.requestCenterRobot,
+    relocalizationPose: state.relocalizationPose,
+    beginRelocalization: state.beginRelocalization,
+    cancelRelocalization: state.cancelRelocalization,
   }))
   const { currentOp, updateOp } = useOperationStore(state => ({
     currentOp: state.current,
@@ -46,6 +50,44 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const toggleScanVisibility = () => setScanVisibility(!isScanVisible)
   const increaseScanPointSize = () => updateScanPointSize(0.01)
   const decreaseScanPointSize = () => updateScanPointSize(-0.01)
+  const toggleRelocalization = () => {
+    if (currentOp === 'relocalize') {
+      cancelRelocalization()
+      updateOp('move')
+      return
+    }
+
+    if (!robotInfo) {
+      toast.error('暂无机器人位姿')
+      return
+    }
+
+    if (!isScanVisible)
+      setScanVisibility(true)
+
+    beginRelocalization()
+    updateOp('relocalize')
+  }
+
+  const handleRelocalizationConfirm = async () => {
+    if (!relocalizationPose) {
+      toast.error('暂无重定位位姿')
+      return
+    }
+
+    const loadingToast = toast.loading('正在发送重定位...')
+    try {
+      await apiServer.setPose(relocalizationPose)
+      toast.dismiss(loadingToast)
+      toast.success('重定位已发送')
+      cancelRelocalization()
+      updateOp('move')
+    }
+    catch (error) {
+      toast.dismiss(loadingToast)
+      toast.error(`重定位失败 ${error}`)
+    }
+  }
 
   const wsOption = {
     shouldReconnect: (event: CloseEvent) => event.code !== 1000,
@@ -176,6 +218,13 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     }
   }, ['s', 'S'])
 
+  useEffect(() => {
+    return () => {
+      cancelRelocalization()
+      updateOp('move')
+    }
+  }, [cancelRelocalization, updateOp])
+
   return (
     <div className="panel-container">
       <div className="flex">
@@ -203,6 +252,24 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           <div className="i-material-symbols-edit-road-outline-rounded panel-icon" />
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">添加路径</span>
         </div>
+        <div
+          className={`${currentOp === 'relocalize' ? 'panel-item-enabled' : 'panel-item'} group`}
+          onClick={toggleRelocalization}>
+          <div className="i-material-symbols-gps-fixed-rounded panel-icon" />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
+            {currentOp === 'relocalize' ? '关闭重定位' : '重定位'}
+          </span>
+        </div>
+        {currentOp === 'relocalize' && (
+          <div
+            className="panel-item group"
+            onClick={handleRelocalizationConfirm}>
+            <div className="i-material-symbols-check-rounded panel-icon" />
+            <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
+              发送重定位
+            </span>
+          </div>
+        )}
       </div>
       <div className="flex">
         <div

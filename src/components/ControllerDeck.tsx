@@ -212,11 +212,29 @@ const Info: React.FC<{ pose: PoseMessage; status: RobotStatus; qulity: number; b
 
 const ControllerDeck: React.FC = () => {
   const [isDeckDisplay, displayDeck] = useState(false)
-  const robotInfo = useGridStore(state => state.robotInfo)
+  const { robotInfo, relocalizationPose } = useGridStore(state => ({
+    robotInfo: state.robotInfo,
+    relocalizationPose: state.relocalizationPose,
+  }))
+  const currentOp = useOperationStore(state => state.current)
 
   return (
     <div className="flex='grow-0 shrink-0 basis-a'">
       {robotInfo && <Info pose={robotInfo.pose} status={robotInfo.fsm} qulity={robotInfo.localization_quality} battery={robotInfo.battery} batteryCurrent={robotInfo.batteryCurrent}/>}
+      {currentOp === 'relocalize' && relocalizationPose && (
+        <div className="p-2 flex flex-col border-(t-solid 1px gray-300) text-sm">
+          <div className="font-bold pl-1">重定位目标:
+            <span className="font-200 pl-1">X {formatDisplayValue(relocalizationPose.position.x)}</span>
+            <span className="font-200 pl-2">Y {formatDisplayValue(relocalizationPose.position.y)}</span>
+          </div>
+          <div className="font-bold pl-1 pt-1">Yaw:
+            <span className="font-200 pl-1">{formatDisplayValue(relocalizationPose.pyr.yaw)}</span>
+          </div>
+          <div className="text-3 text-gray-6 pl-1 pt-2">
+            拖动机器人并旋转蓝色手柄，对齐扫描后点击顶部对勾发送。
+          </div>
+        </div>
+      )}
       <div className="flex flex-(items-center justify-between) px-4 h-8 border-(t-solid b-solid 1px gray-300)"
         onClick={() => displayDeck(!isDeckDisplay)}>
         <div className="text-3 p-1 cursor-default font-bold">机器人操作</div>

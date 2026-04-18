@@ -1,5 +1,5 @@
 import ky from 'ky'
-import type { CurrentMapData, MapData, MapDataDetail, MapListItem, NavProfile, PointAction, RobotParams } from '@/types'
+import type { CurrentMapData, MapData, MapDataDetail, MapListItem, NavProfile, PointAction, PoseMessage, RobotParams } from '@/types'
 import { useBoundStore } from '@/store'
 
 interface Resp<T> {
@@ -52,6 +52,10 @@ class ApiServer {
     return this.mqttWsUrl
   }
 
+  private get robotHttpBaseUrl() {
+    return `http://${this.derivedRealtimeHost}:1234`
+  }
+
   private get client() {
     let domain = useBoundStore.getState().apiDomain
     if (domain === '')
@@ -59,6 +63,17 @@ class ApiServer {
     const timeoutDuration = 50000
     return ky.create({
       prefixUrl: domain,
+      timeout: timeoutDuration,
+      headers: {
+        'x-api-key': '1234567890',
+      },
+    })
+  }
+
+  private get robotHttpClient() {
+    const timeoutDuration = 50000
+    return ky.create({
+      prefixUrl: this.robotHttpBaseUrl,
       timeout: timeoutDuration,
       headers: {
         'x-api-key': '1234567890',
@@ -172,6 +187,22 @@ class ApiServer {
       json: {
         deploy_uid: profile,
         wp_uid: point,
+      },
+    }).json()
+    return json
+  }
+
+  setPose = async (pose: PoseMessage) => {
+    const json = await this.robotHttpClient.post('set_pose', {
+      json: {
+        position: {
+          x: pose.position.x,
+          y: pose.position.y,
+        },
+        use_pyr: true,
+        pyr: {
+          yaw: pose.pyr.yaw,
+        },
       },
     }).json()
     return json

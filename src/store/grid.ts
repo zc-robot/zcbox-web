@@ -16,6 +16,7 @@ export interface GridSlice {
   isScanVisible: boolean
   scanPointSize: number
   centerRobotRequestId: number
+  relocalizationPose: PoseMessage | null
 
   // Actions
   setMaps: (maps: MapData[]) => void
@@ -30,8 +31,19 @@ export interface GridSlice {
   setScanVisibility: (visible: boolean) => void
   updateScanPointSize: (delta: number) => void
   requestCenterRobot: () => void
+  beginRelocalization: () => void
+  updateRelocalizationPose: (pose: PoseMessage) => void
+  cancelRelocalization: () => void
   resetGrid: () => void
   zoom: (scale: number) => void
+}
+
+function clonePose(pose: PoseMessage): PoseMessage {
+  return {
+    position: { ...pose.position },
+    orientation: { ...pose.orientation },
+    pyr: { ...pose.pyr },
+  }
 }
 
 function createDefaultRobotInfo(pose?: PoseMessage): RobotInfoMessage {
@@ -62,7 +74,7 @@ function createDefaultRobotInfo(pose?: PoseMessage): RobotInfoMessage {
   }
 }
 
-export const gridSlice: StateCreator<GridSlice> = set => ({
+export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
   scale: 2,
   maps: [],
   mapsNew: [],
@@ -77,6 +89,7 @@ export const gridSlice: StateCreator<GridSlice> = set => ({
   isScanVisible: false,
   scanPointSize: 0.05,
   centerRobotRequestId: 0,
+  relocalizationPose: null,
 
   // Actions
   setMaps: (maps) => {
@@ -155,6 +168,18 @@ export const gridSlice: StateCreator<GridSlice> = set => ({
       centerRobotRequestId: state.centerRobotRequestId + 1,
     }))
   },
+  beginRelocalization: () => {
+    const pose = get().robotInfo?.pose
+    set({
+      relocalizationPose: pose ? clonePose(pose) : clonePose(createDefaultRobotInfo().pose),
+    })
+  },
+  updateRelocalizationPose: (pose) => {
+    set({ relocalizationPose: clonePose(pose) })
+  },
+  cancelRelocalization: () => {
+    set({ relocalizationPose: null })
+  },
   resetGrid: () => {
     set({
       scale: 2,
@@ -167,6 +192,7 @@ export const gridSlice: StateCreator<GridSlice> = set => ({
       hasMqttPose: false,
       hasMqttBattery: false,
       isScanVisible: false,
+      relocalizationPose: null,
     })
   },
   zoom: (scale: number) => {
