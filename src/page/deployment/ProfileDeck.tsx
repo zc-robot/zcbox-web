@@ -1,5 +1,4 @@
-import type { MouseEvent, RefObject } from 'react'
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { shallow } from 'zustand/shallow'
 import toast from 'react-hot-toast'
 import PointModal from './PointModal'
@@ -8,9 +7,7 @@ import { useGridStore, useOperationStore, useProfileStore } from '@/store'
 import type { NavPath, NavPoint, NavProfile } from '@/types'
 import apiServer from '@/service/apiServer'
 import EditableLabel from '@/components/EditableLabel'
-import { uid } from '@/util'
-import { quaternionToCanvasAngle } from '@/util/transform'
-import { useMenuPosition, useClickOutside } from '@/hooks'
+import { useClickOutside, useMenuPosition } from '@/hooks'
 
 type display = 'point' | 'path'
 
@@ -31,7 +28,7 @@ const ProfileItem: React.FC<ProfileItemProps> = ({ profile, enabled, onProfileSe
 
   // 使用自定义 Hook 计算菜单位置
   const menuPosition = useMenuPosition(menuRef, showMenu, mousePosition)
-  
+
   // 点击外部关闭菜单
   useClickOutside(menuRef, () => setShowMenu(false), showMenu)
 
@@ -70,18 +67,18 @@ const ProfileItem: React.FC<ProfileItemProps> = ({ profile, enabled, onProfileSe
       }}>
       <div
         className={`i-material-symbols-check-small mr-1 ${enabled ? '' : 'invisible'}`} />
-      <EditableLabel 
-        value={name} 
-        onValueChanged={setName} 
+      <EditableLabel
+        value={name}
+        onValueChanged={setName}
         onValueConfirmed={(newName) => {
           onProfileRenamed(newName)
           setEditing(false)
-        }} 
+        }}
         editing={editing}
         setEditing={setEditing}
       />
       {showMenu && (
-        <div 
+        <div
           ref={menuRef}
           className="z-10 absolute bg-white shadow-(lg blueGray) rounded border border-gray-200 min-w-120px"
           style={{
@@ -128,7 +125,7 @@ const PointItem: React.FC<PointItemProps> = ({
 
   // 使用自定义 Hook 计算菜单位置
   const menuPosition = useMenuPosition(menuRef, showMenu, mousePosition)
-  
+
   // 点击外部关闭菜单
   useClickOutside(menuRef, () => setShowMenu(false), showMenu)
 
@@ -165,18 +162,18 @@ const PointItem: React.FC<PointItemProps> = ({
           setShowMenu(true)
       }}>
       <div className="i-material-symbols-location-on-outline text-gray-500" />
-      <EditableLabel 
-        value={name} 
-        onValueChanged={setName} 
+      <EditableLabel
+        value={name}
+        onValueChanged={setName}
         onValueConfirmed={(newName) => {
           onPointRenamed(newName)
           setEditing(false)
-        }} 
+        }}
         editing={editing}
         setEditing={setEditing}
       />
       {showMenu && (
-        <div 
+        <div
           ref={menuRef}
           className="z-10 absolute bg-white shadow-(lg blueGray) rounded border border-gray-200 min-w-120px"
           style={{
@@ -203,7 +200,7 @@ const PathItem: React.FC<PathItemProps> = ({ path, selected, onClick, onPathRena
 
   // 使用自定义 Hook 计算菜单位置
   const menuPosition = useMenuPosition(menuRef, showMenu, mousePosition)
-  
+
   // 点击外部关闭菜单
   useClickOutside(menuRef, () => setShowMenu(false), showMenu)
 
@@ -237,18 +234,18 @@ const PathItem: React.FC<PathItemProps> = ({ path, selected, onClick, onPathRena
           setShowMenu(true)
       }}>
       <div className="i-material-symbols-location-on-outline text-gray-500" />
-      <EditableLabel 
-        value={name} 
-        onValueChanged={setName} 
+      <EditableLabel
+        value={name}
+        onValueChanged={setName}
         onValueConfirmed={(newName) => {
           onPathRenamed(newName)
           setEditing(false)
-        }} 
+        }}
         editing={editing}
         setEditing={setEditing}
       />
       {showMenu && (
-        <div 
+        <div
           ref={menuRef}
           className="z-10 absolute bg-white shadow-(lg blueGray) rounded border border-gray-200 min-w-120px"
           style={{
@@ -272,17 +269,18 @@ export interface ProfileDeckProps {
 const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
   const [showProfileList, setShowProfileList] = useState(true)
   const [currentDisplay, setCurrentDisplay] = useState<display>('point')
-  const [configPoint, setConfigPoint] = useState<NavPoint>()
   const [configPath, setConfigPath] = useState<NavPath>()
 
-  const { selectedId, select, updateOp } = useOperationStore(state => ({
+  const { selectedId, editingPointId, openPointEditor, select, updateOp } = useOperationStore(state => ({
     selectedId: state.selectedPointId,
+    editingPointId: state.editingPointId,
+    openPointEditor: state.openPointEditor,
     select: state.selectPoint,
     updateOp: state.updateOp,
   }), shallow)
   const {
     profiles, currentProfileId, currentPoints, currentPaths, addProfile, removeProfile, updateCurrentProfile,
-    appendCurrentProfilePoint, appendTaskPoint, updateCurrentProfilePoint, removeCurrentProfilePoint,
+    appendCurrentProfilePointFromPose, appendTaskPoint, updateCurrentProfilePoint, removeCurrentProfilePoint,
     setCurrentProfile, updateCurrentProfilePath, removeCurrentProfilePath,
   } = useProfileStore(state => ({
     profiles: state.filterMapProfiles(mapId),
@@ -292,7 +290,7 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
     addProfile: state.appendProfile,
     removeProfile: state.removeProfile,
     updateCurrentProfile: state.updateCurrentProfile,
-    appendCurrentProfilePoint: state.appendCurrentProfilePoint,
+    appendCurrentProfilePointFromPose: state.appendCurrentProfilePointFromPose,
     appendTaskPoint: state.appendProfileTaskPoint,
     updateCurrentProfilePoint: state.updateCurrentProfilePoint,
     removeCurrentProfilePoint: state.removeCurrentProfilePoint,
@@ -301,6 +299,7 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
     removeCurrentProfilePath: state.removeCurrentProfilePath,
   }))
   const robotInfo = useGridStore(state => state.robotInfo)
+  const configPoint = currentPoints.find(point => point.uid === editingPointId)
 
   const handleProfileSelected = (profile: NavProfile) => {
     setCurrentProfile(profile.uid)
@@ -318,17 +317,20 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
   }
 
   const addRobotPoint = () => {
-    if (!robotInfo)
+    if (!robotInfo) {
+      toast.error('暂无机器人位姿')
       return
+    }
 
-    const id = uid('Point')
-    appendCurrentProfilePoint({
-      x: robotInfo.pose.position.x,
-      y: -robotInfo.pose.position.y,
-      name: `路径点 ${id.slice(-3)}`,
-      uid: id,
-      rotation: quaternionToCanvasAngle(robotInfo.pose.orientation),
-    })
+    const id = appendCurrentProfilePointFromPose(robotInfo.pose)
+    if (!id) {
+      toast.error('请先选择配置')
+      return
+    }
+
+    select(id)
+    updateOp('select')
+    openPointEditor(id)
   }
 
   return (
@@ -345,10 +347,10 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
           <div className="i-material-symbols-add"
             onClick={() => addProfile(mapId)} />
         </div>
-        {profiles.map((p, i) => {
+        {profiles.map((p) => {
           const enabled = currentProfileId === p.uid
           return <ProfileItem
-            key={i}
+            key={p.uid}
             profile={p}
             enabled={enabled}
             onProfileSelected={handleProfileSelected}
@@ -375,7 +377,7 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
         className={'flex flex-col h-[calc(100vh-17.5rem)] overflow-auto'}
         onClick={() => select(null)}>
         {currentDisplay === 'point'
-          ? currentPoints.map((p, i) => <PointItem
+          ? currentPoints.map(p => <PointItem
             key={p.uid}
             point={p}
             selected={selectedId === p.uid}
@@ -385,7 +387,7 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
               select(p.uid)
             }}
             onEditClicked={() => {
-              setConfigPoint(p)
+              openPointEditor(p.uid)
             }}
             onDoubleClicked={() => {
               appendTaskPoint(p)
@@ -401,7 +403,7 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
               updateCurrentProfilePoint(p.uid, { name })
             }}
           />)
-          : currentPaths.map((p, i) => <PathItem
+          : currentPaths.map(p => <PathItem
             key={p.uid}
             path={p}
             selected={selectedId === p.uid}
@@ -423,7 +425,7 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
       </div>
       {configPoint && <PointModal
         point={configPoint}
-        onClose={() => setConfigPoint(undefined)} />}
+        onClose={() => openPointEditor(null)} />}
       {configPath && <PathModal
         path={configPath}
         onClose={() => setConfigPath(undefined)} />}

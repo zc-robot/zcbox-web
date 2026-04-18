@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toNumber, toString } from 'lodash'
 import Input from '@/components/Input'
 import { useProfileStore } from '@/store'
@@ -19,6 +19,14 @@ const PointModal: React.FC<PointModalProps> = ({ point, onClose }) => {
     y: toString(-point.y),
     rotation: toString(point.rotation),
   })
+
+  useEffect(() => {
+    setPointProp({
+      x: toString(point.x),
+      y: toString(-point.y),
+      rotation: toString(point.rotation),
+    })
+  }, [point])
 
   const handleDelete = () => {
     removeCurrentProfilePoint(point.uid)

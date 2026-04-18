@@ -1,6 +1,7 @@
 import type { StateCreator } from 'zustand'
-import type { NavPath, NavPoint, NavProfile, NavTask, TaskPoint } from '@/types'
+import type { NavPath, NavPoint, NavProfile, NavTask, PoseMessage, TaskPoint } from '@/types'
 import { uid } from '@/util'
+import { quaternionToCanvasAngle } from '@/util/transform'
 
 export interface ProfileSlice {
   profiles: NavProfile[]
@@ -22,6 +23,7 @@ export interface ProfileSlice {
   // Modify current profile's fields
   updateCurrentProfile: (profile: Partial<NavProfile>) => void
   appendCurrentProfilePoint: (point: NavPoint) => void
+  appendCurrentProfilePointFromPose: (pose: PoseMessage) => string | null
   updateCurrentProfilePoint: (pid: string, point: Partial<NavPoint>) => void
   removeCurrentProfilePoint: (pid: string) => void
   appendCurrentProfilePath: (path: NavPath) => void
@@ -139,6 +141,20 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
         p.data.waypoints.push(point)
       return { profiles: newProfiles }
     })
+  },
+  appendCurrentProfilePointFromPose: (pose) => {
+    if (!get().currentProfileId)
+      return null
+
+    const id = uid('Point')
+    get().appendCurrentProfilePoint({
+      uid: id,
+      name: `路径点 ${id.slice(-3)}`,
+      x: pose.position.x,
+      y: -pose.position.y,
+      rotation: quaternionToCanvasAngle(pose.orientation),
+    })
+    return id
   },
   updateCurrentProfilePoint: (pid: string, point: Partial<NavPoint>) => {
     set((state) => {

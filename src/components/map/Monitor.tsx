@@ -41,11 +41,12 @@ const Monitor: React.FC = () => {
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [containerRef, { width, height }] = useElementSize()
 
-  const { currentOp, updateOp, selectedId, selectPoint } = useOperationStore(state => ({
+  const { currentOp, updateOp, selectedId, selectPoint, openPointEditor } = useOperationStore(state => ({
     currentOp: state.current,
     updateOp: state.updateOp,
     selectedId: state.selectedPointId,
     selectPoint: state.selectPoint,
+    openPointEditor: state.openPointEditor,
   }), shallow)
   const { scale, gridInfo, robotInfo, pathPointInfo, isScanVisible, laserPose, laserScan, scanPointSize, centerRobotRequestId, relocalizationPose, updateRelocalizationPose, cancelRelocalization } = useGridStore(state => ({
     scale: state.scale,
@@ -62,9 +63,10 @@ const Monitor: React.FC = () => {
     cancelRelocalization: state.cancelRelocalization,
   }), shallow)
   const {
-    currentPoints, appendCurrentProfilePoint, removeCurrentProfilePoint,
+    currentProfileId, currentPoints, appendCurrentProfilePoint, removeCurrentProfilePoint,
     currentPaths, appendCurrentProfilePath, removeCurrentProfilePath,
   } = useProfileStore(state => ({
+    currentProfileId: state.currentProfileId,
     currentPoints: state.currentProfilePoints,
     appendCurrentProfilePoint: state.appendCurrentProfilePoint,
     removeCurrentProfilePoint: state.removeCurrentProfilePoint,
@@ -154,6 +156,9 @@ const Monitor: React.FC = () => {
         selectPoint(null)
     }
     else if (currentOp === 'waypoint') {
+      if (!currentProfileId)
+        return
+
       const x = (obj.evt.offsetX - layer.x()) * (gridInfo.resolution / scale)
       const y = (obj.evt.offsetY - layer.y()) * (gridInfo.resolution / scale)
       const id = uid('Point')
@@ -164,6 +169,7 @@ const Monitor: React.FC = () => {
         uid: id,
         rotation: 0,
       })
+      openPointEditor(id)
       selectPoint(id)
       updateOp('select')
     }

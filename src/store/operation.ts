@@ -4,6 +4,7 @@ import type { Operation } from '@/types'
 export interface OperationSlice {
   current: Operation
   selectedPointId: string | null
+  editingPointId: string | null
   velocityInfo: {
     line: number
     angular: number
@@ -12,6 +13,7 @@ export interface OperationSlice {
   // Action
   updateOp: (by: Operation) => void
   selectPoint: (id: string | null) => void
+  openPointEditor: (id: string | null) => void
   updateLineVelocity: (by: number) => void
   updateAngularVelocity: (by: number) => void
 }
@@ -19,6 +21,7 @@ export interface OperationSlice {
 export const operationSlice: StateCreator<OperationSlice> = (set, get) => ({
   current: 'move',
   selectedPointId: null,
+  editingPointId: null,
   velocityInfo: {
     line: 0.2,
     angular: 0.2,
@@ -32,6 +35,11 @@ export const operationSlice: StateCreator<OperationSlice> = (set, get) => ({
   selectPoint: (id: string | null) => {
     set(() => {
       return { selectedPointId: id }
+    })
+  },
+  openPointEditor: (id: string | null) => {
+    set(() => {
+      return { editingPointId: id }
     })
   },
   updateLineVelocity: (by: number) => {

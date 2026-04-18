@@ -35,14 +35,17 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     beginRelocalization: state.beginRelocalization,
     cancelRelocalization: state.cancelRelocalization,
   }))
-  const { currentOp, updateOp } = useOperationStore(state => ({
+  const { currentOp, selectPoint, updateOp, openPointEditor } = useOperationStore(state => ({
     currentOp: state.current,
+    selectPoint: state.selectPoint,
     updateOp: state.updateOp,
+    openPointEditor: state.openPointEditor,
   }))
-  const { currentProfile, currentTask, addProfiles } = useProfileStore(state => ({
+  const { currentProfile, currentTask, addProfiles, appendCurrentProfilePointFromPose } = useProfileStore(state => ({
     currentProfile: state.currentProfile,
     currentTask: state.getCurrentTask,
     addProfiles: state.addProfiles,
+    appendCurrentProfilePointFromPose: state.appendCurrentProfilePointFromPose,
   }))
 
   const zoomInClick = () => zoom(1.1)
@@ -50,6 +53,39 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const toggleScanVisibility = () => setScanVisibility(!isScanVisible)
   const increaseScanPointSize = () => updateScanPointSize(0.01)
   const decreaseScanPointSize = () => updateScanPointSize(-0.01)
+  const activateManualWaypointPlacement = () => {
+    if (!currentProfile()) {
+      toast.error('请先选择配置')
+      return
+    }
+
+    openPointEditor(null)
+    updateOp('waypoint')
+  }
+
+  const captureRobotWaypoint = () => {
+    if (!currentProfile()) {
+      toast.error('请先选择配置')
+      return
+    }
+
+    if (!robotInfo) {
+      toast.error('暂无机器人位姿')
+      return
+    }
+
+    const id = appendCurrentProfilePointFromPose(robotInfo.pose)
+    if (!id) {
+      toast.error('路径点创建失败')
+      return
+    }
+
+    openPointEditor(id)
+    selectPoint(id)
+    updateOp('select')
+    toast.success('已采集当前位置为路径点')
+  }
+
   const toggleRelocalization = () => {
     if (currentOp === 'relocalize') {
       cancelRelocalization()
@@ -241,10 +277,16 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">选择</span>
         </div>
         <div
-          className={`${currentOp === 'waypoint' ? 'panel-item-enabled' : 'panel-item'} group`}
-          onClick={() => updateOp('waypoint')}>
-          <div className="i-material-symbols-my-location-outline-rounded panel-icon" />
+          className="panel-item group bg-blue-600 hover:bg-blue-700"
+          onClick={captureRobotWaypoint}>
+          <div className="i-material-symbols-add-location-outline panel-icon" />
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">添加路径点</span>
+        </div>
+        <div
+          className={`${currentOp === 'waypoint' ? 'panel-item-enabled' : 'panel-item'} group`}
+          onClick={activateManualWaypointPlacement}>
+          <div className="i-material-symbols-my-location-outline-rounded panel-icon" />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">手动放置路径点</span>
         </div>
         <div
           className={`${currentOp === 'pathway' ? 'panel-item-enabled' : 'panel-item'} group`}
