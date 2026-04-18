@@ -149,7 +149,7 @@ const Mapping: React.FC = () => {
           <div
             className={`${isScanVisible ? 'panel-item-enabled' : 'panel-item'} group`}
             onClick={toggleScanVisibility}>
-            <div className="i-material-symbols-radar-rounded panel-icon" />
+            <div className={`${isScanVisible ? 'i-material-symbols-sensors-rounded' : 'i-material-symbols-sensors-off-rounded'} panel-icon`} />
             <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
               {isScanVisible ? '隐藏扫描' : '显示扫描'}
             </span>

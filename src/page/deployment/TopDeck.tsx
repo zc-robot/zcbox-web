@@ -17,7 +17,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   useBatteryStateMqtt()
   useLaserScanMqtt()
   const navigate = useNavigate()
-  const { setMaps, setMapsNew, zoom, robotStatus, setRobotInfo, setMapGrid, setPathPointInfo, mapsNew, isScanVisible, setScanVisibility } = useGridStore(state => ({
+  const { setMaps, setMapsNew, zoom, robotStatus, setRobotInfo, setMapGrid, setPathPointInfo, mapsNew, isScanVisible, setScanVisibility, requestCenterRobot } = useGridStore(state => ({
     setMaps: state.setMaps,
     setMapsNew: state.setMapsNew,
     zoom: state.zoom,
@@ -28,6 +28,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     mapsNew: state.mapsNew,
     isScanVisible: state.isScanVisible,
     setScanVisibility: state.setScanVisibility,
+    requestCenterRobot: state.requestCenterRobot,
   }))
   const { currentOp, updateOp } = useOperationStore(state => ({
     currentOp: state.current,
@@ -94,6 +95,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
 
       // 更新状态（这会触发Redux DevTools的序列化，但我们已经添加了状态净化功能）
       setMapGrid(mapData, foundMap.info)
+      requestCenterRobot()
       addProfiles(profiles)
 
       // 关闭加载提示并显示成功消息
@@ -215,7 +217,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
         <div
           className={`${isScanVisible ? 'panel-item-enabled' : 'panel-item'} group`}
           onClick={toggleScanVisibility}>
-          <div className="i-material-symbols-radar-rounded panel-icon" />
+          <div className={`${isScanVisible ? 'i-material-symbols-sensors-rounded' : 'i-material-symbols-sensors-off-rounded'} panel-icon`} />
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
             {isScanVisible ? '隐藏扫描' : '显示扫描'}
           </span>

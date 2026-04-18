@@ -21,8 +21,18 @@ interface ImageState {
   rotation: number | null
 }
 
+function getLayerState(resolution: number, imageX: number, imageY: number, scale: number): ImageState {
+  const layerScale = scale / resolution
+  return {
+    x: -imageX * layerScale,
+    y: -imageY * layerScale,
+    scale: layerScale,
+  } as ImageState
+}
+
 const Monitor: React.FC = () => {
   const layerRef = useRef<Konva.Layer>(null)
+  const lastHandledCenterRequestId = useRef(0)
   const [layerState, setLayerState] = useState<ImageState>()
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [containerRef, { width, height }] = useElementSize()
@@ -33,7 +43,7 @@ const Monitor: React.FC = () => {
     selectedId: state.selectedPointId,
     selectPoint: state.selectPoint,
   }), shallow)
-  const { scale, gridInfo, robotInfo, pathPointInfo, isScanVisible, laserPose, laserScan } = useGridStore(state => ({
+  const { scale, gridInfo, robotInfo, pathPointInfo, isScanVisible, laserPose, laserScan, centerRobotRequestId } = useGridStore(state => ({
     scale: state.scale,
     gridInfo: state.gridInfo,
     robotInfo: state.robotInfo,
@@ -41,6 +51,7 @@ const Monitor: React.FC = () => {
     isScanVisible: state.isScanVisible,
     laserPose: state.laserPose,
     laserScan: state.laserScan,
+    centerRobotRequestId: state.centerRobotRequestId,
   }), shallow)
   const {
     currentPoints, appendCurrentProfilePoint, removeCurrentProfilePoint,
@@ -78,18 +89,28 @@ const Monitor: React.FC = () => {
       const imageY = -(gridInfo.origin.position.y + gridInfo.height * resolution)
 
       // As the image scale is resolution, we need to scale the layer to 1/resolution
-      const layerScale = scale / resolution
-      const layerX = -imageX * layerScale
-      const layerY = -imageY * layerScale
-      const lp = {
-        x: layerX,
-        y: layerY,
-        scale: layerScale,
-      } as ImageState
-      setLayerState(lp)
+      setLayerState(getLayerState(resolution, imageX, imageY, scale))
     }
     renderMap()
-  }, [gridInfo, robotInfo, scale])
+  }, [gridInfo, scale])
+
+  useEffect(() => {
+    if (!gridInfo || !robotInfo || !width || !height)
+      return
+    if (centerRobotRequestId <= lastHandledCenterRequestId.current)
+      return
+
+    const resolution = gridInfo.resolution
+    const imageX = gridInfo.origin.position.x
+    const imageY = -(gridInfo.origin.position.y + gridInfo.height * resolution)
+    const nextLayerState = getLayerState(resolution, imageX, imageY, scale)
+
+    setOffset({
+      x: width / 2 - (nextLayerState.x + robotInfo.pose.position.x * nextLayerState.scale),
+      y: height / 2 - (nextLayerState.y + -robotInfo.pose.position.y * nextLayerState.scale),
+    })
+    lastHandledCenterRequestId.current = centerRobotRequestId
+  }, [centerRobotRequestId, gridInfo, height, robotInfo, scale, width])
 
   useEffect(() => {
     if (currentOp !== 'select')
