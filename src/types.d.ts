@@ -62,6 +62,14 @@ export interface RobotInfoMessage {
   batteryCurrent: number,
 }
 
+export interface LaserScanMessage {
+  angleMin: number,
+  angleIncrement: number,
+  rangeMin: number,
+  rangeMax: number,
+  ranges: number[],
+}
+
 export interface PoseMessage {
   position: PointMessage,
   orientation: QuaternionMessage,

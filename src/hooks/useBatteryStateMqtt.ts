@@ -1,7 +1,5 @@
 import { useEffect } from 'react'
-import mqtt from 'mqtt'
-import type { MqttClient } from 'mqtt'
-import apiServer from '@/service/apiServer'
+import { createMqttClient, teardownMqttClient } from './mqtt'
 import { useGridStore } from '@/store'
 
 const BATTERY_DATA_TOPIC = 'battery/data'
@@ -30,13 +28,7 @@ export function useBatteryStateMqtt() {
   const updateRobotBattery = useGridStore(state => state.updateRobotBattery)
 
   useEffect(() => {
-    const client = mqtt.connect(apiServer.mqttWsUrl, {
-      username: 'zc',
-      password: '8888',
-      protocolVersion: 4,
-      reconnectPeriod: 2000,
-      connectTimeout: 5000,
-    })
+    const client = createMqttClient()
 
     const sendBatteryPing = () => {
       if (client.connected)
@@ -63,9 +55,4 @@ export function useBatteryStateMqtt() {
       teardownMqttClient(client)
     }
   }, [updateRobotBattery])
-}
-
-function teardownMqttClient(client: MqttClient) {
-  client.removeAllListeners()
-  client.end(true)
 }

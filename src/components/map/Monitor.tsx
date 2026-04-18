@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { Layer, Stage } from 'react-konva'
 import { shallow } from 'zustand/shallow'
 import GridMap from './GridMap'
+import LaserScan from './LaserScan'
 import Pathway from './Pathway'
 import Robot from './Robot'
 import Waypoint from './Waypoint'
@@ -32,11 +33,14 @@ const Monitor: React.FC = () => {
     selectedId: state.selectedPointId,
     selectPoint: state.selectPoint,
   }), shallow)
-  const { scale, gridInfo, robotInfo, pathPointInfo } = useGridStore(state => ({
+  const { scale, gridInfo, robotInfo, pathPointInfo, isScanVisible, laserPose, laserScan } = useGridStore(state => ({
     scale: state.scale,
     gridInfo: state.gridInfo,
     robotInfo: state.robotInfo,
     pathPointInfo: state.pathPointInfo,
+    isScanVisible: state.isScanVisible,
+    laserPose: state.laserPose,
+    laserScan: state.laserScan,
   }), shallow)
   const {
     currentPoints, appendCurrentProfilePoint, removeCurrentProfilePoint,
@@ -185,6 +189,11 @@ const Monitor: React.FC = () => {
           {(gridInfo && robotInfo)
             && <Robot
               pose={robotInfo.pose} />
+          }
+          {(gridInfo && isScanVisible && laserPose && laserScan)
+            && <LaserScan
+              pose={laserPose}
+              scan={laserScan} />
           }
           {currentPaths().map((path, i) => <Pathway
             key={i}

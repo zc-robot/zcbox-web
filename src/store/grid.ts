@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand'
-import type { GridInfoMessage, MapData, MapListItem, PointMessage, PoseMessage, RobotInfoMessage } from '@/types'
+import type { GridInfoMessage, LaserScanMessage, MapData, MapListItem, PointMessage, PoseMessage, RobotInfoMessage } from '@/types'
 
 export interface GridSlice {
   scale: number
@@ -9,8 +9,11 @@ export interface GridSlice {
   pathPointInfo: PointMessage[]
   mapData: number[]
   robotInfo: RobotInfoMessage | null
+  laserPose: PoseMessage | null
+  laserScan: LaserScanMessage | null
   hasMqttPose: boolean
   hasMqttBattery: boolean
+  isScanVisible: boolean
 
   // Actions
   setMaps: (maps: MapData[]) => void
@@ -20,6 +23,9 @@ export interface GridSlice {
   setRobotInfo: (robot: RobotInfoMessage) => void
   updateRobotPose: (pose: PoseMessage) => void
   updateRobotBattery: (battery: number, batteryCurrent: number) => void
+  updateLaserPose: (pose: PoseMessage) => void
+  updateLaserScan: (scan: LaserScanMessage) => void
+  setScanVisibility: (visible: boolean) => void
   resetGrid: () => void
   zoom: (scale: number) => void
 }
@@ -60,8 +66,11 @@ export const gridSlice: StateCreator<GridSlice> = set => ({
   pathPointInfo: [],
   mapData: [],
   robotInfo: null,
+  laserPose: null,
+  laserScan: null,
   hasMqttPose: false,
   hasMqttBattery: false,
+  isScanVisible: false,
 
   // Actions
   setMaps: (maps) => {
@@ -112,6 +121,24 @@ export const gridSlice: StateCreator<GridSlice> = set => ({
           },
     }))
   },
+  updateLaserPose: (pose) => {
+    set({ laserPose: pose })
+  },
+  updateLaserScan: (scan) => {
+    set({ laserScan: scan })
+  },
+  setScanVisibility: (visible) => {
+    if (visible) {
+      set({ isScanVisible: true })
+      return
+    }
+
+    set({
+      isScanVisible: false,
+      laserPose: null,
+      laserScan: null,
+    })
+  },
   resetGrid: () => {
     set({
       scale: 2,
@@ -119,8 +146,11 @@ export const gridSlice: StateCreator<GridSlice> = set => ({
       pathPointInfo: [],
       mapData: [],
       robotInfo: null,
+      laserPose: null,
+      laserScan: null,
       hasMqttPose: false,
       hasMqttBattery: false,
+      isScanVisible: false,
     })
   },
   zoom: (scale: number) => {

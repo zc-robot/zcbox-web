@@ -8,12 +8,13 @@ import { useGridStore } from '@/store'
 import type { OccupancyGridMessage, RobotInfoMessage } from '@/types'
 import apiServer from '@/service/apiServer'
 import Monitor from '@/components/map/Monitor'
-import { useBatteryStateMqtt, useRobotPoseMqtt } from '@/hooks'
+import { useBatteryStateMqtt, useLaserScanMqtt, useRobotPoseMqtt } from '@/hooks'
 import { mapWorker } from '@/util/transform'
 
 const Mapping: React.FC = () => {
   useRobotPoseMqtt()
   useBatteryStateMqtt()
+  useLaserScanMqtt()
   const [showModal, setShowModal] = useState<boolean>(false)
   const [isMapping, setIsMapping] = useState<boolean>(false)
   const shouldBlocker = useCallback<BlockerFunction>(({ currentLocation, nextLocation }) => {
@@ -21,12 +22,14 @@ const Mapping: React.FC = () => {
   }, [isMapping])
   const blocker = useBlocker(shouldBlocker)
 
-  const { resetGrid, zoom, robotStatus, setMapGrid, setRobotInfo } = useGridStore(state => ({
+  const { resetGrid, zoom, robotStatus, setMapGrid, setRobotInfo, isScanVisible, setScanVisibility } = useGridStore(state => ({
     resetGrid: state.resetGrid,
     zoom: state.zoom,
     robotStatus: state.robotInfo?.fsm,
     setMapGrid: state.setMapGrid,
     setRobotInfo: state.setRobotInfo,
+    isScanVisible: state.isScanVisible,
+    setScanVisibility: state.setScanVisibility,
   }))
 
   const wsOption = {
@@ -99,6 +102,7 @@ const Mapping: React.FC = () => {
 
   const zoomInClick = () => zoom(1.1)
   const zoomOutClick = () => zoom(0.9)
+  const toggleScanVisibility = () => setScanVisibility(!isScanVisible)
 
   const handleSaveClicked = async () => {
     setShowModal(true)
@@ -141,6 +145,14 @@ const Mapping: React.FC = () => {
             onClick={handleSaveClicked}>
             <div className="i-material-symbols-save-rounded panel-icon" />
             <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">保存</span>
+          </div>
+          <div
+            className={`${isScanVisible ? 'panel-item-enabled' : 'panel-item'} group`}
+            onClick={toggleScanVisibility}>
+            <div className="i-material-symbols-radar-rounded panel-icon" />
+            <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
+              {isScanVisible ? '隐藏扫描' : '显示扫描'}
+            </span>
           </div>
         </div>
         <div className="flex">

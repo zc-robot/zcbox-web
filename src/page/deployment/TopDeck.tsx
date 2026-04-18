@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { useGridStore, useOperationStore, useProfileStore } from '@/store'
 import apiServer from '@/service/apiServer'
 import type { PointMessage, RobotInfoMessage } from '@/types'
-import { useBatteryStateMqtt, useKeyPress, useRobotPoseMqtt } from '@/hooks'
+import { useBatteryStateMqtt, useKeyPress, useLaserScanMqtt, useRobotPoseMqtt } from '@/hooks'
 import { parsePgm } from '@/util/transform'
 
 export interface TopDeckProps {
@@ -15,8 +15,9 @@ export interface TopDeckProps {
 const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   useRobotPoseMqtt()
   useBatteryStateMqtt()
+  useLaserScanMqtt()
   const navigate = useNavigate()
-  const { setMaps, setMapsNew, zoom, robotStatus, setRobotInfo, setMapGrid, setPathPointInfo, mapsNew } = useGridStore(state => ({
+  const { setMaps, setMapsNew, zoom, robotStatus, setRobotInfo, setMapGrid, setPathPointInfo, mapsNew, isScanVisible, setScanVisibility } = useGridStore(state => ({
     setMaps: state.setMaps,
     setMapsNew: state.setMapsNew,
     zoom: state.zoom,
@@ -25,6 +26,8 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     setMapGrid: state.setMapGrid,
     setPathPointInfo: state.setPathPointInfo,
     mapsNew: state.mapsNew,
+    isScanVisible: state.isScanVisible,
+    setScanVisibility: state.setScanVisibility,
   }))
   const { currentOp, updateOp } = useOperationStore(state => ({
     currentOp: state.current,
@@ -38,6 +41,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
 
   const zoomInClick = () => zoom(1.1)
   const zoomOutClick = () => zoom(0.9)
+  const toggleScanVisibility = () => setScanVisibility(!isScanVisible)
 
   const wsOption = {
     shouldReconnect: (event: CloseEvent) => event.code !== 1000,
@@ -207,6 +211,14 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           onClick={zoomOutClick}>
           <div className="i-material-symbols-zoom-out-rounded panel-icon" />
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">缩小</span>
+        </div>
+        <div
+          className={`${isScanVisible ? 'panel-item-enabled' : 'panel-item'} group`}
+          onClick={toggleScanVisibility}>
+          <div className="i-material-symbols-radar-rounded panel-icon" />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
+            {isScanVisible ? '隐藏扫描' : '显示扫描'}
+          </span>
         </div>
         <div className="panel-item justify-center group">
           <div className={`${robotState === ReadyState.OPEN
