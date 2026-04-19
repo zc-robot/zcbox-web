@@ -1,6 +1,6 @@
 import type Konva from 'konva'
 import { useEffect, useMemo, useRef } from 'react'
-import { Circle, Group, Line, RegularPolygon, Transformer } from 'react-konva'
+import { Circle, Group, Line, Transformer } from 'react-konva'
 import type { NavPoint } from '@/types'
 import { useOperationStore, useParamsStore, useProfileStore } from '@/store'
 
@@ -99,17 +99,19 @@ const Waypoint: React.FC<WaypointProp> = ({
             fill={fillColor}
           />
           <Line
-            points={[0, 0, width * 1.45, 0]}
+            points={[width * 0.18, 0, width * 0.72, 0]}
             stroke={fillColor}
             strokeWidth={width * 0.28}
             lineCap="round"
           />
-          <RegularPolygon
-            sides={3}
-            radius={width * 0.52}
-            x={width * 1.8}
-            rotation={90}
+          <Line
+            points={[
+              width * 0.62, -width * 0.24,
+              width * 1.08, 0,
+              width * 0.62, width * 0.24,
+            ]}
             fill={fillColor}
+            closed
           />
           {(isPathSource || isPathTarget) && (
             <Circle
