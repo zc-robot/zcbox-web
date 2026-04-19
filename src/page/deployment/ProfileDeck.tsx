@@ -163,26 +163,26 @@ const PointDetails: React.FC<PointDetailsProps> = ({ point, onDeleteClicked, onS
         <span className="text-3 font-bold">{point.uid}</span>
         <span className="text-(2.5 gray-500)">已选中路径点</span>
       </div>
-      <div className="mt-3 flex items-center justify-between gap-2">
+      <div className="mt-3 flex items-center gap-2">
         <span className="w-12 shrink-0 text-3 font-bold">X</span>
         <Input
-          className="w-32 flex-none"
+          className="w-0 min-w-0 flex-1"
           type="number"
           value={pointProp.x}
           onChange={e => setPointProp({ ...pointProp, x: e.target.value })} />
       </div>
-      <div className="mt-2 flex items-center justify-between gap-2">
+      <div className="mt-2 flex items-center gap-2">
         <span className="w-12 shrink-0 text-3 font-bold">Y</span>
         <Input
-          className="w-32 flex-none"
+          className="w-0 min-w-0 flex-1"
           type="number"
           value={pointProp.y}
           onChange={e => setPointProp({ ...pointProp, y: e.target.value })} />
       </div>
-      <div className="mt-2 flex items-center justify-between gap-2">
+      <div className="mt-2 flex items-center gap-2">
         <span className="w-12 shrink-0 text-3 font-bold">Yaw</span>
         <Input
-          className="w-32 flex-none"
+          className="w-0 min-w-0 flex-1"
           type="number"
           value={pointProp.rotation}
           onChange={e => setPointProp({ ...pointProp, rotation: e.target.value })} />
