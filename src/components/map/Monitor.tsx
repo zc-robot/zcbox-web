@@ -89,8 +89,17 @@ const Monitor: React.FC = () => {
   const pathSnapDistance = useMemo(() => Math.max(pathStrokeWidth * 5, 0.35), [pathStrokeWidth])
 
   useKeyPress((event, isDown) => {
-    if (!selectedId || !isDown || !event.metaKey)
+    const target = event.target as HTMLElement | null
+    const isEditableTarget = target != null && (
+      target.tagName === 'INPUT'
+      || target.tagName === 'TEXTAREA'
+      || target.isContentEditable
+    )
+
+    if (!selectedId || !isDown || isEditableTarget)
       return
+
+    event.preventDefault()
 
     if (selectedId.startsWith('Point')) {
       removeCurrentProfilePoint(selectedId)
@@ -100,7 +109,7 @@ const Monitor: React.FC = () => {
       removeCurrentProfilePath(selectedId)
       selectPoint(null)
     }
-  }, ['Backspace'])
+  }, ['Backspace', 'Delete'])
 
   useEffect(() => {
     const renderMap = () => {
@@ -146,6 +155,32 @@ const Monitor: React.FC = () => {
       setDraftPathTargetId(null)
     }
   }, [currentOp])
+
+  useEffect(() => {
+    if (currentOp !== 'pathway' || !selectedId?.startsWith('Point')) {
+      setDraftPath(null)
+      setDraftPathTargetId(null)
+      return
+    }
+
+    const start = currentPoints().find(point => point.uid === selectedId)
+    if (!start) {
+      setDraftPath(null)
+      setDraftPathTargetId(null)
+      return
+    }
+
+    setDraftPath((state) => {
+      if (state?.startId === selectedId)
+        return state
+
+      return {
+        startId: selectedId,
+        x: start.x,
+        y: start.y,
+      }
+    })
+  }, [currentOp, currentPoints, selectedId])
 
   useEffect(() => {
     if (currentOp !== 'relocalize') {
@@ -215,51 +250,6 @@ const Monitor: React.FC = () => {
     return nearestTarget
   }
 
-  const handlePathHandleDragStart = (startId: string) => {
-    const start = currentPoints().find(point => point.uid === startId)
-    if (!start)
-      return
-
-    setDraftPath({
-      startId,
-      x: start.x,
-      y: start.y,
-    })
-    setDraftPathTargetId(null)
-    selectPoint(startId)
-  }
-
-  const handlePathHandleDragMove = (x: number, y: number) => {
-    setDraftPath((state) => {
-      if (!state)
-        return state
-
-      const target = findPathTarget(x, y, state.startId)
-      setDraftPathTargetId(target?.uid ?? null)
-      return {
-        ...state,
-        x,
-        y,
-      }
-    })
-  }
-
-  const handlePathHandleDragEnd = (x: number, y: number) => {
-    if (!draftPath)
-      return
-
-    const start = currentPoints().find(point => point.uid === draftPath.startId)
-    const end = findPathTarget(x, y, draftPath.startId)
-
-    setDraftPath(null)
-    setDraftPathTargetId(null)
-
-    if (!start || !end)
-      return
-
-    createPathBetweenPoints(start, end)
-  }
-
   const handleLayerClick = (obj: Konva.KonvaEventObject<MouseEvent>) => {
     const layer = layerRef.current
     if (!layer || !gridInfo)
@@ -268,6 +258,12 @@ const Monitor: React.FC = () => {
     if (currentOp === 'select') {
       if (selectedId)
         selectPoint(null)
+    }
+    else if (currentOp === 'pathway') {
+      if (selectedId)
+        selectPoint(null)
+      setDraftPath(null)
+      setDraftPathTargetId(null)
     }
     else if (currentOp === 'waypoint') {
       if (!currentProfileId)
@@ -293,6 +289,11 @@ const Monitor: React.FC = () => {
     if (currentOp === 'pathway') {
       if (!selectedId) {
         selectPoint(id)
+      }
+      else if (selectedId === id) {
+        selectPoint(null)
+        setDraftPath(null)
+        setDraftPathTargetId(null)
       }
       else if (selectedId && selectedId !== id) {
         const start = currentPoints().find(p => p.uid === selectedId)
@@ -324,6 +325,25 @@ const Monitor: React.FC = () => {
     }))
   }
 
+  const handleLayerMouseMove = () => {
+    if (currentOp !== 'pathway' || !draftPath || !layerRef.current)
+      return
+
+    const pointer = layerRef.current.getRelativePointerPosition()
+    if (!pointer)
+      return
+
+    const target = findPathTarget(pointer.x, pointer.y, draftPath.startId)
+    setDraftPathTargetId(target?.uid ?? null)
+    setDraftPath(state => state
+      ? {
+          ...state,
+          x: pointer.x,
+          y: pointer.y,
+        }
+      : state)
+  }
+
   return (
     <div
       className={`flex-1 ${currentOp === 'move' ? 'cursor-pointer' : currentOp === 'relocalize' ? 'cursor-crosshair' : ''}`}
@@ -339,6 +359,7 @@ const Monitor: React.FC = () => {
           scaleY={layerState?.scale}
           draggable={currentOp === 'move'}
           onDragMove={handleLayerDrag}
+          onMouseMove={handleLayerMouseMove}
           onClick={handleLayerClick}>
           <GridMap />
           {(gridInfo && displayedRobotPose && currentOp !== 'relocalize')
@@ -384,10 +405,7 @@ const Monitor: React.FC = () => {
             onSelect={() => handlePointClick(wp.uid)}
             isSelected={wp.uid === selectedId}
             isPathTarget={currentOp === 'pathway' && draftPathTargetId === wp.uid}
-            showPathHandle={currentOp === 'pathway' && wp.uid === selectedId}
-            onPathHandleDragStart={() => handlePathHandleDragStart(wp.uid)}
-            onPathHandleDragMove={handlePathHandleDragMove}
-            onPathHandleDragEnd={handlePathHandleDragEnd} />)}
+            isPathSource={currentOp === 'pathway' && wp.uid === selectedId} />)}
           {pathPointInfo.map((p, i) => <PathPoint
             key={i}
             point={p} />)}
