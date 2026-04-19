@@ -115,6 +115,8 @@ export interface NavPoint {
   x: number,
   y: number,
   rotation: number,
+  is_charger?: boolean,
+  is_parking_spot?: boolean,
 }
 
 // NavPath is a bezier line segment between two NavPoints

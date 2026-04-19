@@ -174,6 +174,8 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
       x: pose.position.x,
       y: -pose.position.y,
       rotation: quaternionToCanvasAngle(pose.orientation),
+      is_charger: false,
+      is_parking_spot: false,
     })
     return id
   },

@@ -350,6 +350,8 @@ const Monitor: React.FC = () => {
         name: `路径点 ${id.slice(-3)}`,
         uid: id,
         rotation: 0,
+        is_charger: false,
+        is_parking_spot: false,
       })
       openPointEditor(id)
       selectPoint(id)

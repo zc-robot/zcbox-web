@@ -135,6 +135,8 @@ const PointDetails: React.FC<PointDetailsProps> = ({ point, onDeleteClicked, onS
     x: formatDecimal(point.x),
     y: formatDecimal(-point.y),
     rotation: formatDecimal(point.rotation),
+    is_charger: !!point.is_charger,
+    is_parking_spot: !!point.is_parking_spot,
   })
 
   useEffect(() => {
@@ -142,6 +144,8 @@ const PointDetails: React.FC<PointDetailsProps> = ({ point, onDeleteClicked, onS
       x: formatDecimal(point.x),
       y: formatDecimal(-point.y),
       rotation: formatDecimal(point.rotation),
+      is_charger: !!point.is_charger,
+      is_parking_spot: !!point.is_parking_spot,
     })
   }, [point])
 
@@ -160,29 +164,43 @@ const PointDetails: React.FC<PointDetailsProps> = ({ point, onDeleteClicked, onS
         <span className="text-(2.5 gray-500)">已选中路径点</span>
       </div>
       <div className="mt-3 flex items-center justify-between gap-2">
-        <span className="text-3 font-bold">X</span>
+        <span className="w-12 shrink-0 text-3 font-bold">X</span>
         <Input
-          className="w-32"
+          className="w-32 flex-none"
           type="number"
           value={pointProp.x}
           onChange={e => setPointProp({ ...pointProp, x: e.target.value })} />
       </div>
       <div className="mt-2 flex items-center justify-between gap-2">
-        <span className="text-3 font-bold">Y</span>
+        <span className="w-12 shrink-0 text-3 font-bold">Y</span>
         <Input
-          className="w-32"
+          className="w-32 flex-none"
           type="number"
           value={pointProp.y}
           onChange={e => setPointProp({ ...pointProp, y: e.target.value })} />
       </div>
       <div className="mt-2 flex items-center justify-between gap-2">
-        <span className="text-3 font-bold">Yaw</span>
+        <span className="w-12 shrink-0 text-3 font-bold">Yaw</span>
         <Input
-          className="w-32"
+          className="w-32 flex-none"
           type="number"
           value={pointProp.rotation}
           onChange={e => setPointProp({ ...pointProp, rotation: e.target.value })} />
       </div>
+      <label className="mt-3 flex items-center justify-between gap-2 text-3">
+        <span className="font-bold">Charger</span>
+        <input
+          type="checkbox"
+          checked={pointProp.is_charger}
+          onChange={e => setPointProp({ ...pointProp, is_charger: e.target.checked })} />
+      </label>
+      <label className="mt-2 flex items-center justify-between gap-2 text-3">
+        <span className="font-bold">Parking Spot</span>
+        <input
+          type="checkbox"
+          checked={pointProp.is_parking_spot}
+          onChange={e => setPointProp({ ...pointProp, is_parking_spot: e.target.checked })} />
+      </label>
       <div className="mt-3 flex justify-between">
         <div
           className="rounded-1 border-(solid 1px red-400) p1 text-(sm red-500) cursor-default"
@@ -195,6 +213,8 @@ const PointDetails: React.FC<PointDetailsProps> = ({ point, onDeleteClicked, onS
             x: roundToTwoDecimals(toNumber(pointProp.x)),
             y: roundToTwoDecimals(toNumber(-pointProp.y)),
             rotation: roundToTwoDecimals(toNumber(pointProp.rotation)),
+            is_charger: pointProp.is_charger,
+            is_parking_spot: pointProp.is_parking_spot,
           })}>
           确认
         </div>
