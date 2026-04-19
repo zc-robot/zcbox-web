@@ -25,6 +25,7 @@ export interface ProfileSlice {
   appendCurrentProfilePoint: (point: NavPoint) => void
   appendCurrentProfilePointFromPose: (pose: PoseMessage) => string | null
   updateCurrentProfilePoint: (pid: string, point: Partial<NavPoint>) => void
+  updateCurrentProfilePoints: (points: { uid: string; point: Partial<NavPoint> }[]) => void
   removeCurrentProfilePoint: (pid: string) => void
   appendCurrentProfilePath: (path: NavPath) => void
   updateCurrentProfilePath: (pid: string, path: Partial<NavPath>) => void
@@ -40,6 +41,26 @@ export interface ProfileSlice {
   removeProfileTaskPoint: (index: number) => void
   swapProfileTaskPoints: (from: number, to: number) => void
   removeProfileTask: (id: string) => void
+}
+
+function syncPathEndpoints(paths: NavPath[], updates: Map<string, Partial<NavPoint>>) {
+  paths.forEach((path) => {
+    const startUpdate = updates.get(path.start.uid)
+    if (startUpdate) {
+      if (startUpdate.x !== undefined)
+        path.start.x = startUpdate.x
+      if (startUpdate.y !== undefined)
+        path.start.y = startUpdate.y
+    }
+
+    const endUpdate = updates.get(path.end.uid)
+    if (endUpdate) {
+      if (endUpdate.x !== undefined)
+        path.end.x = endUpdate.x
+      if (endUpdate.y !== undefined)
+        path.end.y = endUpdate.y
+    }
+  })
 }
 
 export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
@@ -157,15 +178,25 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
     return id
   },
   updateCurrentProfilePoint: (pid: string, point: Partial<NavPoint>) => {
+    get().updateCurrentProfilePoints([{ uid: pid, point }])
+  },
+  updateCurrentProfilePoints: (points) => {
     set((state) => {
       const newProfiles = state.profiles.slice()
       const p = newProfiles.find(p => p.uid === state.currentProfileId)
       if (p && p.data && p.data.waypoints) {
-        const index = p.data.waypoints.findIndex(p => p.uid === pid)
-        if (index >= 0) {
-          const newObj = Object.assign({}, p.data.waypoints[index], point)
-          p.data.waypoints.splice(index, 1, newObj)
-        }
+        const updates = new Map(points.map(item => [item.uid, item.point]))
+
+        p.data.waypoints = p.data.waypoints.map((waypoint) => {
+          const update = updates.get(waypoint.uid)
+          if (!update)
+            return waypoint
+
+          return Object.assign({}, waypoint, update)
+        })
+
+        if (p.data.paths)
+          syncPathEndpoints(p.data.paths, updates)
       }
       return { profiles: newProfiles }
     })
@@ -180,11 +211,8 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
           p.data.waypoints.splice(index, 1)
       }
       // Remove relative path
-      if (p && p.data && p.data.paths) {
-        const index = p.data.paths.findIndex(p => p.start.uid === pid || p.end.uid === pid)
-        if (index >= 0)
-          p.data.paths.splice(index, 1)
-      }
+      if (p && p.data && p.data.paths)
+        p.data.paths = p.data.paths.filter(path => path.start.uid !== pid && path.end.uid !== pid)
       // Remove point in task
       if (p && p.tasks) {
         p.tasks.forEach((t) => {

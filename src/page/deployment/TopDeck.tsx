@@ -12,6 +12,15 @@ export interface TopDeckProps {
   mapId: number
 }
 
+function isEditableTarget(target: EventTarget | null) {
+  const element = target as HTMLElement | null
+  return element != null && (
+    element.tagName === 'INPUT'
+    || element.tagName === 'TEXTAREA'
+    || element.isContentEditable
+  )
+}
+
 const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   useRobotPoseMqtt()
   useBatteryStateMqtt()
@@ -53,6 +62,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const toggleScanVisibility = () => setScanVisibility(!isScanVisible)
   const increaseScanPointSize = () => updateScanPointSize(0.01)
   const decreaseScanPointSize = () => updateScanPointSize(-0.01)
+  const activateSelectMode = () => updateOp('select')
   const activateManualWaypointPlacement = () => {
     if (!currentProfile()) {
       toast.error('请先选择配置')
@@ -62,6 +72,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     openPointEditor(null)
     updateOp('waypoint')
   }
+  const activatePathMode = () => updateOp('pathway')
 
   const captureRobotWaypoint = () => {
     if (!currentProfile()) {
@@ -254,6 +265,30 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     }
   }, ['s', 'S'])
 
+  useKeyPress((event, isDown) => {
+    if (!isDown || isEditableTarget(event.target))
+      return
+
+    event.preventDefault()
+    activateSelectMode()
+  }, ['Escape'])
+
+  useKeyPress((event, isDown) => {
+    if (!isDown || isEditableTarget(event.target))
+      return
+
+    event.preventDefault()
+    activatePathMode()
+  }, ['l', 'L'])
+
+  useKeyPress((event, isDown) => {
+    if (!isDown || isEditableTarget(event.target))
+      return
+
+    event.preventDefault()
+    activateManualWaypointPlacement()
+  }, ['v', 'V'])
+
   useEffect(() => {
     return () => {
       cancelRelocalization()
@@ -272,9 +307,9 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
         </div>
         <div
           className={`${currentOp === 'select' ? 'panel-item-enabled' : 'panel-item'} group`}
-          onClick={() => updateOp('select')}>
+          onClick={activateSelectMode}>
           <div className="i-material-symbols-near-me-outline-rounded panel-icon rotate-y-180" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">选择</span>
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">选择 (Esc)</span>
         </div>
         <div
           className="panel-item group bg-blue-600 hover:bg-blue-700"
@@ -286,13 +321,13 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           className={`${currentOp === 'waypoint' ? 'panel-item-enabled' : 'panel-item'} group`}
           onClick={activateManualWaypointPlacement}>
           <div className="i-material-symbols-my-location-outline-rounded panel-icon" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">手动放置路径点</span>
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">手动放置路径点 (V)</span>
         </div>
         <div
           className={`${currentOp === 'pathway' ? 'panel-item-enabled' : 'panel-item'} group`}
-          onClick={() => updateOp('pathway')}>
+          onClick={activatePathMode}>
           <div className="i-material-symbols-edit-road-outline-rounded panel-icon" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">添加路径</span>
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">添加路径 (L)</span>
         </div>
         <div
           className={`${currentOp === 'relocalize' ? 'panel-item-enabled' : 'panel-item'} group`}

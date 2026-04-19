@@ -6,8 +6,9 @@ import { useOperationStore, useParamsStore, useProfileStore } from '@/store'
 
 interface WaypointProp {
   point: NavPoint
-  onSelect: () => void
+  onSelect: (event: Konva.KonvaEventObject<MouseEvent>) => void
   isSelected: boolean
+  isPrimarySelected: boolean
   isPathTarget?: boolean
   isPathSource?: boolean
 }
@@ -16,6 +17,7 @@ const Waypoint: React.FC<WaypointProp> = ({
   point,
   onSelect,
   isSelected,
+  isPrimarySelected,
   isPathTarget = false,
   isPathSource = false,
 }) => {
@@ -27,16 +29,16 @@ const Waypoint: React.FC<WaypointProp> = ({
 
   const handleSelect = (event: Konva.KonvaEventObject<MouseEvent>) => {
     event.cancelBubble = true
-    onSelect()
+    onSelect(event)
   }
 
   useEffect(() => {
-    if (isSelected && transformRef.current && groupRef.current) {
+    if (isPrimarySelected && transformRef.current && groupRef.current) {
       transformRef.current.nodes([groupRef.current])
       transformRef.current.getLayer()?.batchDraw()
       transformRef.current.forceUpdate()
     }
-  }, [isSelected])
+  }, [isPrimarySelected])
 
   const width = useMemo(() => {
     if (!params)
@@ -83,7 +85,7 @@ const Waypoint: React.FC<WaypointProp> = ({
           x={point.x}
           y={point.y}
           rotation={point.rotation}
-          draggable={isSelected && currentOp === 'select'}
+          draggable={isPrimarySelected && currentOp === 'select'}
           onDragEnd={onDragEnd}
           onTransformEnd={onTransformEnd}
           onClick={handleSelect}
@@ -123,7 +125,7 @@ const Waypoint: React.FC<WaypointProp> = ({
           )}
         </Group>
       )}
-      {isSelected && currentOp === 'select' && (
+      {isPrimarySelected && currentOp === 'select' && (
         <Transformer
           ref={transformRef}
           rotateEnabled={true}

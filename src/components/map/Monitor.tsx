@@ -33,6 +33,15 @@ function getLayerState(resolution: number, imageX: number, imageY: number, scale
   } as ImageState
 }
 
+function isEditableTarget(target: EventTarget | null) {
+  const element = target as HTMLElement | null
+  return element != null && (
+    element.tagName === 'INPUT'
+    || element.tagName === 'TEXTAREA'
+    || element.isContentEditable
+  )
+}
+
 const Monitor: React.FC = () => {
   const layerRef = useRef<Konva.Layer>(null)
   const lastHandledCenterRequestId = useRef(0)
@@ -43,11 +52,14 @@ const Monitor: React.FC = () => {
   const [draftPathTargetId, setDraftPathTargetId] = useState<string | null>(null)
   const [containerRef, { width, height }] = useElementSize()
 
-  const { currentOp, updateOp, selectedId, selectPoint, openPointEditor } = useOperationStore(state => ({
+  const { currentOp, updateOp, selectedId, selectedPointIds, selectPoint, selectPoints, togglePointSelection, openPointEditor } = useOperationStore(state => ({
     currentOp: state.current,
     updateOp: state.updateOp,
     selectedId: state.selectedPointId,
+    selectedPointIds: state.selectedPointIds,
     selectPoint: state.selectPoint,
+    selectPoints: state.selectPoints,
+    togglePointSelection: state.togglePointSelection,
     openPointEditor: state.openPointEditor,
   }), shallow)
   const { scale, gridInfo, robotInfo, pathPointInfo, isScanVisible, laserPose, laserScan, scanPointSize, centerRobotRequestId, relocalizationPose, updateRelocalizationPose, cancelRelocalization } = useGridStore(state => ({
@@ -66,12 +78,13 @@ const Monitor: React.FC = () => {
   }), shallow)
   const robotParams = useParamsStore(state => state.robotParams)
   const {
-    currentProfileId, currentPoints, appendCurrentProfilePoint, removeCurrentProfilePoint,
+    currentProfileId, currentPoints, appendCurrentProfilePoint, updateCurrentProfilePoints, removeCurrentProfilePoint,
     currentPaths, appendCurrentProfilePath, removeCurrentProfilePath,
   } = useProfileStore(state => ({
     currentProfileId: state.currentProfileId,
     currentPoints: state.currentProfilePoints,
     appendCurrentProfilePoint: state.appendCurrentProfilePoint,
+    updateCurrentProfilePoints: state.updateCurrentProfilePoints,
     removeCurrentProfilePoint: state.removeCurrentProfilePoint,
     currentPaths: state.currentProfilePaths,
     appendCurrentProfilePath: state.appendCurrentProfilePath,
@@ -89,27 +102,87 @@ const Monitor: React.FC = () => {
   const pathSnapDistance = useMemo(() => Math.max(pathStrokeWidth * 5, 0.35), [pathStrokeWidth])
 
   useKeyPress((event, isDown) => {
-    const target = event.target as HTMLElement | null
-    const isEditableTarget = target != null && (
-      target.tagName === 'INPUT'
-      || target.tagName === 'TEXTAREA'
-      || target.isContentEditable
-    )
+    if (!isDown || isEditableTarget(event.target))
+      return
 
-    if (!selectedId || !isDown || isEditableTarget)
+    if (selectedPointIds.length > 0) {
+      event.preventDefault()
+      selectedPointIds.forEach(id => removeCurrentProfilePoint(id))
+      selectPoint(null)
+      return
+    }
+
+    if (!selectedId)
       return
 
     event.preventDefault()
 
-    if (selectedId.startsWith('Point')) {
-      removeCurrentProfilePoint(selectedId)
-      selectPoint(null)
-    }
-    else if (selectedId.startsWith('Path')) {
+    if (selectedId.startsWith('Path')) {
       removeCurrentProfilePath(selectedId)
       selectPoint(null)
     }
   }, ['Backspace', 'Delete'])
+
+  useKeyPress((event, isDown) => {
+    if (!isDown || currentOp !== 'select' || selectedPointIds.length < 2 || isEditableTarget(event.target))
+      return
+
+    const pointMap = new Map(currentPoints().map(point => [point.uid, point]))
+    const selectedPoints = selectedPointIds
+      .map(id => pointMap.get(id))
+      .filter((point): point is NavPoint => point != null)
+
+    if (selectedPoints.length < 2)
+      return
+
+    let start = selectedPoints[0]
+    let end = selectedPoints[selectedPoints.length - 1]
+    let maxDistance = Math.hypot(end.x - start.x, end.y - start.y)
+
+    if (maxDistance < 1e-6) {
+      selectedPoints.forEach((pointA, indexA) => {
+        selectedPoints.slice(indexA + 1).forEach((pointB) => {
+          const distance = Math.hypot(pointB.x - pointA.x, pointB.y - pointA.y)
+          if (distance > maxDistance) {
+            start = pointA
+            end = pointB
+            maxDistance = distance
+          }
+        })
+      })
+    }
+
+    if (maxDistance < 1e-6)
+      return
+
+    const vector = {
+      x: end.x - start.x,
+      y: end.y - start.y,
+    }
+    const vectorLengthSquared = vector.x ** 2 + vector.y ** 2
+    const interior = selectedPoints
+      .filter(point => point.uid !== start.uid && point.uid !== end.uid)
+      .sort((pointA, pointB) => {
+        const projectionA = ((pointA.x - start.x) * vector.x + (pointA.y - start.y) * vector.y) / vectorLengthSquared
+        const projectionB = ((pointB.x - start.x) * vector.x + (pointB.y - start.y) * vector.y) / vectorLengthSquared
+        return projectionA - projectionB
+      })
+    const orderedPoints = [start, ...interior, end]
+    const updates = orderedPoints.map((point, index) => {
+      const ratio = index / (orderedPoints.length - 1)
+      return {
+        uid: point.uid,
+        point: {
+          x: start.x + vector.x * ratio,
+          y: start.y + vector.y * ratio,
+        },
+      }
+    })
+
+    event.preventDefault()
+    updateCurrentProfilePoints(updates)
+    selectPoints(orderedPoints.map(point => point.uid), end.uid)
+  }, ['/'])
 
   useEffect(() => {
     const renderMap = () => {
@@ -256,7 +329,7 @@ const Monitor: React.FC = () => {
       return
 
     if (currentOp === 'select') {
-      if (selectedId)
+      if (selectedId || selectedPointIds.length > 0)
         selectPoint(null)
     }
     else if (currentOp === 'pathway') {
@@ -285,7 +358,7 @@ const Monitor: React.FC = () => {
     }
   }
 
-  const handlePointClick = (id: string) => {
+  const handlePointClick = (id: string, event: Konva.KonvaEventObject<MouseEvent>) => {
     if (currentOp === 'pathway') {
       if (!selectedId) {
         selectPoint(id)
@@ -305,6 +378,12 @@ const Monitor: React.FC = () => {
       }
     }
     else if (currentOp === 'select') {
+      const hasModifier = event.evt.shiftKey || event.evt.ctrlKey || event.evt.metaKey
+      if (hasModifier) {
+        togglePointSelection(id)
+        return
+      }
+
       selectPoint(id)
     }
   }
@@ -402,8 +481,9 @@ const Monitor: React.FC = () => {
           {currentPoints().map((wp, i) => <Waypoint
             key={i}
             point={wp}
-            onSelect={() => handlePointClick(wp.uid)}
-            isSelected={wp.uid === selectedId}
+            onSelect={event => handlePointClick(wp.uid, event)}
+            isSelected={selectedPointIds.includes(wp.uid)}
+            isPrimarySelected={wp.uid === selectedId && selectedPointIds.length === 1}
             isPathTarget={currentOp === 'pathway' && draftPathTargetId === wp.uid}
             isPathSource={currentOp === 'pathway' && wp.uid === selectedId} />)}
           {pathPointInfo.map((p, i) => <PathPoint

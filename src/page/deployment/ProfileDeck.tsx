@@ -271,11 +271,13 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
   const [currentDisplay, setCurrentDisplay] = useState<display>('point')
   const [configPath, setConfigPath] = useState<NavPath>()
 
-  const { selectedId, editingPointId, openPointEditor, select, updateOp } = useOperationStore(state => ({
+  const { selectedId, selectedPointIds, editingPointId, openPointEditor, select, togglePointSelection, updateOp } = useOperationStore(state => ({
     selectedId: state.selectedPointId,
+    selectedPointIds: state.selectedPointIds,
     editingPointId: state.editingPointId,
     openPointEditor: state.openPointEditor,
     select: state.selectPoint,
+    togglePointSelection: state.togglePointSelection,
     updateOp: state.updateOp,
   }), shallow)
   const {
@@ -380,10 +382,15 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
           ? currentPoints.map(p => <PointItem
             key={p.uid}
             point={p}
-            selected={selectedId === p.uid}
+            selected={selectedPointIds.includes(p.uid)}
             onClick={(e) => {
               e.stopPropagation()
               updateOp('select')
+              if (e.shiftKey || e.ctrlKey || e.metaKey) {
+                togglePointSelection(p.uid)
+                return
+              }
+
               select(p.uid)
             }}
             onEditClicked={() => {
