@@ -1,6 +1,6 @@
 import type Konva from 'konva'
-import React, { useEffect, useRef, useState } from 'react'
-import { Layer, Stage } from 'react-konva'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { Layer, Line, Stage } from 'react-konva'
 import { shallow } from 'zustand/shallow'
 import GridMap from './GridMap'
 import LaserScan from './LaserScan'
@@ -10,10 +10,10 @@ import Robot from './Robot'
 import Waypoint from './Waypoint'
 import PathPoint from './PathPoint'
 import { uid } from '@/util'
-import { useGridStore, useOperationStore, useProfileStore } from '@/store'
+import { useGridStore, useOperationStore, useParamsStore, useProfileStore } from '@/store'
 import { useElementSize, useKeyPress } from '@/hooks'
 import { composePose, getRelativePose } from '@/util/transform'
-import type { PoseMessage } from '@/types'
+import type { NavPoint, PoseMessage } from '@/types'
 
 interface ImageState {
   x: number
@@ -39,6 +39,8 @@ const Monitor: React.FC = () => {
   const relocalizationLaserOffset = useRef<PoseMessage | null>(null)
   const [layerState, setLayerState] = useState<ImageState>()
   const [offset, setOffset] = useState({ x: 0, y: 0 })
+  const [draftPath, setDraftPath] = useState<{ startId: string; x: number; y: number } | null>(null)
+  const [draftPathTargetId, setDraftPathTargetId] = useState<string | null>(null)
   const [containerRef, { width, height }] = useElementSize()
 
   const { currentOp, updateOp, selectedId, selectPoint, openPointEditor } = useOperationStore(state => ({
@@ -62,6 +64,7 @@ const Monitor: React.FC = () => {
     updateRelocalizationPose: state.updateRelocalizationPose,
     cancelRelocalization: state.cancelRelocalization,
   }), shallow)
+  const robotParams = useParamsStore(state => state.robotParams)
   const {
     currentProfileId, currentPoints, appendCurrentProfilePoint, removeCurrentProfilePoint,
     currentPaths, appendCurrentProfilePath, removeCurrentProfilePath,
@@ -74,6 +77,16 @@ const Monitor: React.FC = () => {
     appendCurrentProfilePath: state.appendCurrentProfilePath,
     removeCurrentProfilePath: state.removeCurrentProfilePath,
   }), shallow)
+
+  const pathStrokeWidth = useMemo(() => {
+    if (!robotParams)
+      return 0.1
+    if (robotParams.robot_footprint.is_round)
+      return Math.max(robotParams.robot_footprint.radius / 10, 0.1)
+    return Math.max(robotParams.robot_footprint.robot_width / 10, 0.1)
+  }, [robotParams])
+
+  const pathSnapDistance = useMemo(() => Math.max(pathStrokeWidth * 5, 0.35), [pathStrokeWidth])
 
   useKeyPress((event, isDown) => {
     if (!selectedId || !isDown || !event.metaKey)
@@ -128,6 +141,13 @@ const Monitor: React.FC = () => {
   }, [currentOp, selectPoint])
 
   useEffect(() => {
+    if (currentOp !== 'pathway') {
+      setDraftPath(null)
+      setDraftPathTargetId(null)
+    }
+  }, [currentOp])
+
+  useEffect(() => {
     if (currentOp !== 'relocalize') {
       relocalizationLaserOffset.current = null
       if (relocalizationPose)
@@ -145,6 +165,100 @@ const Monitor: React.FC = () => {
   const displayedLaserPose = currentOp === 'relocalize' && relocalizationPose && relocalizationLaserOffset.current
     ? composePose(relocalizationPose, relocalizationLaserOffset.current)
     : laserPose
+
+  const createPathBetweenPoints = (start: NavPoint, end: NavPoint) => {
+    const existingPath = currentPaths().find((path) => {
+      const sameDirection = path.start.uid === start.uid && path.end.uid === end.uid
+      const reverseDirection = path.start.uid === end.uid && path.end.uid === start.uid
+      return sameDirection || reverseDirection
+    })
+
+    if (existingPath) {
+      selectPoint(existingPath.uid)
+      updateOp('select')
+      return
+    }
+
+    const pid = uid('Path')
+    appendCurrentProfilePath({
+      uid: pid,
+      name: `路径 ${pid.slice(-3)}`,
+      start,
+      end,
+      thickness: 2,
+      controls: [
+        { x: start.x + (end.x - start.x) / 4, y: start.y + (end.y - start.y) / 4 },
+        { x: start.x + (end.x - start.x) / 4 * 3, y: start.y + (end.y - start.y) / 4 * 3 },
+      ],
+    })
+    setDraftPath(null)
+    setDraftPathTargetId(null)
+    selectPoint(pid)
+    updateOp('select')
+  }
+
+  const findPathTarget = (x: number, y: number, startId: string) => {
+    let nearestTarget: NavPoint | undefined
+    let nearestDistance = Number.POSITIVE_INFINITY
+
+    currentPoints().forEach((point) => {
+      if (point.uid === startId)
+        return
+
+      const distance = Math.hypot(point.x - x, point.y - y)
+      if (distance <= pathSnapDistance && distance < nearestDistance) {
+        nearestDistance = distance
+        nearestTarget = point
+      }
+    })
+
+    return nearestTarget
+  }
+
+  const handlePathHandleDragStart = (startId: string) => {
+    const start = currentPoints().find(point => point.uid === startId)
+    if (!start)
+      return
+
+    setDraftPath({
+      startId,
+      x: start.x,
+      y: start.y,
+    })
+    setDraftPathTargetId(null)
+    selectPoint(startId)
+  }
+
+  const handlePathHandleDragMove = (x: number, y: number) => {
+    setDraftPath((state) => {
+      if (!state)
+        return state
+
+      const target = findPathTarget(x, y, state.startId)
+      setDraftPathTargetId(target?.uid ?? null)
+      return {
+        ...state,
+        x,
+        y,
+      }
+    })
+  }
+
+  const handlePathHandleDragEnd = (x: number, y: number) => {
+    if (!draftPath)
+      return
+
+    const start = currentPoints().find(point => point.uid === draftPath.startId)
+    const end = findPathTarget(x, y, draftPath.startId)
+
+    setDraftPath(null)
+    setDraftPathTargetId(null)
+
+    if (!start || !end)
+      return
+
+    createPathBetweenPoints(start, end)
+  }
 
   const handleLayerClick = (obj: Konva.KonvaEventObject<MouseEvent>) => {
     const layer = layerRef.current
@@ -186,20 +300,7 @@ const Monitor: React.FC = () => {
         if (!start || !end)
           return
 
-        const pid = uid('Path')
-        appendCurrentProfilePath({
-          uid: pid,
-          name: `路径 ${pid.slice(-3)}`,
-          start,
-          end,
-          thickness: 2,
-          controls: [
-            { x: start.x + (end.x - start.x) / 4, y: start.y + (end.y - start.y) / 4 },
-            { x: start.x + (end.x - start.x) / 4 * 3, y: start.y + (end.y - start.y) / 4 * 3 },
-          ],
-        })
-        selectPoint(null)
-        updateOp('select')
+        createPathBetweenPoints(start, end)
       }
     }
     else if (currentOp === 'select') {
@@ -255,6 +356,22 @@ const Monitor: React.FC = () => {
               scan={laserScan}
               pointSize={scanPointSize} />
           }
+          {draftPath && (
+            <Line
+              stroke="#2563EB"
+              strokeWidth={pathStrokeWidth}
+              hitStrokeWidth={pathStrokeWidth * 2}
+              dash={[pathStrokeWidth * 2, pathStrokeWidth]}
+              lineCap="round"
+              lineJoin="round"
+              points={[
+                currentPoints().find(point => point.uid === draftPath.startId)?.x ?? draftPath.x,
+                currentPoints().find(point => point.uid === draftPath.startId)?.y ?? draftPath.y,
+                draftPath.x,
+                draftPath.y,
+              ]}
+            />
+          )}
           {currentPaths().map((path, i) => <Pathway
             key={i}
             path={path}
@@ -265,7 +382,12 @@ const Monitor: React.FC = () => {
             key={i}
             point={wp}
             onSelect={() => handlePointClick(wp.uid)}
-            isSelected={wp.uid === selectedId} />)}
+            isSelected={wp.uid === selectedId}
+            isPathTarget={currentOp === 'pathway' && draftPathTargetId === wp.uid}
+            showPathHandle={currentOp === 'pathway' && wp.uid === selectedId}
+            onPathHandleDragStart={() => handlePathHandleDragStart(wp.uid)}
+            onPathHandleDragMove={handlePathHandleDragMove}
+            onPathHandleDragEnd={handlePathHandleDragEnd} />)}
           {pathPointInfo.map((p, i) => <PathPoint
             key={i}
             point={p} />)}

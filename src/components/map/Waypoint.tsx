@@ -2,18 +2,34 @@ import type Konva from 'konva'
 import { useEffect, useMemo, useRef } from 'react'
 import { Arrow, Circle, Group, Transformer } from 'react-konva'
 import type { NavPoint } from '@/types'
-import { useParamsStore, useProfileStore } from '@/store'
+import { useOperationStore, useParamsStore, useProfileStore } from '@/store'
 
 interface WaypointProp {
   point: NavPoint
   onSelect: () => void
   isSelected: boolean
+  isPathTarget?: boolean
+  showPathHandle?: boolean
+  onPathHandleDragStart?: () => void
+  onPathHandleDragMove?: (x: number, y: number) => void
+  onPathHandleDragEnd?: (x: number, y: number) => void
 }
 
-const Waypoint: React.FC<WaypointProp> = ({ point, onSelect, isSelected }) => {
+const Waypoint: React.FC<WaypointProp> = ({
+  point,
+  onSelect,
+  isSelected,
+  isPathTarget = false,
+  showPathHandle = false,
+  onPathHandleDragStart,
+  onPathHandleDragMove,
+  onPathHandleDragEnd,
+}) => {
   const groupRef = useRef<Konva.Group>(null)
   const shapeRef = useRef<Konva.Arrow>(null)
+  const connectHandleRef = useRef<Konva.Circle>(null)
   const transformRef = useRef<Konva.Transformer>(null)
+  const currentOp = useOperationStore(state => state.current)
   const params = useParamsStore(state => state.robotParams)
   const updateCurrentProfilePoint = useProfileStore(state => state.updateCurrentProfilePoint)
 
@@ -45,11 +61,13 @@ const Waypoint: React.FC<WaypointProp> = ({ point, onSelect, isSelected }) => {
   }, [params])
 
   const fillColor = useMemo(() => {
+    if (isPathTarget)
+      return '#3B82F6'
     if (isSelected)
       return '#FF5722'
     else
       return '#FFC107'
-  }, [isSelected])
+  }, [isPathTarget, isSelected])
 
   const onDragEnd = (obj: Konva.KonvaEventObject<DragEvent>) => {
     updateCurrentProfilePoint(point.uid, {
@@ -58,13 +76,30 @@ const Waypoint: React.FC<WaypointProp> = ({ point, onSelect, isSelected }) => {
     })
   }
 
+  const handleConnectionDragStart = (event: Konva.KonvaEventObject<DragEvent>) => {
+    event.cancelBubble = true
+    onPathHandleDragStart?.()
+  }
+
+  const handleConnectionDragMove = (event: Konva.KonvaEventObject<DragEvent>) => {
+    event.cancelBubble = true
+    onPathHandleDragMove?.(event.target.x(), event.target.y())
+  }
+
+  const handleConnectionDragEnd = (event: Konva.KonvaEventObject<DragEvent>) => {
+    event.cancelBubble = true
+    onPathHandleDragEnd?.(event.target.x(), event.target.y())
+    connectHandleRef.current?.position({ x: point.x, y: point.y })
+    connectHandleRef.current?.getLayer()?.batchDraw()
+  }
+
   return (
     <>
       {params && (
         <Group
           ref={groupRef}
           clearBeforeDraw={true}
-          draggable={isSelected}
+          draggable={isSelected && currentOp === 'select'}
           onDragEnd={onDragEnd}
           onClick={handleSelect}
           onTap={handleSelect}>
@@ -93,9 +128,24 @@ const Waypoint: React.FC<WaypointProp> = ({ point, onSelect, isSelected }) => {
             y={point.y}
             radius={width / 2}
             fill={fillColor} />
+          {showPathHandle && (
+            <Circle
+              ref={connectHandleRef}
+              x={point.x}
+              y={point.y}
+              radius={width}
+              stroke="#2563EB"
+              strokeWidth={width / 2}
+              fill="white"
+              draggable={true}
+              onDragStart={handleConnectionDragStart}
+              onDragMove={handleConnectionDragMove}
+              onDragEnd={handleConnectionDragEnd}
+            />
+          )}
         </Group>
       )}
-      {isSelected && (
+      {isSelected && currentOp === 'select' && (
         <Transformer
           ref={transformRef}
           rotateEnabled={true}
