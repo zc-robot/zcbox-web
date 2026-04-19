@@ -52,9 +52,8 @@ const Monitor: React.FC = () => {
   const [draftPathTargetId, setDraftPathTargetId] = useState<string | null>(null)
   const [containerRef, { width, height }] = useElementSize()
 
-  const { currentOp, updateOp, selectedId, selectedPointIds, selectPoint, selectPoints, togglePointSelection, openPointEditor } = useOperationStore(state => ({
+  const { currentOp, selectedId, selectedPointIds, selectPoint, selectPoints, togglePointSelection, openPointEditor } = useOperationStore(state => ({
     currentOp: state.current,
-    updateOp: state.updateOp,
     selectedId: state.selectedPointId,
     selectedPointIds: state.selectedPointIds,
     selectPoint: state.selectPoint,
@@ -282,8 +281,9 @@ const Monitor: React.FC = () => {
     })
 
     if (existingPath) {
-      selectPoint(existingPath.uid)
-      updateOp('select')
+      setDraftPath(null)
+      setDraftPathTargetId(null)
+      selectPoint(end.uid)
       return
     }
 
@@ -301,8 +301,7 @@ const Monitor: React.FC = () => {
     })
     setDraftPath(null)
     setDraftPathTargetId(null)
-    selectPoint(pid)
-    updateOp('select')
+    selectPoint(end.uid)
   }
 
   const findPathTarget = (x: number, y: number, startId: string) => {
@@ -354,7 +353,6 @@ const Monitor: React.FC = () => {
       })
       openPointEditor(id)
       selectPoint(id)
-      updateOp('select')
     }
   }
 

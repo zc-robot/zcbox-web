@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
+import { toNumber, toString } from 'lodash'
 import { shallow } from 'zustand/shallow'
 import toast from 'react-hot-toast'
-import PointModal from './PointModal'
 import PathModal from './PathModal'
 import { useGridStore, useOperationStore, useProfileStore } from '@/store'
 import type { NavPath, NavPoint, NavProfile } from '@/types'
 import apiServer from '@/service/apiServer'
 import EditableLabel from '@/components/EditableLabel'
+import Input from '@/components/Input'
 import { useClickOutside, useMenuPosition } from '@/hooks'
 
 type display = 'point' | 'path'
@@ -112,6 +113,84 @@ interface PathItemProps {
   onPathRenamed: (name: string) => void
   onEditClicked: () => void
   onDeleteClicked: () => void
+}
+
+interface PointDetailsProps {
+  point: NavPoint
+  onDeleteClicked: () => void
+  onSubmit: (point: Partial<NavPoint>) => void
+}
+
+const PointDetails: React.FC<PointDetailsProps> = ({ point, onDeleteClicked, onSubmit }) => {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [pointProp, setPointProp] = useState({
+    x: toString(point.x),
+    y: toString(-point.y),
+    rotation: toString(point.rotation),
+  })
+
+  useEffect(() => {
+    setPointProp({
+      x: toString(point.x),
+      y: toString(-point.y),
+      rotation: toString(point.rotation),
+    })
+  }, [point])
+
+  useEffect(() => {
+    containerRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [])
+
+  return (
+    <div
+      ref={containerRef}
+      className="mx-2 mb-2 rounded-xl border-(solid 1px gray-200) bg-gray-50 p-3 shadow-sm">
+      <div className="flex items-center justify-between">
+        <span className="text-3 font-bold">{point.uid}</span>
+        <span className="text-(2.5 gray-500)">已选中路径点</span>
+      </div>
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <span className="text-3 font-bold">X</span>
+        <Input
+          className="w-32"
+          type="number"
+          value={pointProp.x}
+          onChange={e => setPointProp({ ...pointProp, x: e.target.value })} />
+      </div>
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <span className="text-3 font-bold">Y</span>
+        <Input
+          className="w-32"
+          type="number"
+          value={pointProp.y}
+          onChange={e => setPointProp({ ...pointProp, y: e.target.value })} />
+      </div>
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <span className="text-3 font-bold">Rotation</span>
+        <Input
+          className="w-32"
+          type="number"
+          value={pointProp.rotation}
+          onChange={e => setPointProp({ ...pointProp, rotation: e.target.value })} />
+      </div>
+      <div className="mt-3 flex justify-between">
+        <div
+          className="rounded-1 border-(solid 1px red-400) p1 text-(sm red-500) cursor-default"
+          onClick={onDeleteClicked}>
+          删除
+        </div>
+        <div
+          className="rounded-1 bg-gray-300 p1 text-sm cursor-default"
+          onClick={() => onSubmit({
+            x: toNumber(pointProp.x),
+            y: toNumber(-pointProp.y),
+            rotation: toNumber(pointProp.rotation),
+          })}>
+          确认
+        </div>
+      </div>
+    </div>
+  )
 }
 
 const PointItem: React.FC<PointItemProps> = ({
@@ -303,6 +382,18 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
   const robotInfo = useGridStore(state => state.robotInfo)
   const configPoint = currentPoints.find(point => point.uid === editingPointId)
 
+  useEffect(() => {
+    if (selectedId?.startsWith('Point')) {
+      setCurrentDisplay('point')
+      if (editingPointId !== selectedId)
+        openPointEditor(selectedId)
+      return
+    }
+
+    if (editingPointId)
+      openPointEditor(null)
+  }, [editingPointId, openPointEditor, selectedId])
+
   const handleProfileSelected = (profile: NavProfile) => {
     setCurrentProfile(profile.uid)
   }
@@ -331,7 +422,6 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
     }
 
     select(id)
-    updateOp('select')
     openPointEditor(id)
   }
 
@@ -379,37 +469,54 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
         className={'flex flex-col h-[calc(100vh-17.5rem)] overflow-auto'}
         onClick={() => select(null)}>
         {currentDisplay === 'point'
-          ? currentPoints.map(p => <PointItem
-            key={p.uid}
-            point={p}
-            selected={selectedPointIds.includes(p.uid)}
-            onClick={(e) => {
-              e.stopPropagation()
-              updateOp('select')
-              if (e.shiftKey || e.ctrlKey || e.metaKey) {
-                togglePointSelection(p.uid)
-                return
-              }
+          ? currentPoints.map(p => <div
+            key={p.uid}>
+            <PointItem
+              point={p}
+              selected={selectedPointIds.includes(p.uid)}
+              onClick={(e) => {
+                e.stopPropagation()
+                updateOp('select')
+                if (e.shiftKey || e.ctrlKey || e.metaKey) {
+                  togglePointSelection(p.uid)
+                  return
+                }
 
-              select(p.uid)
-            }}
-            onEditClicked={() => {
-              openPointEditor(p.uid)
-            }}
-            onDoubleClicked={() => {
-              appendTaskPoint(p)
-            }}
-            onDeleteClicked={() => {
-              removeCurrentProfilePoint(p.uid)
-            }}
-            onRelocateClicked={async () => {
-              if (currentProfileId)
-                await apiServer.relocate(currentProfileId, p.uid)
-            }}
-            onPointRenamed={(name) => {
-              updateCurrentProfilePoint(p.uid, { name })
-            }}
-          />)
+                select(p.uid)
+              }}
+              onEditClicked={() => {
+                openPointEditor(p.uid)
+                select(p.uid)
+                updateOp('select')
+              }}
+              onDoubleClicked={() => {
+                appendTaskPoint(p)
+              }}
+              onDeleteClicked={() => {
+                removeCurrentProfilePoint(p.uid)
+              }}
+              onRelocateClicked={async () => {
+                if (currentProfileId)
+                  await apiServer.relocate(currentProfileId, p.uid)
+              }}
+              onPointRenamed={(name) => {
+                updateCurrentProfilePoint(p.uid, { name })
+              }}
+            />
+            {configPoint?.uid === p.uid && (
+              <PointDetails
+                point={configPoint}
+                onDeleteClicked={() => {
+                  removeCurrentProfilePoint(p.uid)
+                  openPointEditor(null)
+                  select(null)
+                }}
+                onSubmit={(point) => {
+                  updateCurrentProfilePoint(p.uid, point)
+                }}
+              />
+            )}
+          </div>)
           : currentPaths.map(p => <PathItem
             key={p.uid}
             path={p}
@@ -430,9 +537,6 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
             }}
           />)}
       </div>
-      {configPoint && <PointModal
-        point={configPoint}
-        onClose={() => openPointEditor(null)} />}
       {configPath && <PathModal
         path={configPath}
         onClose={() => setConfigPath(undefined)} />}

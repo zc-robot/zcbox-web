@@ -93,7 +93,6 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
 
     openPointEditor(id)
     selectPoint(id)
-    updateOp('select')
     toast.success('已采集当前位置为路径点')
   }
 
