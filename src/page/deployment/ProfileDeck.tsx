@@ -132,6 +132,7 @@ interface PointDetailsProps {
 const PointDetails: React.FC<PointDetailsProps> = ({ point, onDeleteClicked, onSubmit }) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const [pointProp, setPointProp] = useState({
+    name: point.name,
     x: formatDecimal(point.x),
     y: formatDecimal(-point.y),
     rotation: formatDecimal(point.rotation),
@@ -141,6 +142,7 @@ const PointDetails: React.FC<PointDetailsProps> = ({ point, onDeleteClicked, onS
 
   useEffect(() => {
     setPointProp({
+      name: point.name,
       x: formatDecimal(point.x),
       y: formatDecimal(-point.y),
       rotation: formatDecimal(point.rotation),
@@ -164,6 +166,13 @@ const PointDetails: React.FC<PointDetailsProps> = ({ point, onDeleteClicked, onS
         <span className="text-(2.5 gray-500)">已选中路径点</span>
       </div>
       <div className="mt-3 flex items-center gap-2">
+        <span className="w-12 shrink-0 text-3 font-bold">Name</span>
+        <Input
+          className="w-0 min-w-0 flex-1"
+          value={pointProp.name}
+          onChange={e => setPointProp({ ...pointProp, name: e.target.value })} />
+      </div>
+      <div className="mt-2 flex items-center gap-2">
         <span className="w-12 shrink-0 text-3 font-bold">X</span>
         <Input
           className="w-0 min-w-0 flex-1"
@@ -210,6 +219,7 @@ const PointDetails: React.FC<PointDetailsProps> = ({ point, onDeleteClicked, onS
         <div
           className="rounded-1 bg-gray-300 p1 text-sm cursor-default"
           onClick={() => onSubmit({
+            name: pointProp.name,
             x: roundToTwoDecimals(toNumber(pointProp.x)),
             y: roundToTwoDecimals(toNumber(-pointProp.y)),
             rotation: roundToTwoDecimals(toNumber(pointProp.rotation)),
