@@ -1,6 +1,6 @@
 import type Konva from 'konva'
 import { useEffect, useRef } from 'react'
-import { Group, Rect, Text, Transformer } from 'react-konva'
+import { Group, Line, Rect, Text, Transformer } from 'react-konva'
 import type { NavLift } from '@/types'
 import { useOperationStore, useProfileStore } from '@/store'
 
@@ -56,6 +56,11 @@ const Lift: React.FC<LiftProps> = ({ lift, onSelect, isSelected }) => {
   }
 
   const editable = isSelected && (currentOp === 'select' || currentOp === 'lift')
+  const wallStroke = 0.08
+  const doorWidth = Math.max(0.6, Math.min(lift.width * 0.55, lift.width - 0.4))
+  const doorY = lift.depth / 2
+  const leftWallEnd = -doorWidth / 2
+  const rightWallStart = doorWidth / 2
 
   return (
     <>
@@ -79,6 +84,38 @@ const Lift: React.FC<LiftProps> = ({ lift, onSelect, isSelected }) => {
           stroke="#1D4ED8"
           strokeWidth={0.08}
         />
+        <Line
+          points={[-lift.width / 2, doorY, leftWallEnd, doorY]}
+          stroke="#1D4ED8"
+          strokeWidth={wallStroke}
+          lineCap="round"
+        />
+        <Line
+          points={[rightWallStart, doorY, lift.width / 2, doorY]}
+          stroke="#1D4ED8"
+          strokeWidth={wallStroke}
+          lineCap="round"
+        />
+        <Line
+          points={[0, doorY - 0.04, 0, doorY - Math.max(0.28, lift.depth * 0.16)]}
+          stroke="#60A5FA"
+          strokeWidth={0.05}
+          lineCap="round"
+        />
+        <Line
+          points={[-doorWidth / 2, doorY - 0.02, 0, doorY - Math.max(0.2, lift.depth * 0.12)]}
+          stroke="#60A5FA"
+          strokeWidth={0.05}
+          lineCap="round"
+          lineJoin="round"
+        />
+        <Line
+          points={[doorWidth / 2, doorY - 0.02, 0, doorY - Math.max(0.2, lift.depth * 0.12)]}
+          stroke="#60A5FA"
+          strokeWidth={0.05}
+          lineCap="round"
+          lineJoin="round"
+        />
         <Rect
           x={-lift.width / 2 + 0.18}
           y={-lift.depth / 2 + 0.18}
@@ -91,7 +128,7 @@ const Lift: React.FC<LiftProps> = ({ lift, onSelect, isSelected }) => {
         />
         <Text
           x={-lift.width / 2}
-          y={-0.18}
+          y={-0.32}
           width={lift.width}
           align="center"
           fontSize={0.3}
