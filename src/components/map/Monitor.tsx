@@ -2,8 +2,10 @@ import type Konva from 'konva'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Layer, Line, Stage } from 'react-konva'
 import { shallow } from 'zustand/shallow'
+import Door from './Door'
 import GridMap from './GridMap'
 import LaserScan from './LaserScan'
+import Lift from './Lift'
 import Pathway from './Pathway'
 import RelocalizationRobot from './RelocalizationRobot'
 import Robot from './Robot'
@@ -79,6 +81,8 @@ const Monitor: React.FC = () => {
   const {
     currentProfileId, currentPoints, appendCurrentProfilePoint, updateCurrentProfilePoints, removeCurrentProfilePoint,
     currentPaths, appendCurrentProfilePath, removeCurrentProfilePath,
+    currentDoors, appendCurrentProfileDoor, removeCurrentProfileDoor,
+    currentLifts, appendCurrentProfileLift, removeCurrentProfileLift,
   } = useProfileStore(state => ({
     currentProfileId: state.currentProfileId,
     currentPoints: state.currentProfilePoints,
@@ -88,6 +92,12 @@ const Monitor: React.FC = () => {
     currentPaths: state.currentProfilePaths,
     appendCurrentProfilePath: state.appendCurrentProfilePath,
     removeCurrentProfilePath: state.removeCurrentProfilePath,
+    currentDoors: state.currentProfileDoors,
+    appendCurrentProfileDoor: state.appendCurrentProfileDoor,
+    removeCurrentProfileDoor: state.removeCurrentProfileDoor,
+    currentLifts: state.currentProfileLifts,
+    appendCurrentProfileLift: state.appendCurrentProfileLift,
+    removeCurrentProfileLift: state.removeCurrentProfileLift,
   }), shallow)
 
   const pathStrokeWidth = useMemo(() => {
@@ -118,6 +128,18 @@ const Monitor: React.FC = () => {
 
     if (selectedId.startsWith('Path')) {
       removeCurrentProfilePath(selectedId)
+      selectPoint(null)
+      return
+    }
+
+    if (selectedId.startsWith('Door')) {
+      removeCurrentProfileDoor(selectedId)
+      selectPoint(null)
+      return
+    }
+
+    if (selectedId.startsWith('Lift')) {
+      removeCurrentProfileLift(selectedId)
       selectPoint(null)
     }
   }, ['Backspace', 'Delete'])
@@ -356,6 +378,43 @@ const Monitor: React.FC = () => {
       openPointEditor(id)
       selectPoint(id)
     }
+    else if (currentOp === 'door') {
+      if (!currentProfileId)
+        return
+
+      const x = (obj.evt.offsetX - layer.x()) * (gridInfo.resolution / scale)
+      const y = (obj.evt.offsetY - layer.y()) * (gridInfo.resolution / scale)
+      const id = uid('Door')
+      appendCurrentProfileDoor({
+        uid: id,
+        name: `门 ${id.slice(-3)}`,
+        x,
+        y,
+        rotation: 0,
+        width: 1.2,
+        door_type: 'sliding',
+      })
+      selectPoint(id)
+    }
+    else if (currentOp === 'lift') {
+      if (!currentProfileId)
+        return
+
+      const x = (obj.evt.offsetX - layer.x()) * (gridInfo.resolution / scale)
+      const y = (obj.evt.offsetY - layer.y()) * (gridInfo.resolution / scale)
+      const id = uid('Lift')
+      appendCurrentProfileLift({
+        uid: id,
+        name: `电梯 ${id.slice(-3)}`,
+        x,
+        y,
+        rotation: 0,
+        width: 2.4,
+        depth: 2.4,
+        level_name: 'L1',
+      })
+      selectPoint(id)
+    }
   }
 
   const handlePointClick = (id: string, event: Konva.KonvaEventObject<MouseEvent>) => {
@@ -393,6 +452,20 @@ const Monitor: React.FC = () => {
       selectPoint(id)
   }
 
+  const handleDoorClick = (id: string, event: Konva.KonvaEventObject<MouseEvent>) => {
+    if (currentOp === 'select' || currentOp === 'door') {
+      event.cancelBubble = true
+      selectPoint(id)
+    }
+  }
+
+  const handleLiftClick = (id: string, event: Konva.KonvaEventObject<MouseEvent>) => {
+    if (currentOp === 'select' || currentOp === 'lift') {
+      event.cancelBubble = true
+      selectPoint(id)
+    }
+  }
+
   const handleLayerDrag = (obj: Konva.KonvaEventObject<DragEvent>) => {
     if (currentOp !== 'move')
       return
@@ -425,7 +498,7 @@ const Monitor: React.FC = () => {
 
   return (
     <div
-      className={`flex-1 ${currentOp === 'move' ? 'cursor-pointer' : currentOp === 'relocalize' ? 'cursor-crosshair' : ''}`}
+      className={`flex-1 ${currentOp === 'move' ? 'cursor-pointer' : currentOp === 'relocalize' || currentOp === 'waypoint' || currentOp === 'door' || currentOp === 'lift' ? 'cursor-crosshair' : ''}`}
       ref={containerRef}>
       <Stage
         width={width}
@@ -477,6 +550,18 @@ const Monitor: React.FC = () => {
             path={path}
             onSelect={() => handlePathClick(path.uid)}
             isSelected={selectedId === path.uid} />,
+          )}
+          {currentDoors().map((door, i) => <Door
+            key={i}
+            door={door}
+            onSelect={event => handleDoorClick(door.uid, event)}
+            isSelected={selectedId === door.uid} />,
+          )}
+          {currentLifts().map((lift, i) => <Lift
+            key={i}
+            lift={lift}
+            onSelect={event => handleLiftClick(lift.uid, event)}
+            isSelected={selectedId === lift.uid} />,
           )}
           {currentPoints().map((wp, i) => <Waypoint
             key={i}

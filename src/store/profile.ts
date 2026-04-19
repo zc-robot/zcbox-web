@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand'
-import type { NavPath, NavPoint, NavProfile, NavTask, PoseMessage, TaskPoint } from '@/types'
+import type { NavDoor, NavLift, NavPath, NavPoint, NavProfile, NavTask, PoseMessage, TaskPoint } from '@/types'
 import { uid } from '@/util'
 import { quaternionToCanvasAngle } from '@/util/transform'
 
@@ -17,6 +17,8 @@ export interface ProfileSlice {
   currentProfile: () => NavProfile | undefined
   currentProfilePoints: () => NavPoint[]
   currentProfilePaths: () => NavPath[]
+  currentProfileDoors: () => NavDoor[]
+  currentProfileLifts: () => NavLift[]
   currentProfileTasks: () => NavTask[]
   removeProfile: (id: string) => void
 
@@ -30,6 +32,12 @@ export interface ProfileSlice {
   appendCurrentProfilePath: (path: NavPath) => void
   updateCurrentProfilePath: (pid: string, path: Partial<NavPath>) => void
   removeCurrentProfilePath: (pid: string) => void
+  appendCurrentProfileDoor: (door: NavDoor) => void
+  updateCurrentProfileDoor: (id: string, door: Partial<NavDoor>) => void
+  removeCurrentProfileDoor: (id: string) => void
+  appendCurrentProfileLift: (lift: NavLift) => void
+  updateCurrentProfileLift: (id: string, lift: Partial<NavLift>) => void
+  removeCurrentProfileLift: (id: string) => void
 
   setCurrentTask: (id?: string) => void
   getCurrentTask: () => NavTask | undefined
@@ -63,6 +71,23 @@ function syncPathEndpoints(paths: NavPath[], updates: Map<string, Partial<NavPoi
   })
 }
 
+function ensureProfileData(profile: NavProfile) {
+  if (!profile.data) {
+    profile.data = {
+      waypoints: [],
+      paths: [],
+      doors: [],
+      lifts: [],
+    }
+    return
+  }
+
+  profile.data.waypoints ??= []
+  profile.data.paths ??= []
+  profile.data.doors ??= []
+  profile.data.lifts ??= []
+}
+
 export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
   profiles: [],
   currentProfileId: undefined,
@@ -93,6 +118,8 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
         data: {
           waypoints: [],
           paths: [],
+          doors: [],
+          lifts: [],
         },
         tasks: [],
       })
@@ -109,6 +136,7 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
 
       const newProfiles = state.profiles.slice()
       profiles.forEach((p) => {
+        ensureProfileData(p)
         const old = newProfiles.find(op => op.uid === p.uid)
         if (old)
           Object.assign(old, p)
@@ -139,7 +167,15 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
   },
   currentProfilePaths: () => {
     const p = get().profiles.find(p => p.uid === get().currentProfileId)
-    return p ? p.data.paths : []
+    return p ? (p.data.paths ?? []) : []
+  },
+  currentProfileDoors: () => {
+    const p = get().profiles.find(p => p.uid === get().currentProfileId)
+    return p ? (p.data.doors ?? []) : []
+  },
+  currentProfileLifts: () => {
+    const p = get().profiles.find(p => p.uid === get().currentProfileId)
+    return p ? (p.data.lifts ?? []) : []
   },
   currentProfileTasks: () => {
     const p = get().profiles.find(p => p.uid === get().currentProfileId)
@@ -158,8 +194,10 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
     set((state) => {
       const newProfiles = state.profiles.slice()
       const p = newProfiles.find(p => p.uid === state.currentProfileId)
-      if (p && p.data && p.data.waypoints)
+      if (p) {
+        ensureProfileData(p)
         p.data.waypoints.push(point)
+      }
       return { profiles: newProfiles }
     })
   },
@@ -186,7 +224,8 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
     set((state) => {
       const newProfiles = state.profiles.slice()
       const p = newProfiles.find(p => p.uid === state.currentProfileId)
-      if (p && p.data && p.data.waypoints) {
+      if (p) {
+        ensureProfileData(p)
         const updates = new Map(points.map(item => [item.uid, item.point]))
 
         p.data.waypoints = p.data.waypoints.map((waypoint) => {
@@ -207,13 +246,14 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
     set((state) => {
       const newProfiles = state.profiles.slice()
       const p = newProfiles.find(p => p.uid === state.currentProfileId)
-      if (p && p.data && p.data.waypoints) {
+      if (p) {
+        ensureProfileData(p)
         const index = p.data.waypoints.findIndex(p => p.uid === pid)
         if (index >= 0)
           p.data.waypoints.splice(index, 1)
       }
       // Remove relative path
-      if (p && p.data && p.data.paths)
+      if (p)
         p.data.paths = p.data.paths.filter(path => path.start.uid !== pid && path.end.uid !== pid)
       // Remove point in task
       if (p && p.tasks) {
@@ -232,8 +272,10 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
     set((state) => {
       const newProfiles = state.profiles.slice()
       const p = newProfiles.find(p => p.uid === state.currentProfileId)
-      if (p && p.data && p.data.paths)
+      if (p) {
+        ensureProfileData(p)
         p.data.paths.push(path)
+      }
       return { profiles: newProfiles }
     })
   },
@@ -241,7 +283,8 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
     set((state) => {
       const newProfiles = state.profiles.slice()
       const p = newProfiles.find(p => p.uid === state.currentProfileId)
-      if (p && p.data && p.data.paths) {
+      if (p) {
+        ensureProfileData(p)
         const index = p.data.paths.findIndex(p => p.uid === pid)
         if (index >= 0)
           Object.assign(p.data.paths[index], path)
@@ -253,10 +296,81 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
     set((state) => {
       const newProfiles = state.profiles.slice()
       const p = newProfiles.find(p => p.uid === state.currentProfileId)
-      if (p && p.data && p.data.paths) {
+      if (p) {
+        ensureProfileData(p)
         const index = p.data.paths.findIndex(p => p.uid === pid)
         if (index >= 0)
           p.data.paths.splice(index, 1)
+      }
+      return { profiles: newProfiles }
+    })
+  },
+  appendCurrentProfileDoor: (door) => {
+    set((state) => {
+      const newProfiles = state.profiles.slice()
+      const p = newProfiles.find(p => p.uid === state.currentProfileId)
+      if (p) {
+        ensureProfileData(p)
+        p.data.doors.push(door)
+      }
+      return { profiles: newProfiles }
+    })
+  },
+  updateCurrentProfileDoor: (id, door) => {
+    set((state) => {
+      const newProfiles = state.profiles.slice()
+      const p = newProfiles.find(p => p.uid === state.currentProfileId)
+      if (p) {
+        ensureProfileData(p)
+        const index = p.data.doors.findIndex(item => item.uid === id)
+        if (index >= 0)
+          Object.assign(p.data.doors[index], door)
+      }
+      return { profiles: newProfiles }
+    })
+  },
+  removeCurrentProfileDoor: (id) => {
+    set((state) => {
+      const newProfiles = state.profiles.slice()
+      const p = newProfiles.find(p => p.uid === state.currentProfileId)
+      if (p) {
+        ensureProfileData(p)
+        p.data.doors = p.data.doors.filter(door => door.uid !== id)
+      }
+      return { profiles: newProfiles }
+    })
+  },
+  appendCurrentProfileLift: (lift) => {
+    set((state) => {
+      const newProfiles = state.profiles.slice()
+      const p = newProfiles.find(p => p.uid === state.currentProfileId)
+      if (p) {
+        ensureProfileData(p)
+        p.data.lifts.push(lift)
+      }
+      return { profiles: newProfiles }
+    })
+  },
+  updateCurrentProfileLift: (id, lift) => {
+    set((state) => {
+      const newProfiles = state.profiles.slice()
+      const p = newProfiles.find(p => p.uid === state.currentProfileId)
+      if (p) {
+        ensureProfileData(p)
+        const index = p.data.lifts.findIndex(item => item.uid === id)
+        if (index >= 0)
+          Object.assign(p.data.lifts[index], lift)
+      }
+      return { profiles: newProfiles }
+    })
+  },
+  removeCurrentProfileLift: (id) => {
+    set((state) => {
+      const newProfiles = state.profiles.slice()
+      const p = newProfiles.find(p => p.uid === state.currentProfileId)
+      if (p) {
+        ensureProfileData(p)
+        p.data.lifts = p.data.lifts.filter(lift => lift.uid !== id)
       }
       return { profiles: newProfiles }
     })

@@ -73,6 +73,22 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     updateOp('waypoint')
   }
   const activatePathMode = () => updateOp('pathway')
+  const activateDoorMode = () => {
+    if (!currentProfile()) {
+      toast.error('请先选择配置')
+      return
+    }
+
+    updateOp('door')
+  }
+  const activateLiftMode = () => {
+    if (!currentProfile()) {
+      toast.error('请先选择配置')
+      return
+    }
+
+    updateOp('lift')
+  }
 
   const captureRobotWaypoint = () => {
     if (!currentProfile()) {
@@ -217,6 +233,8 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     // Submit profile
     const points = profile.data.waypoints
     const paths = profile.data.paths
+    const doors = profile.data.doors ?? []
+    const lifts = profile.data.lifts ?? []
     try {
       await apiServer.submitProfile({
         map_id: mapId,
@@ -225,6 +243,8 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
         description: profile.description,
         waypoints: points,
         paths,
+        doors,
+        lifts,
       })
       toast.success('保存成功')
     }
@@ -327,6 +347,18 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           onClick={activatePathMode}>
           <div className="i-material-symbols-edit-road-outline-rounded panel-icon" />
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">添加路径 (L)</span>
+        </div>
+        <div
+          className={`${currentOp === 'door' ? 'panel-item-enabled' : 'panel-item'} group`}
+          onClick={activateDoorMode}>
+          <div className="i-material-symbols-door-front-outline-rounded panel-icon" />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">添加门</span>
+        </div>
+        <div
+          className={`${currentOp === 'lift' ? 'panel-item-enabled' : 'panel-item'} group`}
+          onClick={activateLiftMode}>
+          <div className="i-material-symbols-elevator-outline-rounded panel-icon" />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">添加电梯</span>
         </div>
         <div
           className={`${currentOp === 'relocalize' ? 'panel-item-enabled' : 'panel-item'} group`}

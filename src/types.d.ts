@@ -5,6 +5,8 @@ export type Operation =
   | 'select'
   | 'waypoint'
   | 'pathway'
+  | 'door'
+  | 'lift'
   | 'relocalize'
 
 export interface MapListItem {
@@ -105,6 +107,8 @@ export interface NavProfile {
   data: {
     waypoints: NavPoint[],
     paths: NavPath[],
+    doors: NavDoor[],
+    lifts: NavLift[],
   },
   tasks: NavTask[],
 }
@@ -138,6 +142,29 @@ export interface NavPath {
     x: number,
     y: number,
   }[],
+}
+
+export type DoorType = 'sliding' | 'hinged' | 'double_sliding' | 'double_hinged'
+
+export interface NavDoor {
+  uid: string,
+  name: string,
+  x: number,
+  y: number,
+  rotation: number,
+  width: number,
+  door_type: DoorType,
+}
+
+export interface NavLift {
+  uid: string,
+  name: string,
+  x: number,
+  y: number,
+  rotation: number,
+  width: number,
+  depth: number,
+  level_name: string,
 }
 
 type PointNavType = 'auto' | 'manually'
