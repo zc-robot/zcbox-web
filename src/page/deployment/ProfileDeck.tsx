@@ -249,6 +249,10 @@ const PointItem: React.FC<PointItemProps> = ({
   useClickOutside(menuRef, () => setShowMenu(false), showMenu)
 
   useEffect(() => {
+    setName(point.name)
+  }, [point.name])
+
+  useEffect(() => {
     if (!selected)
       setShowMenu(false)
   }, [selected])
@@ -322,6 +326,10 @@ const PathItem: React.FC<PathItemProps> = ({ path, selected, onClick, onPathRena
 
   // 点击外部关闭菜单
   useClickOutside(menuRef, () => setShowMenu(false), showMenu)
+
+  useEffect(() => {
+    setName(path.name)
+  }, [path.name])
 
   useEffect(() => {
     if (!selected)
