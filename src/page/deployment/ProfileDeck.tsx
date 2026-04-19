@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { toNumber, toString } from 'lodash'
+import { toNumber } from 'lodash'
 import { shallow } from 'zustand/shallow'
 import toast from 'react-hot-toast'
 import PathModal from './PathModal'
@@ -11,6 +11,14 @@ import Input from '@/components/Input'
 import { useClickOutside, useMenuPosition } from '@/hooks'
 
 type display = 'point' | 'path'
+
+function formatDecimal(value: number) {
+  return value.toFixed(2)
+}
+
+function roundToTwoDecimals(value: number) {
+  return Math.round(value * 100) / 100
+}
 
 interface ProfileItemProps {
   profile: NavProfile
@@ -124,16 +132,16 @@ interface PointDetailsProps {
 const PointDetails: React.FC<PointDetailsProps> = ({ point, onDeleteClicked, onSubmit }) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const [pointProp, setPointProp] = useState({
-    x: toString(point.x),
-    y: toString(-point.y),
-    rotation: toString(point.rotation),
+    x: formatDecimal(point.x),
+    y: formatDecimal(-point.y),
+    rotation: formatDecimal(point.rotation),
   })
 
   useEffect(() => {
     setPointProp({
-      x: toString(point.x),
-      y: toString(-point.y),
-      rotation: toString(point.rotation),
+      x: formatDecimal(point.x),
+      y: formatDecimal(-point.y),
+      rotation: formatDecimal(point.rotation),
     })
   }, [point])
 
@@ -144,7 +152,9 @@ const PointDetails: React.FC<PointDetailsProps> = ({ point, onDeleteClicked, onS
   return (
     <div
       ref={containerRef}
-      className="mx-2 mb-2 rounded-xl border-(solid 1px gray-200) bg-gray-50 p-3 shadow-sm">
+      className="mx-2 mb-2 rounded-xl border-(solid 1px gray-200) bg-gray-50 p-3 shadow-sm"
+      onClick={event => event.stopPropagation()}
+      onMouseDown={event => event.stopPropagation()}>
       <div className="flex items-center justify-between">
         <span className="text-3 font-bold">{point.uid}</span>
         <span className="text-(2.5 gray-500)">已选中路径点</span>
@@ -166,7 +176,7 @@ const PointDetails: React.FC<PointDetailsProps> = ({ point, onDeleteClicked, onS
           onChange={e => setPointProp({ ...pointProp, y: e.target.value })} />
       </div>
       <div className="mt-2 flex items-center justify-between gap-2">
-        <span className="text-3 font-bold">Rotation</span>
+        <span className="text-3 font-bold">Yaw</span>
         <Input
           className="w-32"
           type="number"
@@ -182,9 +192,9 @@ const PointDetails: React.FC<PointDetailsProps> = ({ point, onDeleteClicked, onS
         <div
           className="rounded-1 bg-gray-300 p1 text-sm cursor-default"
           onClick={() => onSubmit({
-            x: toNumber(pointProp.x),
-            y: toNumber(-pointProp.y),
-            rotation: toNumber(pointProp.rotation),
+            x: roundToTwoDecimals(toNumber(pointProp.x)),
+            y: roundToTwoDecimals(toNumber(-pointProp.y)),
+            rotation: roundToTwoDecimals(toNumber(pointProp.rotation)),
           })}>
           确认
         </div>
