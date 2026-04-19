@@ -1,6 +1,7 @@
 import { useParams } from 'react-router-dom'
 import { useCallback, useEffect } from 'react'
 import { toNumber } from 'lodash'
+import toast from 'react-hot-toast'
 import ProfileDeck from './ProfileDeck'
 import TaskDeck from './TaskDeck'
 import ControllerDeck from '@/components/ControllerDeck'
@@ -12,7 +13,10 @@ import apiServer from '@/service/apiServer'
 const Deployment: React.FC = () => {
   const { mapId } = useParams()
   const resetGrid = useGridStore(state => state.resetGrid)
-  const resetProfile = useProfileStore(state => state.resetProfile)
+  const { addProfiles, resetProfile } = useProfileStore(state => ({
+    addProfiles: state.addProfiles,
+    resetProfile: state.resetProfile,
+  }))
 
   const parseMapId = useCallback(() => {
     if (!mapId)
@@ -21,16 +25,27 @@ const Deployment: React.FC = () => {
   }, [mapId])
 
   useEffect(() => {
-    const startNavigation = async () => {
-      await apiServer.navigation(parseMapId())
+    const loadProfiles = async () => {
+      const currentMapId = parseMapId()
+      if (!currentMapId)
+        return
+
+      try {
+        const profiles = await apiServer.fetchMapDeployment(currentMapId)
+        addProfiles(profiles)
+      }
+      catch (error) {
+        console.error('加载部署配置失败:', error)
+        toast.error('加载部署配置失败')
+      }
     }
 
-    startNavigation()
+    loadProfiles()
     return () => {
       resetGrid()
       resetProfile()
     }
-  }, [parseMapId, resetGrid, resetProfile])
+  }, [addProfiles, parseMapId, resetGrid, resetProfile])
 
   return (
     <div className="flex flex-(col 1) h-full">

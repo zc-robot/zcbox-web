@@ -96,6 +96,11 @@ class ApiServer {
     return json.data
   }
 
+  fetchRunningState = async () => {
+    const json = await this.client.get('isRunning').json<Resp<string>>()
+    return json
+  }
+
   downloadMap = async (filepath: string) => {
     const url = `map/download?filename=${filepath}`
     const response = await this.client.get(url).blob()
@@ -119,9 +124,9 @@ class ApiServer {
     return json
   }
 
-  navigation = async (id: number) => {
+  navigation = async (id: number, model?: string) => {
     const params = useBoundStore.getState().mapParams
-    const json = await this.client.get(`navigation/${id}/${params.model}`).json()
+    const json = await this.client.get(`navigation/${id}/${model ?? params.model}`).json<Resp<unknown>>()
     return json
   }
 
@@ -149,6 +154,15 @@ class ApiServer {
 
   submitProfile = async (data: object) => {
     const json = await this.client.post('deploy/saveDeploymentProfile', { json: data }).json()
+    return json
+  }
+
+  changeMap = async (mapId: number) => {
+    const json = await this.client.post('deploy/changeMap', {
+      json: {
+        map_id: mapId,
+      },
+    }).json<Resp<unknown>>()
     return json
   }
 

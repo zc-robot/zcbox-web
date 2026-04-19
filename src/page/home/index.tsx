@@ -10,6 +10,11 @@ interface MapContextMenuState {
   left: number
 }
 
+interface ApiResultLike {
+  code?: number
+  message?: string
+}
+
 const Home: React.FC = () => {
   const { maps, setMaps, setMapsNew } = useGridStore(state => ({
     maps: state.maps,
@@ -80,6 +85,52 @@ const Home: React.FC = () => {
     }
   }, [initMapData, location.pathname, navigate])
 
+  const handleMapSelected = useCallback(async (mapId: number) => {
+    let loadingToast = toast.loading('正在检查机器人状态...')
+
+    try {
+      const runningState = await apiServer.fetchRunningState()
+
+      if (runningState.code === 1) {
+        const navigationResp = await apiServer.navigation(mapId, 'diff') as ApiResultLike
+        if (navigationResp.code != null && navigationResp.code !== 0)
+          throw new Error(navigationResp.message || '启动导航失败')
+      }
+      else if (runningState.code === 0 && runningState.data === 'mapping') {
+        toast.dismiss(loadingToast)
+
+        // eslint-disable-next-line no-alert
+        const confirmed = confirm('当前机器人正在建图，是否停止建图并启动导航？')
+        if (!confirmed)
+          return
+
+        loadingToast = toast.loading('正在停止建图并启动导航...')
+        const navigationResp = await apiServer.navigation(mapId, 'diff') as ApiResultLike
+        if (navigationResp.code != null && navigationResp.code !== 0)
+          throw new Error(navigationResp.message || '启动导航失败')
+      }
+      else if (runningState.code === 0 && runningState.data === 'navigation') {
+        const currentMap = await apiServer.fetchCurrentMap()
+
+        if (currentMap.map_id !== mapId) {
+          const changeMapResp = await apiServer.changeMap(mapId)
+          if (changeMapResp.code !== 0)
+            throw new Error(changeMapResp.message || '切换地图失败')
+        }
+      }
+      else {
+        throw new Error(runningState.message || '未知运行状态')
+      }
+
+      toast.dismiss(loadingToast)
+      navigate(`/deployment/${mapId}`)
+    }
+    catch (error) {
+      toast.dismiss(loadingToast)
+      toast.error(`启动导航失败 ${error}`)
+    }
+  }, [navigate])
+
   return (
     <div className="flex h-full">
       <div className="flex flex-col w-40 bg-gray-100 border-(r-solid 1px gray-3)">
@@ -98,6 +149,10 @@ const Home: React.FC = () => {
                 <NavLink
                   className={`block flex-1 p-1 text-center text-gray-5 decoration-none ${isSelected ? 'font-bold' : ''}`}
                   to={`/deployment/${m.id}`}
+                  onClick={(event) => {
+                    event.preventDefault()
+                    void handleMapSelected(m.id)
+                  }}
                   onContextMenu={(event) => {
                     event.preventDefault()
                     setMenuState({
