@@ -1,6 +1,8 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import useWebSocket, { ReadyState } from 'react-use-websocket'
 import toast from 'react-hot-toast'
+import ExportRmfModal from './ExportRmfModal'
+import type { ExportRmfSelection } from './ExportRmfModal'
 import { useGridStore, useOperationStore, useProfileStore } from '@/store'
 import apiServer from '@/service/apiServer'
 import type { PointMessage, RobotInfoMessage } from '@/types'
@@ -10,6 +12,11 @@ import { buildRmfBuildingYaml, sanitizeRmfFileName } from '@/util/rmf'
 
 export interface TopDeckProps {
   mapId: number
+}
+
+interface ApiResultLike {
+  code?: number
+  message?: string
 }
 
 function isEditableTarget(target: EventTarget | null) {
@@ -25,6 +32,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   useRobotPoseMqtt()
   useBatteryStateMqtt()
   useLaserScanMqtt()
+  const [showExportModal, setShowExportModal] = useState(false)
   const { zoom, robotInfo, robotStatus, setRobotInfo, setMapGrid, setPathPointInfo, mapsNew, isScanVisible, setScanVisibility, updateScanPointSize, requestCenterRobot, relocalizationPose, beginRelocalization, cancelRelocalization } = useGridStore(state => ({
     zoom: state.zoom,
     robotInfo: state.robotInfo,
@@ -251,17 +259,61 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   }
 
   const handleGenerateRmfClicked = () => {
-    const profile = currentProfile()
-    if (!profile) {
-      toast.error('请先选择配置')
+    setShowExportModal(true)
+  }
+
+  const handleForceRestartNavigation = async () => {
+    const loadingToast = toast.loading('正在强制重启导航...')
+
+    try {
+      const currentMap = await apiServer.fetchCurrentMap()
+      if (currentMap.map_id !== mapId) {
+        const changeMapResp = await apiServer.changeMap(mapId)
+        if (changeMapResp.code !== 0)
+          throw new Error(changeMapResp.message || '切换地图失败')
+      }
+
+      try {
+        await apiServer.stopMapping()
+      }
+      catch {
+        // Ignore stop errors here; force restart should continue to attempt a fresh navigation start.
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 1000))
+
+      const navigationResp = await apiServer.navigation(mapId, 'diff') as ApiResultLike
+      if (navigationResp.code != null && navigationResp.code !== 0)
+        throw new Error(navigationResp.message || '启动导航失败')
+
+      toast.dismiss(loadingToast)
+      toast.success('导航程序已重启')
+    }
+    catch (error) {
+      toast.dismiss(loadingToast)
+      toast.error(`重启导航失败 ${error}`)
+    }
+  }
+
+  const handleExportRmf = (selections: ExportRmfSelection[]) => {
+    if (selections.length === 0) {
+      toast.error('请先选择至少一个地图和部署配置')
       return
     }
 
-    const mapName = mapsNew.find(map => map.id === mapId)?.name ?? `map-${mapId}`
-    const buildingName = `${mapName}-${profile.name}`
-    const content = buildRmfBuildingYaml(profile, {
-      buildingName,
-    })
+    const currentMapName = mapsNew.find(map => map.id === mapId)?.name
+    const buildingName = currentMapName ?? selections[0].map.name ?? 'map'
+    const content = buildRmfBuildingYaml(
+      selections.map(selection => ({
+        levelName: selection.map.name,
+        drawingFilename: `${sanitizeRmfFileName(selection.map.name)}.png`,
+        gridInfo: selection.map.info,
+        profile: selection.profile,
+      })),
+      {
+        buildingName,
+      },
+    )
     const blob = new Blob([content], { type: 'application/x-yaml;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
@@ -271,6 +323,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     anchor.click()
     anchor.remove()
     URL.revokeObjectURL(url)
+    setShowExportModal(false)
     toast.success('RMF配置文件已生成')
   }
 
@@ -434,6 +487,14 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           </span>
         </div>
         <div
+          className="panel-item group bg-amber-600 hover:bg-amber-700"
+          onClick={handleForceRestartNavigation}>
+          <div className="i-material-symbols-refresh-rounded panel-icon" />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">
+            强制重启导航
+          </span>
+        </div>
+        <div
           className="panel-item group"
           onClick={handleSubmitClicked}>
           <div
@@ -449,6 +510,13 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">生成RMF配置文件</span>
         </div>
       </div>
+      {showExportModal && (
+        <ExportRmfModal
+          currentMapId={mapId}
+          currentProfileUid={currentProfile()?.uid}
+          onClose={() => setShowExportModal(false)}
+          onConfirm={handleExportRmf} />
+      )}
     </div>
   )
 }
