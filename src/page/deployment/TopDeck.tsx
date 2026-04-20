@@ -1,12 +1,12 @@
 import React, { useEffect } from 'react'
 import useWebSocket, { ReadyState } from 'react-use-websocket'
 import toast from 'react-hot-toast'
-import { useNavigate } from 'react-router-dom'
 import { useGridStore, useOperationStore, useProfileStore } from '@/store'
 import apiServer from '@/service/apiServer'
 import type { PointMessage, RobotInfoMessage } from '@/types'
 import { useBatteryStateMqtt, useKeyPress, useLaserScanMqtt, useRobotPoseMqtt } from '@/hooks'
 import { parsePgm } from '@/util/transform'
+import { buildRmfBuildingYaml, sanitizeRmfFileName } from '@/util/rmf'
 
 export interface TopDeckProps {
   mapId: number
@@ -25,10 +25,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   useRobotPoseMqtt()
   useBatteryStateMqtt()
   useLaserScanMqtt()
-  const navigate = useNavigate()
-  const { setMaps, setMapsNew, zoom, robotInfo, robotStatus, setRobotInfo, setMapGrid, setPathPointInfo, mapsNew, isScanVisible, setScanVisibility, updateScanPointSize, requestCenterRobot, relocalizationPose, beginRelocalization, cancelRelocalization } = useGridStore(state => ({
-    setMaps: state.setMaps,
-    setMapsNew: state.setMapsNew,
+  const { zoom, robotInfo, robotStatus, setRobotInfo, setMapGrid, setPathPointInfo, mapsNew, isScanVisible, setScanVisibility, updateScanPointSize, requestCenterRobot, relocalizationPose, beginRelocalization, cancelRelocalization } = useGridStore(state => ({
     zoom: state.zoom,
     robotInfo: state.robotInfo,
     robotStatus: state.robotInfo?.fsm,
@@ -253,28 +250,28 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     }
   }
 
-  const handleDeleteClicked = async () => {
-    // eslint-disable-next-line no-alert
-    const answer = confirm('确定删除地图？')
-    if (answer) {
-      try {
-        const resp = await apiServer.deleteMap(mapId)
-        if (resp.code !== 0) {
-          toast.error(resp.message || '删除失败')
-          return
-        }
-
-        const maps = await apiServer.fetchMapList()
-        const mapsNew = await apiServer.fetchMapListNew()
-        setMaps(maps)
-        setMapsNew(mapsNew)
-        toast.success('删除成功')
-        navigate('/')
-      }
-      catch (e) {
-        toast.error(`删除失败 ${e}`)
-      }
+  const handleGenerateRmfClicked = () => {
+    const profile = currentProfile()
+    if (!profile) {
+      toast.error('请先选择配置')
+      return
     }
+
+    const mapName = mapsNew.find(map => map.id === mapId)?.name ?? `map-${mapId}`
+    const buildingName = `${mapName}-${profile.name}`
+    const content = buildRmfBuildingYaml(profile, {
+      buildingName,
+    })
+    const blob = new Blob([content], { type: 'application/x-yaml;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `${sanitizeRmfFileName(buildingName)}.building.yaml`
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
+    toast.success('RMF配置文件已生成')
   }
 
   useKeyPress((event, isDown) => {
@@ -444,11 +441,12 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">保存</span>
         </div>
         <div
-          className="panel-item group"
-          onClick={handleDeleteClicked}>
+          className="panel-item group w-auto min-w-2.5rem gap-1 px-3 bg-emerald-700 hover:bg-emerald-800 items-center"
+          onClick={handleGenerateRmfClicked}>
           <div
-            className="i-material-symbols-delete-rounded panel-icon" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">删除</span>
+            className="i-material-symbols-description-outline-rounded panel-icon" />
+          <span className="mr-1 text-sm font-medium whitespace-nowrap">生成RMF配置文件</span>
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">生成RMF配置文件</span>
         </div>
       </div>
     </div>
