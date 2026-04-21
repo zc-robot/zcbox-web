@@ -156,9 +156,17 @@ function buildPointVertexLine(point: NavPoint, gridInfo: GridInfoMessage) {
   return buildVertexLine(pixelPoint.x, pixelPoint.y, formatYamlString(point.name), attributes)
 }
 
-function buildLiftCabinVertexLine(lift: NavLift, gridInfo: GridInfoMessage) {
-  const pixelPoint = mapToPixel({ x: lift.x, y: lift.y }, gridInfo)
-  return buildVertexLine(pixelPoint.x, pixelPoint.y, '', [['lift_cabin', [1, lift.name]]])
+function getLiftKey(lift: NavLift) {
+  const liftName = lift.name.trim()
+  return liftName || lift.uid
+}
+
+function buildLiftCabinVertexLine(lift: NavLift, gridInfo: GridInfoMessage, liftReferences: Map<string, LiftAccumulator>) {
+  const liftKey = getLiftKey(lift)
+  const liftReference = liftReferences.get(liftKey)
+  const pixelPoint = liftReference ?? mapToPixel({ x: lift.x, y: lift.y }, gridInfo)
+
+  return buildVertexLine(pixelPoint.x, pixelPoint.y, '', [['lift_cabin', [1, liftKey]]])
 }
 
 function buildDoorEndpoints(door: NavDoor) {
@@ -215,7 +223,7 @@ function getLiftDoorWidthInPixels(lift: NavLift, gridInfo: GridInfoMessage) {
   return widthInMeters / gridInfo.resolution
 }
 
-function buildLevelData(source: RmfExportLevelSource, measurementVertices: PixelPoint[]) {
+function buildLevelData(source: RmfExportLevelSource, measurementVertices: PixelPoint[], liftReferences: Map<string, LiftAccumulator>) {
   const pointIndexMap = new Map<string, number>()
   const vertexLines = measurementVertices.map(vertex => buildVertexLine(vertex.x, vertex.y))
   let nextVertexIndex = measurementVertices.length
@@ -227,7 +235,7 @@ function buildLevelData(source: RmfExportLevelSource, measurementVertices: Pixel
   })
 
   source.profile.data.lifts.forEach((lift) => {
-    vertexLines.push(buildLiftCabinVertexLine(lift, source.gridInfo))
+    vertexLines.push(buildLiftCabinVertexLine(lift, source.gridInfo, liftReferences))
     nextVertexIndex += 1
   })
 
@@ -288,7 +296,7 @@ function buildLiftAccumulators(levels: RmfExportLevelSource[]) {
 
   levels.forEach((source) => {
     source.profile.data.lifts.forEach((lift) => {
-      const liftKey = lift.name || lift.uid
+      const liftKey = getLiftKey(lift)
       const pixelPoint = mapToPixel({ x: lift.x, y: lift.y }, source.gridInfo)
       const existing = accumulators.get(liftKey)
 
@@ -311,11 +319,11 @@ function buildLiftAccumulators(levels: RmfExportLevelSource[]) {
     })
   })
 
-  return Array.from(accumulators.values())
+  return accumulators
 }
 
-function buildLiftLines(levels: RmfExportLevelSource[]) {
-  const lifts = buildLiftAccumulators(levels)
+function buildLiftLines(liftReferences: Map<string, LiftAccumulator>) {
+  const lifts = Array.from(liftReferences.values())
 
   return lifts.flatMap((lift) => {
     const firstLevel = lift.levels[0]
@@ -365,11 +373,12 @@ export function buildRmfBuildingYaml(levels: RmfExportLevelSource[], options: Bu
   const measurementDistance = measurementDistanceInMeters(measurementVertices[0], measurementVertices[1])
   const fiducialLines = fiducials
     .map(fiducial => `      - [${formatNumber(fiducial.x)}, ${formatNumber(fiducial.y)}, ${fiducial.label}]`)
+  const liftReferences = buildLiftAccumulators(levels)
 
   const levelSections = levels
-    .map(level => buildLevelData(level, measurementVertices))
+    .map(level => buildLevelData(level, measurementVertices, liftReferences))
     .flatMap(levelData => buildLevelSection(levelData, measurementDistance, fiducialLines))
-  const liftLines = buildLiftLines(levels)
+  const liftLines = buildLiftLines(liftReferences)
 
   const lines = [
     'coordinate_system: reference_image',
