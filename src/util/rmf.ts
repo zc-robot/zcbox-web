@@ -218,9 +218,9 @@ function buildDoorLine(doorPair: DoorVertexPair) {
   ])}]`
 }
 
-function getLiftDoorWidthInPixels(lift: NavLift, gridInfo: GridInfoMessage) {
+function getLiftDoorWidthInMeters(lift: NavLift) {
   const widthInMeters = Math.max(0.6, Math.min(lift.width * 0.55, lift.width - 0.4))
-  return widthInMeters / gridInfo.resolution
+  return widthInMeters
 }
 
 function buildLevelData(source: RmfExportLevelSource, measurementVertices: PixelPoint[], liftReferences: Map<string, LiftAccumulator>) {
@@ -303,9 +303,9 @@ function buildLiftAccumulators(levels: RmfExportLevelSource[]) {
       if (!existing) {
         accumulators.set(liftKey, {
           name: liftKey,
-          width: lift.width / source.gridInfo.resolution,
-          depth: lift.depth / source.gridInfo.resolution,
-          doorWidth: getLiftDoorWidthInPixels(lift, source.gridInfo),
+          width: lift.width,
+          depth: lift.depth,
+          doorWidth: getLiftDoorWidthInMeters(lift),
           x: pixelPoint.x,
           y: pixelPoint.y,
           yaw: lift.rotation * Math.PI / 180,
