@@ -263,6 +263,11 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   }
 
   const handleForceRestartNavigation = async () => {
+    // eslint-disable-next-line no-alert
+    const confirmed = confirm('确定强制重启导航程序？当前运行中的导航将被中断。')
+    if (!confirmed)
+      return
+
     const loadingToast = toast.loading('正在强制重启导航...')
 
     try {
@@ -318,7 +323,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
-    anchor.download = `${sanitizeRmfFileName(buildingName)}.building.yaml`
+    anchor.download = 'map.building.yaml'
     document.body.appendChild(anchor)
     anchor.click()
     anchor.remove()
