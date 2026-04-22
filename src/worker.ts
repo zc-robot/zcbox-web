@@ -24,9 +24,10 @@ const scaledCanvas = new OffscreenCanvas(0, 0)
 const MAX_BITMAP_SIZE = 1500
 
 const RLE_SIGNATURE = [82, 76, 69, 32] // 'RLE '
-const COMPRESSED_MAP_HEADER_SIZE = 34
-const COMPRESSED_MAP_VERSION = 1
-const COMPRESSED_MAP_CODEC_GZIP = 1
+const LEGACY_COMPRESSED_MAP_HEADER_SIZE = 34
+const LEGACY_COMPRESSED_MAP_VERSION = 1
+const LEGACY_COMPRESSED_MAP_CODEC_GZIP = 1
+const CDR_HEADER_SIZE = 4
 
 function hasRLESignature(data: number[] | Uint8Array) {
   if (data.length < 8)
@@ -95,18 +96,282 @@ async function decompressGzip(data: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(buffer)
 }
 
-export async function decodeCompressedMapPayload(payload: Uint8Array) {
-  if (payload.byteLength < COMPRESSED_MAP_HEADER_SIZE)
+function alignCdrOffset(offset: number, alignment: number, baseOffset = 0) {
+  const remainder = (offset - baseOffset) % alignment
+  return remainder === 0 ? offset : offset + alignment - remainder
+}
+
+function getCdrLittleEndian(view: DataView) {
+  if (view.byteLength < CDR_HEADER_SIZE)
+    return null
+
+  const encapsulation = view.getUint16(0, false)
+  if (encapsulation === 0 || encapsulation === 2)
+    return false
+  if (encapsulation === 1 || encapsulation === 3)
+    return true
+
+  const littleEndianEncapsulation = view.getUint16(0, true)
+  if (littleEndianEncapsulation === 0 || littleEndianEncapsulation === 2)
+    return false
+  if (littleEndianEncapsulation === 1 || littleEndianEncapsulation === 3)
+    return true
+
+  return null
+}
+
+function readCdrUint32(view: DataView, offset: number, littleEndian: boolean, baseOffset = 0) {
+  const alignedOffset = alignCdrOffset(offset, 4, baseOffset)
+  if (alignedOffset + 4 > view.byteLength)
+    throw new Error('CDR uint32 数据长度不足')
+
+  return {
+    value: view.getUint32(alignedOffset, littleEndian),
+    offset: alignedOffset + 4,
+  }
+}
+
+function readCdrInt32(view: DataView, offset: number, littleEndian: boolean, baseOffset = 0) {
+  const alignedOffset = alignCdrOffset(offset, 4, baseOffset)
+  if (alignedOffset + 4 > view.byteLength)
+    throw new Error('CDR int32 数据长度不足')
+
+  return {
+    value: view.getInt32(alignedOffset, littleEndian),
+    offset: alignedOffset + 4,
+  }
+}
+
+function readCdrFloat32(view: DataView, offset: number, littleEndian: boolean, baseOffset = 0) {
+  const alignedOffset = alignCdrOffset(offset, 4, baseOffset)
+  if (alignedOffset + 4 > view.byteLength)
+    throw new Error('CDR float32 数据长度不足')
+
+  return {
+    value: view.getFloat32(alignedOffset, littleEndian),
+    offset: alignedOffset + 4,
+  }
+}
+
+function readCdrFloat64(view: DataView, offset: number, littleEndian: boolean, baseOffset = 0) {
+  const alignedOffset = alignCdrOffset(offset, 8, baseOffset)
+  if (alignedOffset + 8 > view.byteLength)
+    throw new Error('CDR float64 数据长度不足')
+
+  return {
+    value: view.getFloat64(alignedOffset, littleEndian),
+    offset: alignedOffset + 8,
+  }
+}
+
+function skipCdrString(view: DataView, offset: number, littleEndian: boolean, baseOffset = 0) {
+  const lengthResult = readCdrUint32(view, offset, littleEndian, baseOffset)
+  const nextOffset = lengthResult.offset + lengthResult.value
+
+  if (nextOffset > view.byteLength)
+    throw new Error('CDR 字符串长度异常')
+
+  return nextOffset
+}
+
+function decodeCdrUInt8MultiArray(payload: Uint8Array) {
+  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength)
+  const littleEndian = getCdrLittleEndian(view)
+  if (littleEndian === null)
+    return null
+
+  let offset = CDR_HEADER_SIZE
+  const dimLengthResult = readCdrUint32(view, offset, littleEndian)
+  const dimLength = dimLengthResult.value
+  offset = dimLengthResult.offset
+
+  for (let i = 0; i < dimLength; i++) {
+    offset = skipCdrString(view, offset, littleEndian)
+    offset = readCdrUint32(view, offset, littleEndian).offset
+    offset = readCdrUint32(view, offset, littleEndian).offset
+  }
+
+  offset = readCdrUint32(view, offset, littleEndian).offset
+
+  const dataLengthResult = readCdrUint32(view, offset, littleEndian)
+  const dataLength = dataLengthResult.value
+  offset = dataLengthResult.offset
+
+  if (offset + dataLength > payload.byteLength)
+    throw new Error('CDR UInt8MultiArray data 长度异常')
+
+  return payload.subarray(offset, offset + dataLength)
+}
+
+function readCdrTime(view: DataView, offset: number, littleEndian: boolean, baseOffset: number) {
+  offset = readCdrInt32(view, offset, littleEndian, baseOffset).offset
+  offset = readCdrUint32(view, offset, littleEndian, baseOffset).offset
+  return offset
+}
+
+function readCdrPose(view: DataView, offset: number, littleEndian: boolean, baseOffset: number) {
+  const values: number[] = []
+
+  for (let i = 0; i < 7; i++) {
+    const result = readCdrFloat64(view, offset, littleEndian, baseOffset)
+    values.push(result.value)
+    offset = result.offset
+  }
+
+  return {
+    offset,
+    pose: {
+      position: {
+        x: values[0],
+        y: values[1],
+        z: values[2],
+      },
+      orientation: {
+        x: values[3],
+        y: values[4],
+        z: values[5],
+        w: values[6],
+      },
+    },
+  }
+}
+
+function quaternionToYaw(x: number, y: number, z: number, w: number) {
+  return Math.atan2(
+    2 * (w * z + x * y),
+    1 - 2 * (y * y + z * z),
+  )
+}
+
+function decodeOccupancyGridCdrWithAlignment(payload: Uint8Array, baseOffset: number) {
+  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength)
+  const littleEndian = getCdrLittleEndian(view)
+  if (littleEndian === null)
+    throw new Error('OccupancyGrid CDR encapsulation 异常')
+
+  let offset = CDR_HEADER_SIZE
+
+  offset = readCdrTime(view, offset, littleEndian, baseOffset)
+  offset = skipCdrString(view, offset, littleEndian, baseOffset)
+
+  offset = readCdrTime(view, offset, littleEndian, baseOffset)
+
+  const resolutionResult = readCdrFloat32(view, offset, littleEndian, baseOffset)
+  const resolution = resolutionResult.value
+  offset = resolutionResult.offset
+
+  const widthResult = readCdrUint32(view, offset, littleEndian, baseOffset)
+  const width = widthResult.value
+  offset = widthResult.offset
+
+  const heightResult = readCdrUint32(view, offset, littleEndian, baseOffset)
+  const height = heightResult.value
+  offset = heightResult.offset
+
+  const poseResult = readCdrPose(view, offset, littleEndian, baseOffset)
+  const origin = poseResult.pose
+  offset = poseResult.offset
+
+  const dataLengthResult = readCdrUint32(view, offset, littleEndian, baseOffset)
+  const dataLength = dataLengthResult.value
+  offset = dataLengthResult.offset
+
+  if (width <= 0 || height <= 0 || !Number.isFinite(resolution) || resolution <= 0)
+    throw new Error('OccupancyGrid metadata 异常')
+
+  if (dataLength !== width * height)
+    throw new Error('OccupancyGrid data 长度与宽高不匹配')
+
+  if (offset + dataLength > payload.byteLength)
+    throw new Error('OccupancyGrid data 数据长度不足')
+
+  const orientation = origin.orientation
+  const quaternionNorm = Math.hypot(orientation.x, orientation.y, orientation.z, orientation.w)
+  if (!Number.isFinite(quaternionNorm) || quaternionNorm <= 0)
+    throw new Error('OccupancyGrid origin quaternion 异常')
+
+  const normalizedOrientation = {
+    x: orientation.x / quaternionNorm,
+    y: orientation.y / quaternionNorm,
+    z: orientation.z / quaternionNorm,
+    w: orientation.w / quaternionNorm,
+  }
+  const yaw = quaternionToYaw(
+    normalizedOrientation.x,
+    normalizedOrientation.y,
+    normalizedOrientation.z,
+    normalizedOrientation.w,
+  )
+
+  const info: GridInfoMessage = {
+    width,
+    height,
+    resolution,
+    origin: {
+      position: origin.position,
+      orientation: normalizedOrientation,
+      pyr: {
+        pitch: 0,
+        roll: 0,
+        yaw,
+      },
+    },
+  }
+
+  const data = new Array<number>(dataLength)
+  for (let i = 0; i < dataLength; i++)
+    data[i] = view.getInt8(offset + i)
+
+  return { info, data }
+}
+
+function decodeOccupancyGridCdr(payload: Uint8Array) {
+  try {
+    return decodeOccupancyGridCdrWithAlignment(payload, 0)
+  }
+  catch (error) {
+    try {
+      return decodeOccupancyGridCdrWithAlignment(payload, CDR_HEADER_SIZE)
+    }
+    catch {
+      throw error
+    }
+  }
+}
+
+function isGzipPayload(payload: Uint8Array) {
+  return payload.byteLength >= 2 && payload[0] === 0x1F && payload[1] === 0x8B
+}
+
+function isLegacyCompressedMapBinaryPayload(payload: Uint8Array) {
+  return payload.byteLength >= LEGACY_COMPRESSED_MAP_HEADER_SIZE
+    && payload[0] === LEGACY_COMPRESSED_MAP_VERSION
+    && payload[1] === LEGACY_COMPRESSED_MAP_CODEC_GZIP
+}
+
+function extractCompressedMapBinaryPayload(payload: Uint8Array) {
+  if (isGzipPayload(payload) || isLegacyCompressedMapBinaryPayload(payload))
+    return payload
+
+  const cdrData = decodeCdrUInt8MultiArray(payload)
+  if (cdrData && (isGzipPayload(cdrData) || isLegacyCompressedMapBinaryPayload(cdrData)))
+    return cdrData
+
+  throw new Error('压缩地图 MQTT payload 不是有效的 gzip OccupancyGrid CDR、旧版 gzip 地图或 CDR UInt8MultiArray')
+}
+
+async function decodeLegacyCompressedMapPayload(mapPayload: Uint8Array) {
+  if (mapPayload.byteLength < LEGACY_COMPRESSED_MAP_HEADER_SIZE)
     throw new Error('压缩地图数据长度不足')
 
-  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength)
+  const view = new DataView(mapPayload.buffer, mapPayload.byteOffset, mapPayload.byteLength)
   const version = view.getUint8(0)
   const codec = view.getUint8(1)
 
-  if (version !== COMPRESSED_MAP_VERSION)
+  if (version !== LEGACY_COMPRESSED_MAP_VERSION)
     throw new Error(`不支持的压缩地图版本: ${version}`)
 
-  if (codec !== COMPRESSED_MAP_CODEC_GZIP)
+  if (codec !== LEGACY_COMPRESSED_MAP_CODEC_GZIP)
     throw new Error(`不支持的压缩地图编码: ${codec}`)
 
   const width = view.getUint32(2, false)
@@ -124,10 +389,10 @@ export async function decodeCompressedMapPayload(payload: Uint8Array) {
   if (rawSize !== width * height)
     throw new Error('压缩地图原始长度与宽高不匹配')
 
-  if (COMPRESSED_MAP_HEADER_SIZE + compressedSize !== payload.byteLength)
+  if (LEGACY_COMPRESSED_MAP_HEADER_SIZE + compressedSize !== mapPayload.byteLength)
     throw new Error('压缩地图 payload 长度与头部不匹配')
 
-  const compressedData = payload.subarray(COMPRESSED_MAP_HEADER_SIZE)
+  const compressedData = mapPayload.subarray(LEGACY_COMPRESSED_MAP_HEADER_SIZE)
   const rawData = await decompressGzip(compressedData)
 
   if (rawData.byteLength !== rawSize)
@@ -162,6 +427,16 @@ export async function decodeCompressedMapPayload(payload: Uint8Array) {
     info,
     data: Array.from(rawData, value => value === 255 ? -1 : value),
   }
+}
+
+export async function decodeCompressedMapPayload(payload: Uint8Array) {
+  const mapPayload = extractCompressedMapBinaryPayload(payload)
+
+  if (!isGzipPayload(mapPayload))
+    return decodeLegacyCompressedMapPayload(mapPayload)
+
+  const occupancyGridCdr = await decompressGzip(mapPayload)
+  return decodeOccupancyGridCdr(occupancyGridCdr)
 }
 
 export function mapImageData(info: GridInfoMessage, mapData: number[]): MapRenderResult {

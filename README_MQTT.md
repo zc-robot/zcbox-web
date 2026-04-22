@@ -28,7 +28,7 @@ reconnectPeriod: 2000 ms
 connectTimeout: 5000 ms
 ```
 
-所有多字节二进制字段都按网络字节序，也就是大端序解析。
+电池和扫描 payload 的多字节字段按网络字节序，也就是大端序解析。ROS 2 CDR payload 会先按 CDR encapsulation 里的字节序解析。
 
 ## 主题总览
 
@@ -53,22 +53,35 @@ connectTimeout: 5000 ms
 robot_pose
 ```
 
-Payload：
+当前 payload 是 ROS 2 CDR 序列化的 `geometry_msgs/msg/Pose`，不再是旧的 12 字节自定义格式。
+
+CDR 消息内容：
 
 ```text
-float32 x
-float32 y
-float32 yaw
+geometry_msgs/msg/Point position
+  float64 x
+  float64 y
+  float64 z
+geometry_msgs/msg/Quaternion orientation
+  float64 x
+  float64 y
+  float64 z
+  float64 w
 ```
 
-总长度：12 字节。
+Payload 前面包含 4 字节 CDR encapsulation，前端会根据 encapsulation 判断大小端，并按 CDR 对齐规则读取字段。
 
 处理流程：
 
 1. 订阅 `robot_pose`。
-2. 将 12 字节 payload 解码成 `PoseMessage`。
-3. 将 yaw 转成 quaternion，复用现有机器人渲染逻辑。
+2. 将 CDR `geometry_msgs/msg/Pose` 解码成 `PoseMessage`。
+3. 根据 quaternion 计算 roll、pitch、yaw，复用现有机器人渲染逻辑。
 4. 通过 `useGridStore.updateRobotPose` 写入状态。
+
+兼容性：
+
+- 前端仍保留旧 12 字节 `float32 x, y, yaw` 格式的 fallback。
+- 新机器人端应使用 CDR `geometry_msgs/msg/Pose`。
 
 卡死恢复机制：
 
@@ -140,12 +153,10 @@ float32 energy_wh
 laser_pose
 ```
 
-激光位姿 payload 与 `robot_pose` 相同，也是 12 字节：
+激光位姿 payload 与 `robot_pose` 相同，也是 CDR 序列化的 `geometry_msgs/msg/Pose`：
 
 ```text
-float32 x
-float32 y
-float32 yaw
+geometry_msgs/msg/Pose
 ```
 
 过滤后扫描订阅主题：
@@ -160,30 +171,28 @@ scan/filtered
 scan/filtered/required
 ```
 
-开启扫描显示时，前端每 5 秒向 `scan/filtered/required` 发送一个零字节 payload。
+开启扫描显示时，前端每 5 秒向 `scan/filtered/required` 发送一个零字节 payload。机器人端收到后会开始或延长 `scan/filtered` 的发布窗口。
 
 过滤后扫描 payload：
 
 ```text
-uint8 version
-uint16 count
-float32 angle_min
-float32 angle_increment
-uint16 range_min_mm
-uint16 range_max_mm
-uint16 ranges_mm[count]
+sensor_msgs/msg/LaserScan
 ```
 
-Header 长度：15 字节。
+当前 payload 是 ROS 2 CDR 序列化的 `sensor_msgs/msg/LaserScan`，由机器人端 `rclcpp::Serialization<sensor_msgs::msg::LaserScan>` 生成。没有额外自定义 header、version byte 或毫米量化。
 
 处理流程：
 
-1. 校验 payload 至少 15 字节。
-2. 校验 `version == 1`。
-3. 读取 `count`，并校验总长度为 `15 + count * 2`。
-4. 将距离从毫米转成米。
-5. 将无效距离值 `65535` 转成 `NaN`。
-6. 通过 `useGridStore.updateLaserPose` 和 `useGridStore.updateLaserScan` 写入状态。
+1. 解码 CDR `sensor_msgs/msg/LaserScan`。
+2. 读取 `angle_min`、`angle_increment`、`range_min`、`range_max` 和 `ranges`。
+3. 将 `NaN`、`Infinity` 等非有限 range 保持为 `NaN`。
+4. `intensities` 当前 UI 不使用，会跳过。
+5. 通过 `useGridStore.updateLaserPose` 和 `useGridStore.updateLaserScan` 写入状态。
+
+兼容性：
+
+- 前端仍保留旧版 `uint8 version + uint16 count + float32 angle_min + float32 angle_increment + uint16 range_min_mm + uint16 range_max_mm + uint16 ranges_mm[count]` 格式的 fallback。
+- 新机器人端应使用 CDR `sensor_msgs/msg/LaserScan`。
 
 渲染逻辑：
 
@@ -205,39 +214,35 @@ Header 长度：15 字节。
 map/compressed
 ```
 
-Payload：
+当前 MQTT payload 是 ROS 2 CDR 序列化的 `std_msgs/msg/UInt8MultiArray`。
+
+`UInt8MultiArray.data` 字段中是 gzip 压缩后的 CDR `nav_msgs/msg/OccupancyGrid`。
 
 ```text
-uint8  version = 1
-uint8  codec = 1
-uint32 width
-uint32 height
-float32 resolution
-float32 origin_x
-float32 origin_y
-float32 origin_yaw
-uint32 raw_size
-uint32 compressed_size
-uint8[] gzip_data
+ROS /map nav_msgs/msg/OccupancyGrid
+-> CDR serialize OccupancyGrid
+-> gzip
+-> std_msgs/msg/UInt8MultiArray.data
+-> CDR serialize UInt8MultiArray for MQTT
 ```
-
-Header 长度：34 字节。
 
 处理流程：
 
 1. Mapping 页面挂载时订阅 `map/compressed`。
 2. 如果上一帧地图还在解码或渲染，只保留最新的一帧 pending payload，避免积压。
-3. 在 map worker 中解析二进制 header。
-4. 校验：
-   - `version == 1`
-   - `codec == 1`
-   - `raw_size == width * height`
-   - payload 总长度等于 `34 + compressed_size`
-5. 使用浏览器 `DecompressionStream('gzip')` 解压 `gzip_data`。
-6. 校验解压后的字节数等于 `raw_size`。
-7. 将原始地图字节转成前端 occupancy 值。
-8. 根据 width、height、resolution、origin 创建 `GridInfoMessage`。
-9. 通过 `useGridStore.setMapGrid` 写入状态。
+3. 在 map worker 中先解码 CDR `std_msgs/msg/UInt8MultiArray`。
+4. 从 `UInt8MultiArray.data` 中取出 gzip 数据。
+5. 使用浏览器 `DecompressionStream('gzip')` 解压，得到 CDR `nav_msgs/msg/OccupancyGrid`。
+6. 解码 `OccupancyGrid.info.width`、`height`、`resolution`、`origin` 和 `data`。
+7. 校验 `data.length == width * height`。
+8. 将 `int8[] data` 转成前端 occupancy 值。
+9. 根据 `OccupancyGrid.info` 创建 `GridInfoMessage`。
+10. 通过 `useGridStore.setMapGrid` 写入状态。
+
+兼容性：
+
+- 前端仍兼容旧的裸压缩地图 payload，也就是旧版 `version/codec/width/height/.../gzip_data` 二进制。
+- 新机器人端应使用 CDR `std_msgs/msg/UInt8MultiArray`，并把 gzip 后的 CDR `nav_msgs/msg/OccupancyGrid` 放在 `data` 字段。
 
 复用现有地图渲染链路：
 
@@ -245,6 +250,9 @@ Header 长度：34 字节。
 MQTT map/compressed
   -> useCompressedMapMqtt
   -> worker.decodeCompressedMapPayload
+  -> CDR UInt8MultiArray.data
+  -> gunzip
+  -> CDR OccupancyGrid
   -> useGridStore.setMapGrid
   -> GridMap
   -> worker.mapImageData
@@ -270,7 +278,7 @@ MQTT map/compressed
 ## 实现说明
 
 - 当前每个 MQTT 功能拥有自己的 MQTT client。这样可以让扫描、地图等功能独立挂载和卸载，生命周期更简单。
-- 二进制解析统一使用 `DataView`，并按大端序读取。
+- 二进制解析统一使用 `DataView`。CDR payload 按 encapsulation 判断大小端；电池和扫描按大端序读取。
 - 地图 gzip 解压放在 worker 中执行，避免阻塞 UI 主线程。
 - 电池和扫描数据在机器人端有发布窗口限制，所以前端需要周期性发送请求 ping。
 - 机器人位姿不是请求触发型数据，但前端有 stale-stream watchdog，用来恢复浏览器 MQTT 会话卡死。
@@ -282,6 +290,8 @@ MQTT map/compressed
 ```bash
 mosquitto_sub -h <robot-ip> -p 1885 -u zc -P 8888 -t robot_pose
 ```
+
+`robot_pose` 和 `laser_pose` 是 CDR 二进制数据，`mosquitto_sub` 只能确认有数据，不能直接显示 x、y、yaw。
 
 请求电池发布：
 
@@ -300,3 +310,5 @@ mosquitto_pub -h <robot-ip> -p 1885 -u zc -P 8888 -t scan/filtered/required -n
 ```bash
 mosquitto_sub -h <robot-ip> -p 1885 -u zc -P 8888 -t map/compressed > map_payload.bin
 ```
+
+`map_payload.bin` 是 CDR `std_msgs/msg/UInt8MultiArray`，需要先解 CDR，再 gunzip `data` 字段，然后把解压结果按 CDR `nav_msgs/msg/OccupancyGrid` 解码。
