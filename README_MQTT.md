@@ -209,35 +209,39 @@ sensor_msgs/msg/LaserScan
 map/compressed
 ```
 
-当前 MQTT payload 是 ROS 2 CDR 序列化的 `std_msgs/msg/UInt8MultiArray`。
+当前 MQTT payload 是 raw `gzip(CDR nav_msgs/msg/OccupancyGrid)`，不再用 CDR `std_msgs/msg/UInt8MultiArray` 包裹。
 
-`UInt8MultiArray.data` 字段中是 gzip 压缩后的 CDR `nav_msgs/msg/OccupancyGrid`。
+MQTT v5 metadata：
+
+```text
+content-type: ros2+cdr/nav_msgs/OccupancyGrid
+compression: gzip
+```
 
 ```text
 ROS /map nav_msgs/msg/OccupancyGrid
 -> CDR serialize OccupancyGrid
 -> gzip
--> std_msgs/msg/UInt8MultiArray.data
--> CDR serialize UInt8MultiArray for MQTT
+-> raw MQTT payload on map/compressed
 ```
 
 处理流程：
 
 1. Mapping 页面挂载时订阅 `map/compressed`。
 2. 如果上一帧地图还在解码或渲染，只保留最新的一帧 pending payload，避免积压。
-3. 在 map worker 中先解码 CDR `std_msgs/msg/UInt8MultiArray`。
-4. 从 `UInt8MultiArray.data` 中取出 gzip 数据。
-5. 使用浏览器 `DecompressionStream('gzip')` 解压，得到 CDR `nav_msgs/msg/OccupancyGrid`。
-6. 解码 `OccupancyGrid.info.width`、`height`、`resolution`、`origin` 和 `data`。
-7. 校验 `data.length == width * height`。
-8. 将 `int8[] data` 转成前端 occupancy 值。
-9. 根据 `OccupancyGrid.info` 创建 `GridInfoMessage`。
-10. 通过 `useGridStore.setMapGrid` 写入状态。
+3. 在 map worker 中识别 gzip payload。
+4. 使用浏览器 `DecompressionStream('gzip')` 解压，得到 CDR `nav_msgs/msg/OccupancyGrid`。
+5. 解码 `OccupancyGrid.info.width`、`height`、`resolution`、`origin` 和 `data`。
+6. 校验 `data.length == width * height`。
+7. 将 `int8[] data` 转成前端 occupancy 值。
+8. 根据 `OccupancyGrid.info` 创建 `GridInfoMessage`。
+9. 通过 `useGridStore.setMapGrid` 写入状态。
 
 兼容性：
 
-- 前端仍兼容旧的裸压缩地图 payload，也就是旧版 `version/codec/width/height/.../gzip_data` 二进制。
-- 新机器人端应使用 CDR `std_msgs/msg/UInt8MultiArray`，并把 gzip 后的 CDR `nav_msgs/msg/OccupancyGrid` 放在 `data` 字段。
+- 前端仍兼容上一版 CDR `std_msgs/msg/UInt8MultiArray` 包裹格式，即 `UInt8MultiArray.data` 中放 gzip 后的 CDR `nav_msgs/msg/OccupancyGrid`。
+- 前端也兼容旧版 `version/codec/width/height/.../gzip_data` 自定义二进制。
+- 新机器人端应直接向 MQTT 发布 raw `gzip(CDR nav_msgs/msg/OccupancyGrid)`。
 
 复用现有地图渲染链路：
 
@@ -245,7 +249,6 @@ ROS /map nav_msgs/msg/OccupancyGrid
 MQTT map/compressed
   -> useCompressedMapMqtt
   -> worker.decodeCompressedMapPayload
-  -> CDR UInt8MultiArray.data
   -> gunzip
   -> CDR OccupancyGrid
   -> useGridStore.setMapGrid
@@ -306,4 +309,4 @@ mosquitto_pub -h <robot-ip> -p 1885 -u zc -P 8888 -t scan/filtered/required -n
 mosquitto_sub -h <robot-ip> -p 1885 -u zc -P 8888 -t map/compressed > map_payload.bin
 ```
 
-`map_payload.bin` 是 CDR `std_msgs/msg/UInt8MultiArray`，需要先解 CDR，再 gunzip `data` 字段，然后把解压结果按 CDR `nav_msgs/msg/OccupancyGrid` 解码。
+`map_payload.bin` 是 raw gzip 数据，需要先 gunzip，然后把解压结果按 CDR `nav_msgs/msg/OccupancyGrid` 解码。

@@ -357,7 +357,7 @@ function extractCompressedMapBinaryPayload(payload: Uint8Array) {
   if (cdrData && (isGzipPayload(cdrData) || isLegacyCompressedMapBinaryPayload(cdrData)))
     return cdrData
 
-  throw new Error('压缩地图 MQTT payload 不是有效的 gzip OccupancyGrid CDR、旧版 gzip 地图或 CDR UInt8MultiArray')
+  throw new Error('压缩地图 MQTT payload 不是有效的 raw gzip OccupancyGrid CDR、上一版 CDR UInt8MultiArray 或旧版 gzip 地图')
 }
 
 async function decodeLegacyCompressedMapPayload(mapPayload: Uint8Array) {
