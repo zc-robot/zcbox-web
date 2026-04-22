@@ -24,6 +24,9 @@ const scaledCanvas = new OffscreenCanvas(0, 0)
 const MAX_BITMAP_SIZE = 1500
 
 const RLE_SIGNATURE = [82, 76, 69, 32] // 'RLE '
+const COMPRESSED_MAP_HEADER_SIZE = 34
+const COMPRESSED_MAP_VERSION = 1
+const COMPRESSED_MAP_CODEC_GZIP = 1
 
 function hasRLESignature(data: number[] | Uint8Array) {
   if (data.length < 8)
@@ -78,6 +81,87 @@ export function decodeRLE(data: number[] | Uint8Array): number[] {
   }
 
   return result
+}
+
+async function decompressGzip(data: Uint8Array): Promise<Uint8Array> {
+  if (typeof DecompressionStream === 'undefined')
+    throw new Error('当前浏览器不支持 gzip 解压')
+
+  const stream = new Blob([data])
+    .stream()
+    .pipeThrough(new DecompressionStream('gzip'))
+  const buffer = await new Response(stream).arrayBuffer()
+
+  return new Uint8Array(buffer)
+}
+
+export async function decodeCompressedMapPayload(payload: Uint8Array) {
+  if (payload.byteLength < COMPRESSED_MAP_HEADER_SIZE)
+    throw new Error('压缩地图数据长度不足')
+
+  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength)
+  const version = view.getUint8(0)
+  const codec = view.getUint8(1)
+
+  if (version !== COMPRESSED_MAP_VERSION)
+    throw new Error(`不支持的压缩地图版本: ${version}`)
+
+  if (codec !== COMPRESSED_MAP_CODEC_GZIP)
+    throw new Error(`不支持的压缩地图编码: ${codec}`)
+
+  const width = view.getUint32(2, false)
+  const height = view.getUint32(6, false)
+  const resolution = view.getFloat32(10, false)
+  const originX = view.getFloat32(14, false)
+  const originY = view.getFloat32(18, false)
+  const originYaw = view.getFloat32(22, false)
+  const rawSize = view.getUint32(26, false)
+  const compressedSize = view.getUint32(30, false)
+
+  if (width <= 0 || height <= 0)
+    throw new Error('压缩地图宽高异常')
+
+  if (rawSize !== width * height)
+    throw new Error('压缩地图原始长度与宽高不匹配')
+
+  if (COMPRESSED_MAP_HEADER_SIZE + compressedSize !== payload.byteLength)
+    throw new Error('压缩地图 payload 长度与头部不匹配')
+
+  const compressedData = payload.subarray(COMPRESSED_MAP_HEADER_SIZE)
+  const rawData = await decompressGzip(compressedData)
+
+  if (rawData.byteLength !== rawSize)
+    throw new Error('gzip 解压后的地图长度不匹配')
+
+  const halfYaw = originYaw / 2
+  const info: GridInfoMessage = {
+    width,
+    height,
+    resolution,
+    origin: {
+      position: {
+        x: originX,
+        y: originY,
+        z: 0,
+      },
+      orientation: {
+        x: 0,
+        y: 0,
+        z: Math.sin(halfYaw),
+        w: Math.cos(halfYaw),
+      },
+      pyr: {
+        pitch: 0,
+        roll: 0,
+        yaw: originYaw,
+      },
+    },
+  }
+
+  return {
+    info,
+    data: Array.from(rawData, value => value === 255 ? -1 : value),
+  }
 }
 
 export function mapImageData(info: GridInfoMessage, mapData: number[]): MapRenderResult {

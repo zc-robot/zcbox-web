@@ -5,16 +5,16 @@ import { unstable_useBlocker as useBlocker } from 'react-router-dom'
 import MapInfoModal from './MapInfoModal'
 import ControllerDeck from '@/components/ControllerDeck'
 import { useGridStore } from '@/store'
-import type { OccupancyGridMessage, RobotInfoMessage } from '@/types'
+import type { RobotInfoMessage } from '@/types'
 import apiServer from '@/service/apiServer'
 import Monitor from '@/components/map/Monitor'
-import { useBatteryStateMqtt, useLaserScanMqtt, useRobotPoseMqtt } from '@/hooks'
-import { mapWorker } from '@/util/transform'
+import { useBatteryStateMqtt, useCompressedMapMqtt, useLaserScanMqtt, useRobotPoseMqtt } from '@/hooks'
 
 const Mapping: React.FC = () => {
   useRobotPoseMqtt()
   useBatteryStateMqtt()
   useLaserScanMqtt()
+  const isMapMqttConnected = useCompressedMapMqtt()
   const [showModal, setShowModal] = useState<boolean>(false)
   const [isMapping, setIsMapping] = useState<boolean>(false)
   const shouldBlocker = useCallback<BlockerFunction>(({ currentLocation, nextLocation }) => {
@@ -22,11 +22,10 @@ const Mapping: React.FC = () => {
   }, [isMapping])
   const blocker = useBlocker(shouldBlocker)
 
-  const { resetGrid, zoom, robotStatus, setMapGrid, setRobotInfo, isScanVisible, setScanVisibility, updateScanPointSize } = useGridStore(state => ({
+  const { resetGrid, zoom, robotStatus, setRobotInfo, isScanVisible, setScanVisibility, updateScanPointSize } = useGridStore(state => ({
     resetGrid: state.resetGrid,
     zoom: state.zoom,
     robotStatus: state.robotInfo?.fsm,
-    setMapGrid: state.setMapGrid,
     setRobotInfo: state.setRobotInfo,
     isScanVisible: state.isScanVisible,
     setScanVisibility: state.setScanVisibility,
@@ -39,7 +38,6 @@ const Mapping: React.FC = () => {
     reconnectInterval: 2000,
     retryOnError: true,
   }
-  const { lastMessage: mapMessage, readyState: mapState } = useWebSocket(`${apiServer.wsDomain}/map`, wsOption)
   const { lastMessage: robotMessage, readyState: robotState } = useWebSocket(apiServer.robotDataWsUrl, wsOption)
 
   useEffect(() => {
@@ -53,31 +51,6 @@ const Mapping: React.FC = () => {
       }
     }
   }, [robotMessage, setRobotInfo])
-
-  useEffect(() => {
-    if (mapMessage == null)
-      return
-
-    let isCancelled = false
-
-    const processMapMessage = async () => {
-      try {
-        const msg = JSON.parse(mapMessage.data) as OccupancyGridMessage
-        const decompressedData = await mapWorker.decodeRLE(msg.data)
-        if (!isCancelled)
-          setMapGrid(decompressedData, msg.info)
-      }
-      catch (e) {
-        console.error('Failed to parse map data', mapMessage?.data, e)
-      }
-    }
-
-    processMapMessage()
-
-    return () => {
-      isCancelled = true
-    }
-  }, [mapMessage, setMapGrid])
 
   useEffect(() => {
     if (blocker.state === 'blocked') {
@@ -194,7 +167,7 @@ const Mapping: React.FC = () => {
               </span>
           </div>
           <div className="panel-item justify-center group">
-            <div className={`${mapState === ReadyState.OPEN
+            <div className={`${isMapMqttConnected
               ? 'border-green'
               : 'border-red'} border-(3px solid) rd-3px self-center`}/>
               <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">地图</span>
