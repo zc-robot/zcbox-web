@@ -8,6 +8,9 @@ export function createMqttClient() {
     username: 'zc',
     password: '8888',
     protocolVersion: 4,
+    clean: true,
+    resubscribe: true,
+    keepalive: 15,
     reconnectPeriod: 2000,
     connectTimeout: 5000,
   })
