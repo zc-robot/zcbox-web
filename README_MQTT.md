@@ -28,7 +28,7 @@ reconnectPeriod: 2000 ms
 connectTimeout: 5000 ms
 ```
 
-电池和扫描 payload 的多字节字段按网络字节序，也就是大端序解析。ROS 2 CDR payload 会先按 CDR encapsulation 里的字节序解析。
+旧版自定义 payload 的多字节字段按网络字节序，也就是大端序解析。ROS 2 CDR payload 会先按 CDR encapsulation 里的字节序解析。
 
 ## 主题总览
 
@@ -111,31 +111,26 @@ battery/sub
 
 前端每 3 秒向 `battery/sub` 发送空 payload。机器人端收到这个 ping 后，只在有限时间窗口内发布电池数据。
 
-Payload：
+当前 payload 是 ROS 2 CDR 序列化的 `sensor_msgs/msg/BatteryState`，与 ROS topic `battery/state` 上的消息一致，不再是旧的固定 35 字节自定义结构。
 
 ```text
-uint8 version
-uint8 flags
-uint8 power_supply_status
-float32 voltage
-float32 current
-float32 charge
-float32 capacity
-float32 percentage
-float32 temperature
-float32 power
-float32 energy_wh
+sensor_msgs/msg/BatteryState
 ```
 
-总长度：35 字节。
+MQTT payload 不包含 `battery/energy_consumption`，能耗仍是独立 ROS topic。
 
 处理流程：
 
-1. 校验 payload 长度为 35 字节。
-2. 校验 `version == 1`。
-3. 从字节偏移 `7` 读取 `current`。
-4. 从字节偏移 `19` 读取 `percentage`，再乘以 100 转成百分比。
+1. 解码 CDR `sensor_msgs/msg/BatteryState`。
+2. 跳过 `Header`。
+3. 读取 `current`。
+4. 读取 `percentage`，再乘以 100 转成百分比。
 5. 通过 `useGridStore.updateRobotBattery` 写入状态。
+
+兼容性：
+
+- 前端仍保留旧版 35 字节 `uint8 version + uint8 flags + uint8 power_supply_status + float32...` 格式的 fallback。
+- 新机器人端应使用 CDR `sensor_msgs/msg/BatteryState`。
 
 当前 UI 只显示 `battery` 和 `batteryCurrent`。
 
