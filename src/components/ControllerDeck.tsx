@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { round, toNumber, toString } from 'lodash'
+import { round } from 'lodash'
 import { shallow } from 'zustand/shallow'
 import { useGridStore, useOperationStore } from '@/store'
 import { useInterval, useKeyPress, useVelocityCommandMqtt } from '@/hooks'
@@ -8,6 +8,76 @@ import type { PoseMessage, RobotStatus } from '@/types'
 
 function formatDisplayValue(value: number) {
   return value.toFixed(2)
+}
+
+function formatVelocityValue(value: number) {
+  return String(round(Number.isFinite(value) ? value : 0, 2))
+}
+
+function parseVelocityValue(value: string) {
+  const parsedValue = Number(value)
+  if (!Number.isFinite(parsedValue))
+    return null
+
+  return round(Math.max(parsedValue, 0), 2)
+}
+
+const VelocityInput: React.FC<{
+  iconClassName: string
+  label: string
+  step: number
+  value: number
+  onCommit: (value: number) => void
+}> = ({ iconClassName, label, step, value, onCommit }) => {
+  const [draftValue, setDraftValue] = useState(formatVelocityValue(value))
+  const [isEditing, setEditing] = useState(false)
+
+  useEffect(() => {
+    if (!isEditing)
+      setDraftValue(formatVelocityValue(value))
+  }, [isEditing, value])
+
+  const commitDraftValue = useCallback(() => {
+    const parsedValue = parseVelocityValue(draftValue)
+    if (parsedValue === null) {
+      setDraftValue(formatVelocityValue(value))
+      return
+    }
+
+    onCommit(parsedValue)
+    setDraftValue(formatVelocityValue(parsedValue))
+  }, [draftValue, onCommit, value])
+
+  return (
+    <div className="flex flex-items-center pt-2">
+      <div className={`${iconClassName} text-5`} />
+      <i className="text-3 mr-2">{label}</i>
+      <input
+        className="flex-grow w-20"
+        type="number"
+        min={0}
+        step={step}
+        value={draftValue}
+        onBlur={() => {
+          setEditing(false)
+          commitDraftValue()
+        }}
+        onChange={(event) => { setDraftValue(event.target.value) }}
+        onFocus={() => { setEditing(true) }}
+        onKeyDown={(event) => {
+          event.stopPropagation()
+          if (event.key === 'Enter') {
+            event.currentTarget.blur()
+          }
+          else if (event.key === 'Escape') {
+            setDraftValue(formatVelocityValue(value))
+            event.currentTarget.blur()
+          }
+        }}
+        onKeyUp={(event) => { event.stopPropagation() }}
+      />
+    </div>
+  )
 }
 
 const Panel: React.FC = () => {
@@ -142,30 +212,20 @@ const Panel: React.FC = () => {
           <i className="i-material-symbols-arrow-forward-rounded ma" />
         </div>
       </div>
-      <div className="flex flex-items-center pt-2">
-        <div className="i-material-symbols-line-end-arrow-outline-rounded text-5" />
-        <i className="text-3 mr-2">线速度</i>
-        <input
-          className="flex-grow w-20"
-          type="number"
-          min={0}
-          step={step}
-          value={toString(velocityInfo.line)}
-          onChange={(e) => { updateLineVelocity(round(toNumber(e.target.value), 2)) }}
-        />
-      </div>
-      <div className="flex flex-items-center pt-2">
-        <div className="i-material-symbols-rotate-right-rounded text-5" />
-        <i className="text-3 mr-2">角速度</i>
-        <input
-          className="flex-grow w-20"
-          type="number"
-          min={0}
-          step={step}
-          value={toString(velocityInfo.angular)}
-          onChange={(e) => { updateAngularVelocity(round(toNumber(e.target.value), 2)) }}
-        />
-      </div>
+      <VelocityInput
+        iconClassName="i-material-symbols-line-end-arrow-outline-rounded"
+        label="线速度"
+        step={step}
+        value={velocityInfo.line}
+        onCommit={updateLineVelocity}
+      />
+      <VelocityInput
+        iconClassName="i-material-symbols-rotate-right-rounded"
+        label="角速度"
+        step={step}
+        value={velocityInfo.angular}
+        onCommit={updateAngularVelocity}
+      />
       <div
         className="border-(solid 1px gray-5) rounded mt-2 p-2 text-3 cursor-default"
         onClick={confirmStatus}>

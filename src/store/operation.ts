@@ -93,14 +93,14 @@ export const operationSlice: StateCreator<OperationSlice> = (set, get) => ({
     })
   },
   updateLineVelocity: (by: number) => {
-    if (by < 0)
+    if (!Number.isFinite(by) || by < 0)
       return
     set(() => {
       return { velocityInfo: { ...get().velocityInfo, line: by } }
     })
   },
   updateAngularVelocity: (by: number) => {
-    if (by < 0)
+    if (!Number.isFinite(by) || by < 0)
       return
     set(() => {
       return { velocityInfo: { ...get().velocityInfo, angular: by } }
