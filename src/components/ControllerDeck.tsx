@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react'
-import { useWebSocket } from 'react-use-websocket/dist/lib/use-websocket'
+import { useCallback, useEffect, useState } from 'react'
 import { round, toNumber, toString } from 'lodash'
 import { shallow } from 'zustand/shallow'
 import { useGridStore, useOperationStore } from '@/store'
-import { useInterval, useKeyPress } from '@/hooks'
+import { useInterval, useKeyPress, useVelocityCommandMqtt } from '@/hooks'
 import apiServer from '@/service/apiServer'
 import type { PoseMessage, RobotStatus } from '@/types'
 
@@ -19,11 +18,16 @@ const Panel: React.FC = () => {
     updateAngularVelocity: state.updateAngularVelocity,
   }), shallow)
   const [pressedKey, pressKey] = useState<string>('')
+  const publishVelocityCommand = useVelocityCommandMqtt()
 
-  const { sendJsonMessage } = useWebSocket(`${apiServer.wsDomain}/velocity_control`)
   const confirmStatus = async () => {
     await apiServer.confirmStatus()
   }
+
+  const stopVelocityCommand = useCallback(() => {
+    publishVelocityCommand()
+    pressKey('')
+  }, [publishVelocityCommand])
 
   useKeyPress((event, isDown) => {
     if (isDown) {
@@ -47,17 +51,14 @@ const Panel: React.FC = () => {
       }
     }
     else {
-      if (!event.shiftKey) {
-        sendJsonMessage({ linear: 0, angular: 0.0 })
-        pressKey('')
-      }
+      if (!event.shiftKey)
+        stopVelocityCommand()
     }
   }, ['w', 's', 'a', 'd', 'q', 'e', 'z', 'c', 'W', 'S', 'A', 'D'])
 
   useEffect(() => {
     const handleBlur = () => {
-      sendJsonMessage({ linear: 0, angular: 0.0 })
-      pressKey('')
+      stopVelocityCommand()
     }
 
     window.addEventListener('blur', handleBlur)
@@ -65,33 +66,33 @@ const Panel: React.FC = () => {
     return () => {
       window.removeEventListener('blur', handleBlur)
     }
-  }, [sendJsonMessage])
+  }, [stopVelocityCommand])
 
   useInterval(async () => {
     switch (pressedKey) {
       case 'w':
-        sendJsonMessage({ linear: velocityInfo.line, angular: 0.0 })
+        publishVelocityCommand({ linearX: velocityInfo.line })
         break
       case 's':
-        sendJsonMessage({ linear: -velocityInfo.line, angular: 0.0 })
+        publishVelocityCommand({ linearX: -velocityInfo.line })
         break
       case 'a':
-        sendJsonMessage({ linear: 0.0, angular: velocityInfo.angular })
+        publishVelocityCommand({ angularZ: velocityInfo.angular })
         break
       case 'd':
-        sendJsonMessage({ linear: 0.0, angular: -velocityInfo.angular })
+        publishVelocityCommand({ angularZ: -velocityInfo.angular })
         break
       case 'q':
-        sendJsonMessage({ linear: velocityInfo.line, angular: velocityInfo.angular })
+        publishVelocityCommand({ linearX: velocityInfo.line, angularZ: velocityInfo.angular })
         break
       case 'e':
-        sendJsonMessage({ linear: velocityInfo.line, angular: -velocityInfo.angular })
+        publishVelocityCommand({ linearX: velocityInfo.line, angularZ: -velocityInfo.angular })
         break
       case 'z':
-        sendJsonMessage({ linear_y: velocityInfo.line, angular: 0.0 })
+        publishVelocityCommand({ linearY: velocityInfo.line })
         break
       case 'c':
-        sendJsonMessage({ linear_y: -velocityInfo.line, angular: 0.0 })
+        publishVelocityCommand({ linearY: -velocityInfo.line })
         break
     }
   }, pressedKey === '' ? undefined : 50)
@@ -101,43 +102,43 @@ const Panel: React.FC = () => {
       <div className="flex flex-(justify-center items-center)">
         <div className={`w-4 h-4 border-(solid 1px gray-5) rounded p-1 ${pressedKey === 'q' ? 'bg-gray-3' : ''}`}
           onPointerDown={() => pressKey('q')}
-          onPointerUp={() => pressKey('')}
-          onPointerOut={() => pressKey('')}>
+          onPointerUp={stopVelocityCommand}
+          onPointerOut={stopVelocityCommand}>
           <i className="i-material-symbols-arrow-upward-rounded ma rotate-315" />
         </div>
         <div className={`w-4 h-4 border-(solid 1px gray-5) rounded p-1 ${pressedKey === 'w' ? 'bg-gray-3' : ''}`}
           onPointerDown={() => pressKey('w')}
-          onPointerUp={() => pressKey('')}
-          onPointerOut={() => pressKey('')}>
+          onPointerUp={stopVelocityCommand}
+          onPointerOut={stopVelocityCommand}>
           <i className="i-material-symbols-arrow-upward-rounded ma" />
         </div>
         <div className={`w-4 h-4 border-(solid 1px gray-5) rounded p-1 ${pressedKey === 'e' ? 'bg-gray-3' : ''}`}
           onPointerDown={() => pressKey('e')}
-          onPointerUp={() => pressKey('')}
-          onPointerOut={() => pressKey('')}>
+          onPointerUp={stopVelocityCommand}
+          onPointerOut={stopVelocityCommand}>
           <i className="i-material-symbols-arrow-upward-rounded ma rotate-45" />
         </div>
       </div>
       <div className="flex flex-(justify-center items-center)">
         <div className={`w-4 h-4 border-(solid 1px gray-5) rounded p-1 ${pressedKey === 'a' ? 'bg-gray-3' : ''}`}
           onPointerDown={() => pressKey('a')}
-          onPointerUp={() => pressKey('')}
-          onPointerLeave={() => pressKey('')}
-          onPointerOut={() => pressKey('')}>
+          onPointerUp={stopVelocityCommand}
+          onPointerLeave={stopVelocityCommand}
+          onPointerOut={stopVelocityCommand}>
           <i className="i-material-symbols-arrow-back-rounded ma" />
         </div>
         <div className={`w-4 h-4 border-(solid 1px gray-5) rounded p-1 ${pressedKey === 's' ? 'bg-gray-3' : ''}`}
           onPointerDown={() => pressKey('s')}
-          onPointerUp={() => pressKey('')}
-          onPointerLeave={() => pressKey('')}
-          onPointerOut={() => pressKey('')}>
+          onPointerUp={stopVelocityCommand}
+          onPointerLeave={stopVelocityCommand}
+          onPointerOut={stopVelocityCommand}>
           <i className="i-material-symbols-arrow-downward-rounded ma" />
         </div>
         <div className={`w-4 h-4 border-(solid 1px gray-5) rounded p-1 ${pressedKey === 'd' ? 'bg-gray-3' : ''}`}
           onPointerDown={() => pressKey('d')}
-          onPointerUp={() => pressKey('')}
-          onPointerLeave={() => pressKey('')}
-          onPointerOut={() => pressKey('')}>
+          onPointerUp={stopVelocityCommand}
+          onPointerLeave={stopVelocityCommand}
+          onPointerOut={stopVelocityCommand}>
           <i className="i-material-symbols-arrow-forward-rounded ma" />
         </div>
       </div>

@@ -5,6 +5,16 @@ import apiServer from '@/service/apiServer'
 
 const CDR_HEADER_SIZE = 4
 const POSE_CDR_DOUBLE_COUNT = 7
+const TWIST_CDR_PAYLOAD_SIZE = 52
+
+export interface TwistCommand {
+  linearX?: number
+  linearY?: number
+  linearZ?: number
+  angularX?: number
+  angularY?: number
+  angularZ?: number
+}
 
 export function createMqttClient() {
   return mqtt.connect(apiServer.mqttWsUrl, {
@@ -186,6 +196,35 @@ export function decodePosePayload(payload: Uint8Array): PoseMessage | null {
   const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength)
 
   return decodeCdrPosePayload(view) ?? decodeLegacyPosePayload(view)
+}
+
+function sanitizeTwistValue(value: number | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+export function encodeTwistPayload(command: TwistCommand) {
+  const payload = new Uint8Array(TWIST_CDR_PAYLOAD_SIZE)
+  const view = new DataView(payload.buffer)
+  let offset = CDR_HEADER_SIZE
+
+  view.setUint16(0, 1, false)
+  view.setUint16(2, 0, false)
+
+  const values = [
+    command.linearX,
+    command.linearY,
+    command.linearZ,
+    command.angularX,
+    command.angularY,
+    command.angularZ,
+  ]
+
+  for (const value of values) {
+    view.setFloat64(offset, sanitizeTwistValue(value), true)
+    offset += 8
+  }
+
+  return payload
 }
 
 export function teardownMqttClient(client: MqttClient) {

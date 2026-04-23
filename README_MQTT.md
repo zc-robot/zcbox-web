@@ -39,6 +39,7 @@ connectTimeout: 5000 ms
 | 激光位姿 | `laser_pose` | 随扫描显示开启 | `useLaserScanMqtt` |
 | 过滤后扫描 | `scan/filtered` | 每 5 秒发送 `scan/filtered/required` | `useLaserScanMqtt` |
 | 建图地图 | `map/compressed` | 无 | `useCompressedMapMqtt` |
+| 速度命令 | 发布 `cmd_vel_collision` | 无 | `useVelocityCommandMqtt` |
 
 ## 机器人位姿
 
@@ -258,6 +259,56 @@ MQTT map/compressed
 ```
 
 建图时旧的 `/map` WebSocket 地图流已经不再用于地图数据。
+
+## 速度命令
+
+相关代码：
+
+- `src/components/ControllerDeck.tsx`
+- `src/hooks/useVelocityCommandMqtt.ts`
+- `src/hooks/mqtt.ts`
+
+发布主题：
+
+```text
+cmd_vel_collision
+```
+
+当前速度控制不再使用 Flask `/velocity_control` WebSocket JSON，而是直接向 MQTT 发布二进制 CDR payload：
+
+```text
+geometry_msgs/msg/Twist
+```
+
+Payload 是 52 字节：
+
+```text
+4 字节 CDR encapsulation: 00 01 00 00
+float64 linear.x
+float64 linear.y
+float64 linear.z
+float64 angular.x
+float64 angular.y
+float64 angular.z
+```
+
+CDR encapsulation 指定后续字段为 little-endian。`geometry_msgs/msg/Twist` 由两个 `Vector3` 组成，所以前端按 ROS 2 CDR 的字段顺序写入 6 个 `float64`。
+
+控制逻辑：
+
+1. 用户按下键盘或控制面板方向按钮时，前端每 50 ms 发布一次速度命令，也就是 20 Hz。
+2. `w/s` 控制 `linear.x`，`a/d` 控制 `angular.z`，`q/e` 同时控制 `linear.x` 和 `angular.z`。
+3. `z/c` 控制 `linear.y`，用于支持横移底盘。
+4. 用户松开按键、鼠标离开按钮、窗口失焦或组件卸载时，前端发布全 0 的 `Twist` 停车命令。
+5. MQTT 发布参数为 QoS 0、retain false。
+
+测试订阅：
+
+```bash
+mosquitto_sub -h <robot-ip> -p 1885 -u zc -P 8888 -t cmd_vel_collision > twist_payload.bin
+```
+
+这个 payload 是二进制 CDR，不是 JSON，直接打印到终端不会显示可读数字。需要按 `geometry_msgs/msg/Twist` 的 ROS 2 CDR 格式解析。
 
 ## Store 更新关系
 
