@@ -4,6 +4,7 @@ export type Operation =
   | 'move'
   | 'select'
   | 'waypoint'
+  | 'waypointLine'
   | 'pathway'
   | 'door'
   | 'lift'

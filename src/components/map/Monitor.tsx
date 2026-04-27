@@ -1,6 +1,7 @@
 import type Konva from 'konva'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Layer, Line, Stage } from 'react-konva'
+import toast from 'react-hot-toast'
+import { Circle, Layer, Line, Stage } from 'react-konva'
 import { shallow } from 'zustand/shallow'
 import Door from './Door'
 import GridMap from './GridMap'
@@ -16,6 +17,8 @@ import { useGridStore, useOperationStore, useParamsStore, useProfileStore } from
 import { useElementSize, useKeyPress } from '@/hooks'
 import { composePose, getRelativePose } from '@/util/transform'
 import type { NavPoint, PoseMessage } from '@/types'
+import type { LineWaypointMode, Point2D } from '@/util/waypoints'
+import { createLineWaypointPreview, getEvenlyRedistributedWaypoints } from '@/util/waypoints'
 
 interface ImageState {
   x: number
@@ -25,6 +28,9 @@ interface ImageState {
   scale: number
   rotation: number | null
 }
+
+const DEFAULT_LINE_WAYPOINT_COUNT = '5'
+const DEFAULT_LINE_WAYPOINT_SPACING = '1.00'
 
 function getLayerState(resolution: number, imageX: number, imageY: number, scale: number): ImageState {
   const layerScale = scale / resolution
@@ -44,6 +50,18 @@ function isEditableTarget(target: EventTarget | null) {
   )
 }
 
+function parseDraftNumber(value: string) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : Number.NaN
+}
+
+function formatNumber(value: number) {
+  if (!Number.isFinite(value))
+    return '0'
+
+  return value.toFixed(2)
+}
+
 const Monitor: React.FC = () => {
   const layerRef = useRef<Konva.Layer>(null)
   const lastHandledCenterRequestId = useRef(0)
@@ -52,6 +70,12 @@ const Monitor: React.FC = () => {
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [draftPath, setDraftPath] = useState<{ startId: string; x: number; y: number } | null>(null)
   const [draftPathTargetId, setDraftPathTargetId] = useState<string | null>(null)
+  const [lineWaypointDraft, setLineWaypointDraft] = useState<{ start: Point2D; end: Point2D } | null>(null)
+  const [lineWaypointPanelOpen, setLineWaypointPanelOpen] = useState(false)
+  const [lineWaypointMode, setLineWaypointMode] = useState<LineWaypointMode>('spacing')
+  const [lineWaypointCount, setLineWaypointCount] = useState(DEFAULT_LINE_WAYPOINT_COUNT)
+  const [lineWaypointSpacing, setLineWaypointSpacing] = useState(DEFAULT_LINE_WAYPOINT_SPACING)
+  const [lineWaypointConnect, setLineWaypointConnect] = useState(true)
   const [containerRef, { width, height }] = useElementSize()
 
   const { currentOp, selectedId, selectedPointIds, selectPoint, selectPoints, togglePointSelection, openPointEditor } = useOperationStore(state => ({
@@ -109,6 +133,16 @@ const Monitor: React.FC = () => {
   }, [robotParams])
 
   const pathSnapDistance = useMemo(() => Math.max(pathStrokeWidth * 5, 0.35), [pathStrokeWidth])
+  const lineWaypointPreview = useMemo(() => {
+    if (!lineWaypointDraft)
+      return null
+
+    return createLineWaypointPreview(lineWaypointDraft.start, lineWaypointDraft.end, {
+      mode: lineWaypointMode,
+      count: parseDraftNumber(lineWaypointCount),
+      spacing: parseDraftNumber(lineWaypointSpacing),
+    })
+  }, [lineWaypointCount, lineWaypointDraft, lineWaypointMode, lineWaypointSpacing])
 
   useKeyPress((event, isDown) => {
     if (!isDown || isEditableTarget(event.target))
@@ -156,53 +190,13 @@ const Monitor: React.FC = () => {
     if (selectedPoints.length < 2)
       return
 
-    let start = selectedPoints[0]
-    let end = selectedPoints[selectedPoints.length - 1]
-    let maxDistance = Math.hypot(end.x - start.x, end.y - start.y)
-
-    if (maxDistance < 1e-6) {
-      selectedPoints.forEach((pointA, indexA) => {
-        selectedPoints.slice(indexA + 1).forEach((pointB) => {
-          const distance = Math.hypot(pointB.x - pointA.x, pointB.y - pointA.y)
-          if (distance > maxDistance) {
-            start = pointA
-            end = pointB
-            maxDistance = distance
-          }
-        })
-      })
-    }
-
-    if (maxDistance < 1e-6)
+    const layout = getEvenlyRedistributedWaypoints(selectedPoints)
+    if (!layout)
       return
 
-    const vector = {
-      x: end.x - start.x,
-      y: end.y - start.y,
-    }
-    const vectorLengthSquared = vector.x ** 2 + vector.y ** 2
-    const interior = selectedPoints
-      .filter(point => point.uid !== start.uid && point.uid !== end.uid)
-      .sort((pointA, pointB) => {
-        const projectionA = ((pointA.x - start.x) * vector.x + (pointA.y - start.y) * vector.y) / vectorLengthSquared
-        const projectionB = ((pointB.x - start.x) * vector.x + (pointB.y - start.y) * vector.y) / vectorLengthSquared
-        return projectionA - projectionB
-      })
-    const orderedPoints = [start, ...interior, end]
-    const updates = orderedPoints.map((point, index) => {
-      const ratio = index / (orderedPoints.length - 1)
-      return {
-        uid: point.uid,
-        point: {
-          x: start.x + vector.x * ratio,
-          y: start.y + vector.y * ratio,
-        },
-      }
-    })
-
     event.preventDefault()
-    updateCurrentProfilePoints(updates)
-    selectPoints(orderedPoints.map(point => point.uid), end.uid)
+    updateCurrentProfilePoints(layout.updates)
+    selectPoints(layout.orderedPoints.map(point => point.uid), layout.orderedPoints[layout.orderedPoints.length - 1].uid)
   }, ['/'])
 
   useEffect(() => {
@@ -251,6 +245,13 @@ const Monitor: React.FC = () => {
   }, [currentOp])
 
   useEffect(() => {
+    if (currentOp !== 'waypointLine') {
+      setLineWaypointDraft(null)
+      setLineWaypointPanelOpen(false)
+    }
+  }, [currentOp])
+
+  useEffect(() => {
     if (currentOp !== 'pathway' || !selectedId?.startsWith('Point')) {
       setDraftPath(null)
       setDraftPathTargetId(null)
@@ -295,6 +296,32 @@ const Monitor: React.FC = () => {
     ? composePose(relocalizationPose, relocalizationLaserOffset.current)
     : laserPose
 
+  const getPointerMapPoint = (event: Konva.KonvaEventObject<MouseEvent>) => {
+    const layer = layerRef.current
+    if (!layer || !gridInfo)
+      return null
+
+    return {
+      x: (event.evt.offsetX - layer.x()) * (gridInfo.resolution / scale),
+      y: (event.evt.offsetY - layer.y()) * (gridInfo.resolution / scale),
+    }
+  }
+
+  const createPathPayload = (start: NavPoint, end: NavPoint) => {
+    const pid = uid('Path')
+    return {
+      uid: pid,
+      name: `路径 ${pid.slice(-3)}`,
+      start,
+      end,
+      thickness: 2,
+      controls: [
+        { x: start.x + (end.x - start.x) / 4, y: start.y + (end.y - start.y) / 4 },
+        { x: start.x + (end.x - start.x) / 4 * 3, y: start.y + (end.y - start.y) / 4 * 3 },
+      ],
+    }
+  }
+
   const createPathBetweenPoints = (start: NavPoint, end: NavPoint) => {
     const existingPath = currentPaths().find((path) => {
       const sameDirection = path.start.uid === start.uid && path.end.uid === end.uid
@@ -309,21 +336,61 @@ const Monitor: React.FC = () => {
       return
     }
 
-    const pid = uid('Path')
-    appendCurrentProfilePath({
-      uid: pid,
-      name: `路径 ${pid.slice(-3)}`,
-      start,
-      end,
-      thickness: 2,
-      controls: [
-        { x: start.x + (end.x - start.x) / 4, y: start.y + (end.y - start.y) / 4 },
-        { x: start.x + (end.x - start.x) / 4 * 3, y: start.y + (end.y - start.y) / 4 * 3 },
-      ],
-    })
+    appendCurrentProfilePath(createPathPayload(start, end))
     setDraftPath(null)
     setDraftPathTargetId(null)
     selectPoint(end.uid)
+  }
+
+  const cancelLineWaypointDraft = () => {
+    setLineWaypointDraft(null)
+    setLineWaypointPanelOpen(false)
+  }
+
+  const updateLineWaypointAnchor = (point: Point2D) => {
+    if (!currentProfileId || lineWaypointPanelOpen)
+      return
+
+    if (!lineWaypointDraft) {
+      setLineWaypointDraft({ start: point, end: point })
+      return
+    }
+
+    if (Math.hypot(point.x - lineWaypointDraft.start.x, point.y - lineWaypointDraft.start.y) < 1e-6)
+      return
+
+    setLineWaypointDraft({ start: lineWaypointDraft.start, end: point })
+    setLineWaypointPanelOpen(true)
+  }
+
+  const confirmLineWaypointDraft = () => {
+    if (!lineWaypointPreview || lineWaypointPreview.points.length < 2)
+      return
+
+    const createdPoints = lineWaypointPreview.points.map((point) => {
+      const id = uid('Point')
+      return {
+        uid: id,
+        name: `路径点 ${id.slice(-3)}`,
+        x: point.x,
+        y: point.y,
+        rotation: point.rotation,
+        is_charger: false,
+        is_parking_spot: false,
+      }
+    })
+
+    createdPoints.forEach(point => appendCurrentProfilePoint(point))
+
+    if (lineWaypointConnect) {
+      createdPoints.slice(0, -1).forEach((point, index) => {
+        appendCurrentProfilePath(createPathPayload(point, createdPoints[index + 1]))
+      })
+    }
+
+    selectPoints(createdPoints.map(point => point.uid), createdPoints[createdPoints.length - 1].uid)
+    cancelLineWaypointDraft()
+    toast.success(`已创建 ${createdPoints.length} 个等距路径点`)
   }
 
   const findPathTarget = (x: number, y: number, startId: string) => {
@@ -345,8 +412,7 @@ const Monitor: React.FC = () => {
   }
 
   const handleLayerClick = (obj: Konva.KonvaEventObject<MouseEvent>) => {
-    const layer = layerRef.current
-    if (!layer || !gridInfo)
+    if (!layerRef.current || !gridInfo)
       return
 
     if (currentOp === 'select') {
@@ -363,12 +429,14 @@ const Monitor: React.FC = () => {
       if (!currentProfileId)
         return
 
-      const x = (obj.evt.offsetX - layer.x()) * (gridInfo.resolution / scale)
-      const y = (obj.evt.offsetY - layer.y()) * (gridInfo.resolution / scale)
+      const point = getPointerMapPoint(obj)
+      if (!point)
+        return
+
       const id = uid('Point')
       appendCurrentProfilePoint({
-        x,
-        y,
+        x: point.x,
+        y: point.y,
         name: `路径点 ${id.slice(-3)}`,
         uid: id,
         rotation: 0,
@@ -378,18 +446,27 @@ const Monitor: React.FC = () => {
       openPointEditor(id)
       selectPoint(id)
     }
+    else if (currentOp === 'waypointLine') {
+      const point = getPointerMapPoint(obj)
+      if (!point)
+        return
+
+      updateLineWaypointAnchor(point)
+    }
     else if (currentOp === 'door') {
       if (!currentProfileId)
         return
 
-      const x = (obj.evt.offsetX - layer.x()) * (gridInfo.resolution / scale)
-      const y = (obj.evt.offsetY - layer.y()) * (gridInfo.resolution / scale)
+      const point = getPointerMapPoint(obj)
+      if (!point)
+        return
+
       const id = uid('Door')
       appendCurrentProfileDoor({
         uid: id,
         name: `门 ${id.slice(-3)}`,
-        x,
-        y,
+        x: point.x,
+        y: point.y,
         rotation: 0,
         width: 1.2,
         door_type: 'sliding',
@@ -400,14 +477,16 @@ const Monitor: React.FC = () => {
       if (!currentProfileId)
         return
 
-      const x = (obj.evt.offsetX - layer.x()) * (gridInfo.resolution / scale)
-      const y = (obj.evt.offsetY - layer.y()) * (gridInfo.resolution / scale)
+      const point = getPointerMapPoint(obj)
+      if (!point)
+        return
+
       const id = uid('Lift')
       appendCurrentProfileLift({
         uid: id,
         name: `电梯 ${id.slice(-3)}`,
-        x,
-        y,
+        x: point.x,
+        y: point.y,
         rotation: 0,
         width: 2.4,
         depth: 2.4,
@@ -435,6 +514,13 @@ const Monitor: React.FC = () => {
 
         createPathBetweenPoints(start, end)
       }
+    }
+    else if (currentOp === 'waypointLine') {
+      const point = currentPoints().find(point => point.uid === id)
+      if (!point)
+        return
+
+      updateLineWaypointAnchor(point)
     }
     else if (currentOp === 'select') {
       const hasModifier = event.evt.shiftKey || event.evt.ctrlKey || event.evt.metaKey
@@ -478,6 +564,20 @@ const Monitor: React.FC = () => {
   }
 
   const handleLayerMouseMove = () => {
+    if (currentOp === 'waypointLine' && lineWaypointDraft && !lineWaypointPanelOpen && layerRef.current) {
+      const pointer = layerRef.current.getRelativePointerPosition()
+      if (!pointer)
+        return
+
+      setLineWaypointDraft(state => state
+        ? {
+            ...state,
+            end: pointer,
+          }
+        : state)
+      return
+    }
+
     if (currentOp !== 'pathway' || !draftPath || !layerRef.current)
       return
 
@@ -498,7 +598,7 @@ const Monitor: React.FC = () => {
 
   return (
     <div
-      className={`flex-1 ${currentOp === 'move' ? 'cursor-pointer' : currentOp === 'relocalize' || currentOp === 'waypoint' || currentOp === 'door' || currentOp === 'lift' ? 'cursor-crosshair' : ''}`}
+      className={`relative flex-1 ${currentOp === 'move' ? 'cursor-pointer' : currentOp === 'relocalize' || currentOp === 'waypoint' || currentOp === 'waypointLine' || currentOp === 'door' || currentOp === 'lift' ? 'cursor-crosshair' : ''}`}
       ref={containerRef}>
       <Stage
         width={width}
@@ -545,6 +645,30 @@ const Monitor: React.FC = () => {
               ]}
             />
           )}
+          {lineWaypointPreview && lineWaypointPreview.points.length > 1 && (
+            <>
+              <Line
+                stroke="#059669"
+                strokeWidth={pathStrokeWidth}
+                hitStrokeWidth={pathStrokeWidth * 2}
+                dash={[pathStrokeWidth * 2, pathStrokeWidth]}
+                lineCap="round"
+                lineJoin="round"
+                points={lineWaypointPreview.points.flatMap(point => [point.x, point.y])}
+              />
+              {lineWaypointPreview.points.map((point, index) => (
+                <Circle
+                  key={`${index}-${point.x}-${point.y}`}
+                  x={point.x}
+                  y={point.y}
+                  radius={Math.max(pathStrokeWidth * 0.9, 0.12)}
+                  fill="#10B981"
+                  stroke="white"
+                  strokeWidth={Math.max(pathStrokeWidth * 0.18, 0.03)}
+                />
+              ))}
+            </>
+          )}
           {currentPaths().map((path, i) => <Pathway
             key={i}
             path={path}
@@ -576,6 +700,92 @@ const Monitor: React.FC = () => {
             point={p} />)}
         </Layer>
       </Stage>
+      {currentOp === 'waypointLine' && lineWaypointDraft && (
+        <div
+          className="absolute z-30 left-3 bottom-3 w-74 bg-white border-(solid 1px gray-300) shadow-lg rounded p-3 text-gray-800"
+          onClick={event => event.stopPropagation()}>
+          <div className="flex items-center justify-between mb-3">
+            <span className="font-bold text-3.5">等距路径点</span>
+            <button
+              type="button"
+              className="border-none bg-transparent text-gray-500 hover:text-gray-800 text-4"
+              onClick={cancelLineWaypointDraft}>
+              ×
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-1 bg-gray-100 rounded p-1 mb-3">
+            <button
+              type="button"
+              className={`border-none rounded py-1 text-sm ${lineWaypointMode === 'spacing' ? 'bg-white shadow text-emerald-700' : 'bg-transparent text-gray-600'}`}
+              onClick={() => setLineWaypointMode('spacing')}>
+              按间距
+            </button>
+            <button
+              type="button"
+              className={`border-none rounded py-1 text-sm ${lineWaypointMode === 'count' ? 'bg-white shadow text-emerald-700' : 'bg-transparent text-gray-600'}`}
+              onClick={() => setLineWaypointMode('count')}>
+              按数量
+            </button>
+          </div>
+          {lineWaypointMode === 'spacing'
+            ? (
+                <label className="flex items-center justify-between gap-3 text-sm mb-2">
+                  <span className="text-gray-600">间距(m)</span>
+                  <input
+                    className="w-24 border-(solid 1px gray-300) rounded px-2 py-1 text-right"
+                    value={lineWaypointSpacing}
+                    inputMode="decimal"
+                    onChange={event => setLineWaypointSpacing(event.target.value)} />
+                </label>
+              )
+            : (
+                <label className="flex items-center justify-between gap-3 text-sm mb-2">
+                  <span className="text-gray-600">数量</span>
+                  <input
+                    className="w-24 border-(solid 1px gray-300) rounded px-2 py-1 text-right"
+                    value={lineWaypointCount}
+                    inputMode="numeric"
+                    onChange={event => setLineWaypointCount(event.target.value)} />
+                </label>
+              )}
+          <label className="flex items-center gap-2 text-sm mb-3">
+            <input
+              type="checkbox"
+              checked={lineWaypointConnect}
+              onChange={event => setLineWaypointConnect(event.target.checked)} />
+            <span>自动连接路径</span>
+          </label>
+          <div className="grid grid-cols-3 gap-2 text-xs text-gray-600 bg-gray-50 rounded p-2 mb-3">
+            <span>长度 {formatNumber(lineWaypointPreview?.length ?? 0)}</span>
+            <span>点数 {lineWaypointPreview?.points.length ?? 0}</span>
+            <span>间距 {formatNumber(lineWaypointPreview?.spacing ?? 0)}</span>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              className="border-none rounded bg-gray-200 hover:bg-gray-300 px-3 py-1.5 text-sm"
+              onClick={cancelLineWaypointDraft}>
+              取消
+            </button>
+            <button
+              type="button"
+              className="border-none rounded bg-gray-700 hover:bg-gray-800 px-3 py-1.5 text-sm text-white"
+              onClick={() => {
+                setLineWaypointDraft(null)
+                setLineWaypointPanelOpen(false)
+              }}>
+              重新选择
+            </button>
+            <button
+              type="button"
+              disabled={!lineWaypointPreview || lineWaypointPreview.points.length < 2}
+              className={`border-none rounded px-3 py-1.5 text-sm text-white ${lineWaypointPreview && lineWaypointPreview.points.length >= 2 ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-gray-400'}`}
+              onClick={confirmLineWaypointDraft}>
+              创建
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

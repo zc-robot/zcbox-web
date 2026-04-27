@@ -5,10 +5,11 @@ import ExportRmfModal from './ExportRmfModal'
 import type { ExportRmfSelection } from './ExportRmfModal'
 import { useGridStore, useOperationStore, useProfileStore } from '@/store'
 import apiServer from '@/service/apiServer'
-import type { PointMessage, RobotInfoMessage } from '@/types'
+import type { NavPoint, PointMessage, RobotInfoMessage } from '@/types'
 import { useBatteryStateMqtt, useKeyPress, useLaserScanMqtt, useRobotPoseMqtt } from '@/hooks'
 import { parsePgm } from '@/util/transform'
 import { buildRmfBuildingYaml, sanitizeRmfFileName } from '@/util/rmf'
+import { getEvenlyRedistributedWaypoints } from '@/util/waypoints'
 
 export interface TopDeckProps {
   mapId: number
@@ -49,17 +50,21 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     beginRelocalization: state.beginRelocalization,
     cancelRelocalization: state.cancelRelocalization,
   }))
-  const { currentOp, selectPoint, updateOp, openPointEditor } = useOperationStore(state => ({
+  const { currentOp, selectedPointIds, selectPoint, selectPoints, updateOp, openPointEditor } = useOperationStore(state => ({
     currentOp: state.current,
+    selectedPointIds: state.selectedPointIds,
     selectPoint: state.selectPoint,
+    selectPoints: state.selectPoints,
     updateOp: state.updateOp,
     openPointEditor: state.openPointEditor,
   }))
-  const { currentProfile, currentTask, addProfiles, appendCurrentProfilePointFromPose } = useProfileStore(state => ({
+  const { currentProfile, currentTask, currentPoints, addProfiles, appendCurrentProfilePointFromPose, updateCurrentProfilePoints } = useProfileStore(state => ({
     currentProfile: state.currentProfile,
     currentTask: state.getCurrentTask,
+    currentPoints: state.currentProfilePoints,
     addProfiles: state.addProfiles,
     appendCurrentProfilePointFromPose: state.appendCurrentProfilePointFromPose,
+    updateCurrentProfilePoints: state.updateCurrentProfilePoints,
   }))
 
   const zoomInClick = () => zoom(1.1)
@@ -76,6 +81,15 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
 
     openPointEditor(null)
     updateOp('waypoint')
+  }
+  const activateLineWaypointPlacement = () => {
+    if (!currentProfile()) {
+      toast.error('请先选择配置')
+      return
+    }
+
+    openPointEditor(null)
+    updateOp('waypointLine')
   }
   const activatePathMode = () => updateOp('pathway')
   const activateDoorMode = () => {
@@ -115,6 +129,28 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     openPointEditor(id)
     selectPoint(id)
     toast.success('已采集当前位置为路径点')
+  }
+
+  const redistributeSelectedWaypoints = () => {
+    if (selectedPointIds.length < 2) {
+      toast.error('请先选择至少两个路径点')
+      return
+    }
+
+    const pointMap = new Map(currentPoints().map(point => [point.uid, point]))
+    const selectedPoints = selectedPointIds
+      .map(id => pointMap.get(id))
+      .filter((point): point is NavPoint => point != null)
+    const layout = getEvenlyRedistributedWaypoints(selectedPoints)
+
+    if (!layout) {
+      toast.error('路径点距离过近，无法重排')
+      return
+    }
+
+    updateCurrentProfilePoints(layout.updates)
+    selectPoints(layout.orderedPoints.map(point => point.uid), layout.orderedPoints[layout.orderedPoints.length - 1].uid)
+    toast.success('已等距重排路径点')
   }
 
   const toggleRelocalization = () => {
@@ -396,6 +432,18 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           onClick={activateManualWaypointPlacement}>
           <div className="i-material-symbols-my-location-outline-rounded panel-icon" />
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">手动放置路径点 (V)</span>
+        </div>
+        <div
+          className={`${currentOp === 'waypointLine' ? 'panel-item-enabled' : 'panel-item'} group`}
+          onClick={activateLineWaypointPlacement}>
+          <div className="i-material-symbols-linear-scale-rounded panel-icon" />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">等距路径点</span>
+        </div>
+        <div
+          className={`${selectedPointIds.length >= 2 ? 'panel-item' : 'panel-item opacity-45'} group`}
+          onClick={redistributeSelectedWaypoints}>
+          <div className="i-material-symbols-align-horizontal-center-rounded panel-icon" />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">等距重排 (/)</span>
         </div>
         <div
           className={`${currentOp === 'pathway' ? 'panel-item-enabled' : 'panel-item'} group`}
