@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import useWebSocket, { ReadyState } from 'react-use-websocket'
 import toast from 'react-hot-toast'
+import BatchRenameWaypointsModal from './BatchRenameWaypointsModal'
 import ExportRmfModal from './ExportRmfModal'
 import type { ExportRmfSelection } from './ExportRmfModal'
 import { useGridStore, useOperationStore, useProfileStore } from '@/store'
@@ -34,6 +35,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   useBatteryStateMqtt()
   useLaserScanMqtt()
   const [showExportModal, setShowExportModal] = useState(false)
+  const [showBatchRenameModal, setShowBatchRenameModal] = useState(false)
   const { zoom, robotInfo, robotStatus, setRobotInfo, setMapGrid, setPathPointInfo, mapsNew, isScanVisible, setScanVisibility, updateScanPointSize, requestCenterRobot, relocalizationPose, beginRelocalization, cancelRelocalization } = useGridStore(state => ({
     zoom: state.zoom,
     robotInfo: state.robotInfo,
@@ -151,6 +153,37 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     updateCurrentProfilePoints(layout.updates)
     selectPoints(layout.orderedPoints.map(point => point.uid), layout.orderedPoints[layout.orderedPoints.length - 1].uid)
     toast.success('已等距重排路径点')
+  }
+
+  const getSelectedWaypoints = () => {
+    const pointMap = new Map(currentPoints().map(point => [point.uid, point]))
+    return selectedPointIds
+      .map(id => pointMap.get(id))
+      .filter((point): point is NavPoint => point != null)
+  }
+
+  const openBatchRenameModal = () => {
+    if (selectedPointIds.length < 2) {
+      toast.error('请先选择至少两个路径点')
+      return
+    }
+
+    setShowBatchRenameModal(true)
+  }
+
+  const handleBatchRenameWaypoints = (updates: { uid: string; name: string }[]) => {
+    if (updates.length === 0)
+      return
+
+    updateCurrentProfilePoints(updates.map(update => ({
+      uid: update.uid,
+      point: {
+        name: update.name,
+      },
+    })))
+    selectPoints(updates.map(update => update.uid), updates[updates.length - 1].uid)
+    setShowBatchRenameModal(false)
+    toast.success('路径点已重命名')
   }
 
   const toggleRelocalization = () => {
@@ -446,6 +479,12 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">等距重排 (/)</span>
         </div>
         <div
+          className={`${selectedPointIds.length >= 2 ? 'panel-item' : 'panel-item opacity-45'} group`}
+          onClick={openBatchRenameModal}>
+          <div className="i-material-symbols-edit-note-rounded panel-icon" />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">批量重命名</span>
+        </div>
+        <div
           className={`${currentOp === 'pathway' ? 'panel-item-enabled' : 'panel-item'} group`}
           onClick={activatePathMode}>
           <div className="i-material-symbols-edit-road-outline-rounded panel-icon" />
@@ -569,6 +608,12 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           currentProfileUid={currentProfile()?.uid}
           onClose={() => setShowExportModal(false)}
           onConfirm={handleExportRmf} />
+      )}
+      {showBatchRenameModal && (
+        <BatchRenameWaypointsModal
+          points={getSelectedWaypoints()}
+          onClose={() => setShowBatchRenameModal(false)}
+          onConfirm={handleBatchRenameWaypoints} />
       )}
     </div>
   )
