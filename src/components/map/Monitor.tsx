@@ -18,7 +18,7 @@ import { useElementSize, useKeyPress } from '@/hooks'
 import { composePose, getRelativePose } from '@/util/transform'
 import type { NavPoint, PoseMessage } from '@/types'
 import type { LineWaypointMode, Point2D } from '@/util/waypoints'
-import { createLineWaypointPreview, getEvenlyRedistributedWaypoints } from '@/util/waypoints'
+import { createLineConstraint, createLineWaypointPreview, getEvenlyRedistributedWaypoints } from '@/util/waypoints'
 
 interface ImageState {
   x: number
@@ -367,6 +367,10 @@ const Monitor: React.FC = () => {
     if (!lineWaypointPreview || lineWaypointPreview.points.length < 2)
       return
 
+    const lineConstraint = createLineConstraint(
+      lineWaypointPreview.points[0],
+      lineWaypointPreview.points[lineWaypointPreview.points.length - 1],
+    )
     const createdPoints = lineWaypointPreview.points.map((point) => {
       const id = uid('Point')
       return {
@@ -377,6 +381,7 @@ const Monitor: React.FC = () => {
         rotation: point.rotation,
         is_charger: false,
         is_parking_spot: false,
+        line_constraint: lineConstraint,
       }
     })
 

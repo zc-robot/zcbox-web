@@ -2,6 +2,7 @@ import type { StateCreator } from 'zustand'
 import type { NavDoor, NavLift, NavPath, NavPoint, NavProfile, NavTask, PoseMessage, TaskPoint } from '@/types'
 import { uid } from '@/util'
 import { quaternionToCanvasAngle } from '@/util/transform'
+import { projectPointToLineConstraint } from '@/util/waypoints'
 
 export interface ProfileSlice {
   profiles: NavProfile[]
@@ -227,17 +228,30 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
       if (p) {
         ensureProfileData(p)
         const updates = new Map(points.map(item => [item.uid, item.point]))
+        const effectiveUpdates = new Map<string, Partial<NavPoint>>()
 
         p.data.waypoints = p.data.waypoints.map((waypoint) => {
           const update = updates.get(waypoint.uid)
           if (!update)
             return waypoint
 
-          return Object.assign({}, waypoint, update)
+          const next = Object.assign({}, waypoint, update)
+          const effectiveUpdate = { ...update }
+
+          if (next.line_constraint && (update.x !== undefined || update.y !== undefined)) {
+            const projected = projectPointToLineConstraint(next, next.line_constraint)
+            next.x = projected.x
+            next.y = projected.y
+            effectiveUpdate.x = projected.x
+            effectiveUpdate.y = projected.y
+          }
+
+          effectiveUpdates.set(waypoint.uid, effectiveUpdate)
+          return next
         })
 
         if (p.data.paths)
-          syncPathEndpoints(p.data.paths, updates)
+          syncPathEndpoints(p.data.paths, effectiveUpdates)
       }
       return { profiles: newProfiles }
     })

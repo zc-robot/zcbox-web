@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { Circle, Group, Line, Rect, Text, Transformer } from 'react-konva'
 import type { NavPoint } from '@/types'
 import { useOperationStore, useParamsStore, useProfileStore } from '@/store'
+import { projectPointToLineConstraint } from '@/util/waypoints'
 
 interface WaypointProp {
   point: NavPoint
@@ -58,10 +59,18 @@ const Waypoint: React.FC<WaypointProp> = ({
     return '#F59E0B'
   }, [isPathSource, isPathTarget, isSelected])
 
+  const getConstrainedPosition = (x: number, y: number) => projectPointToLineConstraint({ x, y }, point.line_constraint)
+
+  const onDragMove = (event: Konva.KonvaEventObject<DragEvent>) => {
+    const position = getConstrainedPosition(event.currentTarget.x(), event.currentTarget.y())
+    event.currentTarget.position(position)
+  }
+
   const onDragEnd = (event: Konva.KonvaEventObject<DragEvent>) => {
+    const position = getConstrainedPosition(event.currentTarget.x(), event.currentTarget.y())
     updateCurrentProfilePoint(point.uid, {
-      x: event.currentTarget.x(),
-      y: event.currentTarget.y(),
+      x: position.x,
+      y: position.y,
     })
   }
 
@@ -70,9 +79,10 @@ const Waypoint: React.FC<WaypointProp> = ({
     if (!node)
       return
 
+    const position = getConstrainedPosition(node.x(), node.y())
     updateCurrentProfilePoint(point.uid, {
-      x: node.x(),
-      y: node.y(),
+      x: position.x,
+      y: position.y,
       rotation: node.rotation(),
     })
   }
@@ -86,6 +96,7 @@ const Waypoint: React.FC<WaypointProp> = ({
           y={point.y}
           rotation={point.rotation}
           draggable={isPrimarySelected && currentOp === 'select'}
+          onDragMove={onDragMove}
           onDragEnd={onDragEnd}
           onTransformEnd={onTransformEnd}
           onClick={handleSelect}

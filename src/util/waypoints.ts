@@ -1,4 +1,4 @@
-import type { NavPoint } from '@/types'
+import type { LineConstraint, NavPoint } from '@/types'
 
 export const MAX_LINE_WAYPOINTS = 200
 export const MIN_LINE_WAYPOINT_SPACING = 0.05
@@ -68,6 +68,39 @@ function normalizeSpacing(value: number) {
     return 1
 
   return Math.max(MIN_LINE_WAYPOINT_SPACING, value)
+}
+
+export function createLineConstraint(start: Point2D, end: Point2D): LineConstraint {
+  return {
+    uid: `Line-${Math.random().toString(36).slice(-6)}`,
+    start: {
+      x: start.x,
+      y: start.y,
+    },
+    end: {
+      x: end.x,
+      y: end.y,
+    },
+  }
+}
+
+export function projectPointToLineConstraint(point: Point2D, constraint?: LineConstraint): Point2D {
+  if (!constraint)
+    return point
+
+  const vector = {
+    x: constraint.end.x - constraint.start.x,
+    y: constraint.end.y - constraint.start.y,
+  }
+  const vectorLengthSquared = vector.x ** 2 + vector.y ** 2
+  if (vectorLengthSquared < 1e-12)
+    return point
+
+  const ratio = ((point.x - constraint.start.x) * vector.x + (point.y - constraint.start.y) * vector.y) / vectorLengthSquared
+  return {
+    x: constraint.start.x + vector.x * ratio,
+    y: constraint.start.y + vector.y * ratio,
+  }
 }
 
 export function createLineWaypointPreview(start: Point2D, end: Point2D, options: LineWaypointOptions): LineWaypointPreview {

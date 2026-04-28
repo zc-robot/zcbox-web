@@ -122,6 +122,19 @@ export interface NavPoint {
   rotation: number,
   is_charger?: boolean,
   is_parking_spot?: boolean,
+  line_constraint?: LineConstraint,
+}
+
+export interface LineConstraint {
+  uid: string,
+  start: {
+    x: number,
+    y: number,
+  },
+  end: {
+    x: number,
+    y: number,
+  },
 }
 
 // NavPath is a bezier line segment between two NavPoints
