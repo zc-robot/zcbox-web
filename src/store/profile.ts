@@ -55,6 +55,7 @@ export interface ProfileSlice {
 function syncPathEndpoints(paths: NavPath[], updates: Map<string, Partial<NavPoint>>) {
   paths.forEach((path) => {
     const startUpdate = updates.get(path.start.uid)
+    const startBefore = { x: path.start.x, y: path.start.y }
     if (startUpdate) {
       if (startUpdate.x !== undefined)
         path.start.x = startUpdate.x
@@ -63,11 +64,35 @@ function syncPathEndpoints(paths: NavPath[], updates: Map<string, Partial<NavPoi
     }
 
     const endUpdate = updates.get(path.end.uid)
+    const endBefore = { x: path.end.x, y: path.end.y }
     if (endUpdate) {
       if (endUpdate.x !== undefined)
         path.end.x = endUpdate.x
       if (endUpdate.y !== undefined)
         path.end.y = endUpdate.y
+    }
+
+    if (
+      startUpdate?.x !== undefined
+      && startUpdate.y !== undefined
+      && endUpdate?.x !== undefined
+      && endUpdate.y !== undefined
+    ) {
+      const startDelta = {
+        x: path.start.x - startBefore.x,
+        y: path.start.y - startBefore.y,
+      }
+      const endDelta = {
+        x: path.end.x - endBefore.x,
+        y: path.end.y - endBefore.y,
+      }
+
+      if (Math.abs(startDelta.x - endDelta.x) < 1e-6 && Math.abs(startDelta.y - endDelta.y) < 1e-6) {
+        path.controls = path.controls.map(control => ({
+          x: control.x + startDelta.x,
+          y: control.y + startDelta.y,
+        }))
+      }
     }
   })
 }

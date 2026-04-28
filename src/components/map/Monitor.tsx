@@ -697,7 +697,7 @@ const Monitor: React.FC = () => {
             point={wp}
             onSelect={event => handlePointClick(wp.uid, event)}
             isSelected={selectedPointIds.includes(wp.uid)}
-            isPrimarySelected={wp.uid === selectedId && selectedPointIds.length === 1}
+            isPrimarySelected={wp.uid === selectedId}
             isPathTarget={currentOp === 'pathway' && draftPathTargetId === wp.uid}
             isPathSource={currentOp === 'pathway' && wp.uid === selectedId} />)}
           {pathPointInfo.map((p, i) => <PathPoint

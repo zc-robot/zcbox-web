@@ -10,7 +10,7 @@ import type { NavPoint, PointMessage, RobotInfoMessage } from '@/types'
 import { useBatteryStateMqtt, useKeyPress, useLaserScanMqtt, useRobotPoseMqtt } from '@/hooks'
 import { parsePgm } from '@/util/transform'
 import { buildRmfBuildingYaml, sanitizeRmfFileName } from '@/util/rmf'
-import { getEvenlyRedistributedWaypoints } from '@/util/waypoints'
+import { getEvenlyRedistributedWaypoints, getWaypointsOnSameLine } from '@/util/waypoints'
 
 export interface TopDeckProps {
   mapId: number
@@ -52,8 +52,9 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     beginRelocalization: state.beginRelocalization,
     cancelRelocalization: state.cancelRelocalization,
   }))
-  const { currentOp, selectedPointIds, selectPoint, selectPoints, updateOp, openPointEditor } = useOperationStore(state => ({
+  const { currentOp, selectedId, selectedPointIds, selectPoint, selectPoints, updateOp, openPointEditor } = useOperationStore(state => ({
     currentOp: state.current,
+    selectedId: state.selectedPointId,
     selectedPointIds: state.selectedPointIds,
     selectPoint: state.selectPoint,
     selectPoints: state.selectPoints,
@@ -160,6 +161,35 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     return selectedPointIds
       .map(id => pointMap.get(id))
       .filter((point): point is NavPoint => point != null)
+  }
+
+  const getSelectedLineWaypoints = () => {
+    const points = currentPoints()
+    const pointMap = new Map(points.map(point => [point.uid, point]))
+    const primaryId = selectedId?.startsWith('Point')
+      ? selectedId
+      : selectedPointIds[0]
+    const primaryPoint = primaryId
+      ? pointMap.get(primaryId)
+      : undefined
+
+    return getWaypointsOnSameLine(points, primaryPoint)
+  }
+
+  const selectCurrentWaypointLine = () => {
+    const linePoints = getSelectedLineWaypoints()
+    if (linePoints.length < 2) {
+      toast.error('请先选择等距路径点线上的路径点')
+      return
+    }
+
+    const primaryId = selectedId?.startsWith('Point') && linePoints.some(point => point.uid === selectedId)
+      ? selectedId
+      : linePoints[linePoints.length - 1].uid
+
+    updateOp('select')
+    selectPoints(linePoints.map(point => point.uid), primaryId)
+    toast.success('已选择整条线，拖动主路径点可整体移动')
   }
 
   const openBatchRenameModal = () => {
@@ -439,6 +469,8 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     }
   }, [cancelRelocalization, updateOp])
 
+  const selectedLineWaypointCount = getSelectedLineWaypoints().length
+
   return (
     <div className="panel-container">
       <div className="flex">
@@ -471,6 +503,12 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           onClick={activateLineWaypointPlacement}>
           <div className="i-material-symbols-linear-scale-rounded panel-icon" />
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">等距路径点</span>
+        </div>
+        <div
+          className={`${selectedLineWaypointCount >= 2 ? 'panel-item' : 'panel-item opacity-45'} group`}
+          onClick={selectCurrentWaypointLine}>
+          <div className="i-material-symbols-select-all-rounded panel-icon" />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">选择整线</span>
         </div>
         <div
           className={`${selectedPointIds.length >= 2 ? 'panel-item' : 'panel-item opacity-45'} group`}

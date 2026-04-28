@@ -1,9 +1,10 @@
 import type Konva from 'konva'
 import { useEffect, useMemo, useRef } from 'react'
 import { Circle, Group, Line, Rect, Text, Transformer } from 'react-konva'
-import type { NavPoint } from '@/types'
+import type { LineConstraint, NavPoint } from '@/types'
 import { useOperationStore, useParamsStore, useProfileStore } from '@/store'
-import { projectPointToLineConstraint } from '@/util/waypoints'
+import type { Point2D } from '@/util/waypoints'
+import { getLineAwareWaypointGroup, projectPointToLineConstraint, translateLineConstraint } from '@/util/waypoints'
 
 interface WaypointProp {
   point: NavPoint
@@ -12,6 +13,32 @@ interface WaypointProp {
   isPrimarySelected: boolean
   isPathTarget?: boolean
   isPathSource?: boolean
+}
+
+interface DragGroupPointSnapshot {
+  uid: string
+  x: number
+  y: number
+  line_constraint?: LineConstraint
+}
+
+interface DragGroupSnapshot {
+  anchor: Point2D
+  points: DragGroupPointSnapshot[]
+}
+
+function cloneLineConstraint(constraint: LineConstraint): LineConstraint {
+  return {
+    uid: constraint.uid,
+    start: {
+      x: constraint.start.x,
+      y: constraint.start.y,
+    },
+    end: {
+      x: constraint.end.x,
+      y: constraint.end.y,
+    },
+  }
 }
 
 const Waypoint: React.FC<WaypointProp> = ({
@@ -24,9 +51,14 @@ const Waypoint: React.FC<WaypointProp> = ({
 }) => {
   const groupRef = useRef<Konva.Group>(null)
   const transformRef = useRef<Konva.Transformer>(null)
+  const dragGroupRef = useRef<DragGroupSnapshot | null>(null)
   const currentOp = useOperationStore(state => state.current)
+  const selectedPointIds = useOperationStore(state => state.selectedPointIds)
+  const selectPoints = useOperationStore(state => state.selectPoints)
   const params = useParamsStore(state => state.robotParams)
+  const currentProfilePoints = useProfileStore(state => state.currentProfilePoints)
   const updateCurrentProfilePoint = useProfileStore(state => state.updateCurrentProfilePoint)
+  const updateCurrentProfilePoints = useProfileStore(state => state.updateCurrentProfilePoints)
 
   const handleSelect = (event: Konva.KonvaEventObject<MouseEvent>) => {
     event.cancelBubble = true
@@ -61,12 +93,91 @@ const Waypoint: React.FC<WaypointProp> = ({
 
   const getConstrainedPosition = (x: number, y: number) => projectPointToLineConstraint({ x, y }, point.line_constraint)
 
+  const getGroupDragSnapshot = (): DragGroupSnapshot | null => {
+    if (selectedPointIds.length < 2)
+      return null
+
+    const groupPoints = getLineAwareWaypointGroup(currentProfilePoints(), selectedPointIds)
+    if (groupPoints.length < 2)
+      return null
+
+    return {
+      anchor: {
+        x: point.x,
+        y: point.y,
+      },
+      points: groupPoints.map(groupPoint => ({
+        uid: groupPoint.uid,
+        x: groupPoint.x,
+        y: groupPoint.y,
+        line_constraint: groupPoint.line_constraint
+          ? cloneLineConstraint(groupPoint.line_constraint)
+          : undefined,
+      })),
+    }
+  }
+
+  const getGroupDragUpdates = (snapshot: DragGroupSnapshot, delta: Point2D) => {
+    const translatedConstraints = new Map<string, LineConstraint>()
+
+    return snapshot.points.map((snapshotPoint) => {
+      const pointUpdate: Partial<NavPoint> = {
+        x: snapshotPoint.x + delta.x,
+        y: snapshotPoint.y + delta.y,
+      }
+
+      if (snapshotPoint.line_constraint) {
+        let translatedConstraint = translatedConstraints.get(snapshotPoint.line_constraint.uid)
+        if (!translatedConstraint) {
+          translatedConstraint = translateLineConstraint(snapshotPoint.line_constraint, delta)
+          translatedConstraints.set(snapshotPoint.line_constraint.uid, translatedConstraint)
+        }
+        pointUpdate.line_constraint = translatedConstraint
+      }
+
+      return {
+        uid: snapshotPoint.uid,
+        point: pointUpdate,
+      }
+    })
+  }
+
+  const updateGroupDrag = (event: Konva.KonvaEventObject<DragEvent>) => {
+    const snapshot = dragGroupRef.current
+    if (!snapshot)
+      return false
+
+    const delta = {
+      x: event.currentTarget.x() - snapshot.anchor.x,
+      y: event.currentTarget.y() - snapshot.anchor.y,
+    }
+
+    updateCurrentProfilePoints(getGroupDragUpdates(snapshot, delta))
+    return true
+  }
+
+  const onDragStart = () => {
+    const snapshot = getGroupDragSnapshot()
+    dragGroupRef.current = snapshot
+
+    if (snapshot && snapshot.points.length !== selectedPointIds.length)
+      selectPoints(snapshot.points.map(snapshotPoint => snapshotPoint.uid), point.uid)
+  }
+
   const onDragMove = (event: Konva.KonvaEventObject<DragEvent>) => {
+    if (updateGroupDrag(event))
+      return
+
     const position = getConstrainedPosition(event.currentTarget.x(), event.currentTarget.y())
     event.currentTarget.position(position)
   }
 
   const onDragEnd = (event: Konva.KonvaEventObject<DragEvent>) => {
+    if (updateGroupDrag(event)) {
+      dragGroupRef.current = null
+      return
+    }
+
     const position = getConstrainedPosition(event.currentTarget.x(), event.currentTarget.y())
     updateCurrentProfilePoint(point.uid, {
       x: position.x,
@@ -96,6 +207,7 @@ const Waypoint: React.FC<WaypointProp> = ({
           y={point.y}
           rotation={point.rotation}
           draggable={isPrimarySelected && currentOp === 'select'}
+          onDragStart={onDragStart}
           onDragMove={onDragMove}
           onDragEnd={onDragEnd}
           onTransformEnd={onTransformEnd}
@@ -198,7 +310,7 @@ const Waypoint: React.FC<WaypointProp> = ({
           )}
         </Group>
       )}
-      {isPrimarySelected && currentOp === 'select' && (
+      {isPrimarySelected && selectedPointIds.length === 1 && currentOp === 'select' && (
         <Transformer
           ref={transformRef}
           rotateEnabled={true}

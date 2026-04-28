@@ -103,6 +103,45 @@ export function projectPointToLineConstraint(point: Point2D, constraint?: LineCo
   }
 }
 
+export function translateLineConstraint(constraint: LineConstraint, delta: Point2D): LineConstraint {
+  return {
+    uid: constraint.uid,
+    start: {
+      x: constraint.start.x + delta.x,
+      y: constraint.start.y + delta.y,
+    },
+    end: {
+      x: constraint.end.x + delta.x,
+      y: constraint.end.y + delta.y,
+    },
+  }
+}
+
+export function getWaypointsOnSameLine(points: NavPoint[], point?: NavPoint) {
+  const lineUid = point?.line_constraint?.uid
+  if (!lineUid)
+    return []
+
+  return points.filter(candidate => candidate.line_constraint?.uid === lineUid)
+}
+
+export function getLineAwareWaypointGroup(points: NavPoint[], selectedIds: string[]) {
+  const selectedIdSet = new Set(selectedIds)
+  const selectedPoints = points.filter(point => selectedIdSet.has(point.uid))
+  const selectedLineIds = new Set(
+    selectedPoints
+      .map(point => point.line_constraint?.uid)
+      .filter((lineUid): lineUid is string => lineUid != null),
+  )
+
+  if (selectedLineIds.size === 0)
+    return selectedPoints
+
+  return points.filter(point => selectedIdSet.has(point.uid) || (
+    point.line_constraint && selectedLineIds.has(point.line_constraint.uid)
+  ))
+}
+
 export function createLineWaypointPreview(start: Point2D, end: Point2D, options: LineWaypointOptions): LineWaypointPreview {
   const dx = end.x - start.x
   const dy = end.y - start.y
