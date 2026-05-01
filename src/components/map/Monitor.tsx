@@ -32,6 +32,8 @@ interface ImageState {
 const DEFAULT_LINE_WAYPOINT_COUNT = '5'
 const DEFAULT_LINE_WAYPOINT_SPACING = '1.00'
 const GRID_MAP_BACKGROUND_NAME = 'grid-map-background'
+const EDGE_PAN_MARGIN_PX = 36
+const EDGE_PAN_SPEED_PX = 12
 
 interface SelectionBox {
   start: Point2D
@@ -68,11 +70,33 @@ function formatNumber(value: number) {
   return value.toFixed(2)
 }
 
+function getEdgePanDelta(pointer: Point2D, width: number, height: number) {
+  let x = 0
+  let y = 0
+
+  if (pointer.x < EDGE_PAN_MARGIN_PX)
+    x = EDGE_PAN_SPEED_PX * (1 - pointer.x / EDGE_PAN_MARGIN_PX)
+  else if (pointer.x > width - EDGE_PAN_MARGIN_PX)
+    x = -EDGE_PAN_SPEED_PX * (1 - (width - pointer.x) / EDGE_PAN_MARGIN_PX)
+
+  if (pointer.y < EDGE_PAN_MARGIN_PX)
+    y = EDGE_PAN_SPEED_PX * (1 - pointer.y / EDGE_PAN_MARGIN_PX)
+  else if (pointer.y > height - EDGE_PAN_MARGIN_PX)
+    y = -EDGE_PAN_SPEED_PX * (1 - (height - pointer.y) / EDGE_PAN_MARGIN_PX)
+
+  return { x, y }
+}
+
 const Monitor: React.FC = () => {
   const layerRef = useRef<Konva.Layer>(null)
   const lastHandledCenterRequestId = useRef(0)
   const relocalizationLaserOffset = useRef<PoseMessage | null>(null)
   const selectionBoxDidDragRef = useRef(false)
+  const edgePanFrameRef = useRef<number | null>(null)
+  const edgePanPointerRef = useRef<Point2D | null>(null)
+  const offsetRef = useRef<Point2D>({ x: 0, y: 0 })
+  const layerStateRef = useRef<ImageState>()
+  const lineWaypointDraftRef = useRef<{ start: Point2D; end: Point2D } | null>(null)
   const [layerState, setLayerState] = useState<ImageState>()
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [draftPath, setDraftPath] = useState<{ startId: string; x: number; y: number } | null>(null)
@@ -163,6 +187,17 @@ const Monitor: React.FC = () => {
       height: Math.abs(selectionBox.end.y - selectionBox.start.y),
     }
   }, [selectionBox])
+  useEffect(() => {
+    offsetRef.current = offset
+  }, [offset])
+
+  useEffect(() => {
+    layerStateRef.current = layerState
+  }, [layerState])
+
+  useEffect(() => {
+    lineWaypointDraftRef.current = lineWaypointDraft
+  }, [lineWaypointDraft])
 
   useKeyPress((event, isDown) => {
     if (!isDown || isEditableTarget(event.target))
@@ -272,6 +307,59 @@ const Monitor: React.FC = () => {
       setLineWaypointPanelOpen(false)
     }
   }, [currentOp])
+
+  useEffect(() => {
+    if (edgePanFrameRef.current != null) {
+      cancelAnimationFrame(edgePanFrameRef.current)
+      edgePanFrameRef.current = null
+    }
+
+    if (currentOp !== 'waypointLine' || lineWaypointPanelOpen || !width || !height) {
+      edgePanPointerRef.current = null
+      return
+    }
+
+    const tick = () => {
+      const pointer = edgePanPointerRef.current
+      const currentLayerState = layerStateRef.current
+
+      if (pointer && currentLayerState) {
+        const delta = getEdgePanDelta(pointer, width, height)
+
+        if (delta.x !== 0 || delta.y !== 0) {
+          const nextOffset = {
+            x: offsetRef.current.x + delta.x,
+            y: offsetRef.current.y + delta.y,
+          }
+          const nextDraftEnd = {
+            x: (pointer.x - ((currentLayerState.x ?? 0) + nextOffset.x)) / currentLayerState.scale,
+            y: (pointer.y - ((currentLayerState.y ?? 0) + nextOffset.y)) / currentLayerState.scale,
+          }
+
+          offsetRef.current = nextOffset
+          setOffset(nextOffset)
+          if (lineWaypointDraftRef.current) {
+            setLineWaypointDraft(state => state
+              ? {
+                  ...state,
+                  end: nextDraftEnd,
+                }
+              : state)
+          }
+        }
+      }
+
+      edgePanFrameRef.current = requestAnimationFrame(tick)
+    }
+
+    edgePanFrameRef.current = requestAnimationFrame(tick)
+    return () => {
+      if (edgePanFrameRef.current != null) {
+        cancelAnimationFrame(edgePanFrameRef.current)
+        edgePanFrameRef.current = null
+      }
+    }
+  }, [currentOp, height, lineWaypointPanelOpen, width])
 
   useEffect(() => {
     if (currentOp !== 'pathway' || !selectedId?.startsWith('Point')) {
@@ -603,6 +691,15 @@ const Monitor: React.FC = () => {
     }))
   }
 
+  const updateEdgePanPointer = () => {
+    if (currentOp !== 'waypointLine') {
+      edgePanPointerRef.current = null
+      return
+    }
+
+    edgePanPointerRef.current = layerRef.current?.getStage()?.getPointerPosition() ?? null
+  }
+
   const handleSelectionBoxStart = (event: Konva.KonvaEventObject<MouseEvent>) => {
     const isBackgroundTarget = event.target === layerRef.current || event.target.name() === GRID_MAP_BACKGROUND_NAME
     if (currentOp !== 'select' || event.evt.button !== 0 || !isBackgroundTarget)
@@ -656,6 +753,8 @@ const Monitor: React.FC = () => {
   }
 
   const handleLayerMouseMove = () => {
+    updateEdgePanPointer()
+
     if (currentOp === 'select' && selectionBox) {
       const pointer = getLayerPointerPoint()
       if (!pointer)
@@ -705,6 +804,10 @@ const Monitor: React.FC = () => {
       : state)
   }
 
+  const handleLayerMouseLeave = () => {
+    edgePanPointerRef.current = null
+  }
+
   return (
     <div
       className={`relative flex-1 ${currentOp === 'move' ? 'cursor-pointer' : currentOp === 'relocalize' || currentOp === 'waypoint' || currentOp === 'waypointLine' || currentOp === 'door' || currentOp === 'lift' ? 'cursor-crosshair' : ''}`}
@@ -722,6 +825,7 @@ const Monitor: React.FC = () => {
           onDragMove={handleLayerDrag}
           onMouseDown={handleSelectionBoxStart}
           onMouseMove={handleLayerMouseMove}
+          onMouseLeave={handleLayerMouseLeave}
           onMouseUp={handleSelectionBoxEnd}
           onClick={handleLayerClick}>
           <GridMap />
