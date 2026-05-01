@@ -11,8 +11,10 @@ interface WaypointProp {
   onSelect: (event: Konva.KonvaEventObject<MouseEvent>) => void
   isSelected: boolean
   isPrimarySelected: boolean
+  isHovered?: boolean
   isPathTarget?: boolean
   isPathSource?: boolean
+  onHoverChange?: (id: string | null) => void
 }
 
 interface DragGroupPointSnapshot {
@@ -46,8 +48,10 @@ const Waypoint: React.FC<WaypointProp> = ({
   onSelect,
   isSelected,
   isPrimarySelected,
+  isHovered = false,
   isPathTarget = false,
   isPathSource = false,
+  onHoverChange,
 }) => {
   const groupRef = useRef<Konva.Group>(null)
   const transformRef = useRef<Konva.Transformer>(null)
@@ -63,6 +67,25 @@ const Waypoint: React.FC<WaypointProp> = ({
   const handleSelect = (event: Konva.KonvaEventObject<MouseEvent>) => {
     event.cancelBubble = true
     onSelect(event)
+  }
+
+  const setPointerCursor = (cursor: string) => {
+    const container = groupRef.current?.getStage()?.container()
+    if (container)
+      container.style.cursor = cursor
+  }
+
+  const handleMouseEnter = () => {
+    if (currentOp !== 'select')
+      return
+
+    onHoverChange?.(point.uid)
+    setPointerCursor('pointer')
+  }
+
+  const handleMouseLeave = () => {
+    onHoverChange?.(null)
+    setPointerCursor('')
   }
 
   useEffect(() => {
@@ -88,8 +111,10 @@ const Waypoint: React.FC<WaypointProp> = ({
       return '#2563EB'
     if (isSelected)
       return '#FF5722'
+    if (isHovered)
+      return '#06B6D4'
     return '#F59E0B'
-  }, [isPathSource, isPathTarget, isSelected])
+  }, [isHovered, isPathSource, isPathTarget, isSelected])
 
   const getConstrainedPosition = (x: number, y: number) => projectPointToLineConstraint({ x, y }, point.line_constraint)
 
@@ -212,7 +237,18 @@ const Waypoint: React.FC<WaypointProp> = ({
           onDragEnd={onDragEnd}
           onTransformEnd={onTransformEnd}
           onClick={handleSelect}
-          onTap={handleSelect}>
+          onTap={handleSelect}
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}>
+          {isHovered && currentOp === 'select' && (
+            <Circle
+              radius={width * 1.45}
+              stroke="#06B6D4"
+              strokeWidth={width * 0.12}
+              opacity={0.9}
+              dash={[width * 0.35, width * 0.22]}
+            />
+          )}
           <Circle
             radius={width * 0.95}
             fill="white"

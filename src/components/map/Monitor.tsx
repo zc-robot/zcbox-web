@@ -1,7 +1,7 @@
 import type Konva from 'konva'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
-import { Circle, Layer, Line, Stage } from 'react-konva'
+import { Circle, Layer, Line, Rect, Stage } from 'react-konva'
 import { shallow } from 'zustand/shallow'
 import Door from './Door'
 import GridMap from './GridMap'
@@ -31,6 +31,11 @@ interface ImageState {
 
 const DEFAULT_LINE_WAYPOINT_COUNT = '5'
 const DEFAULT_LINE_WAYPOINT_SPACING = '1.00'
+
+interface SelectionBox {
+  start: Point2D
+  end: Point2D
+}
 
 function getLayerState(resolution: number, imageX: number, imageY: number, scale: number): ImageState {
   const layerScale = scale / resolution
@@ -66,10 +71,13 @@ const Monitor: React.FC = () => {
   const layerRef = useRef<Konva.Layer>(null)
   const lastHandledCenterRequestId = useRef(0)
   const relocalizationLaserOffset = useRef<PoseMessage | null>(null)
+  const selectionBoxDidDragRef = useRef(false)
   const [layerState, setLayerState] = useState<ImageState>()
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [draftPath, setDraftPath] = useState<{ startId: string; x: number; y: number } | null>(null)
   const [draftPathTargetId, setDraftPathTargetId] = useState<string | null>(null)
+  const [hoveredPointId, setHoveredPointId] = useState<string | null>(null)
+  const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null)
   const [lineWaypointDraft, setLineWaypointDraft] = useState<{ start: Point2D; end: Point2D } | null>(null)
   const [lineWaypointPanelOpen, setLineWaypointPanelOpen] = useState(false)
   const [lineWaypointMode, setLineWaypointMode] = useState<LineWaypointMode>('spacing')
@@ -143,6 +151,17 @@ const Monitor: React.FC = () => {
       spacing: parseDraftNumber(lineWaypointSpacing),
     })
   }, [lineWaypointCount, lineWaypointDraft, lineWaypointMode, lineWaypointSpacing])
+  const selectionBoxBounds = useMemo(() => {
+    if (!selectionBox)
+      return null
+
+    return {
+      x: Math.min(selectionBox.start.x, selectionBox.end.x),
+      y: Math.min(selectionBox.start.y, selectionBox.end.y),
+      width: Math.abs(selectionBox.end.x - selectionBox.start.x),
+      height: Math.abs(selectionBox.end.y - selectionBox.start.y),
+    }
+  }, [selectionBox])
 
   useKeyPress((event, isDown) => {
     if (!isDown || isEditableTarget(event.target))
@@ -235,6 +254,8 @@ const Monitor: React.FC = () => {
   useEffect(() => {
     if (currentOp !== 'select')
       selectPoint(null)
+    setSelectionBox(null)
+    setHoveredPointId(null)
   }, [currentOp, selectPoint])
 
   useEffect(() => {
@@ -305,6 +326,14 @@ const Monitor: React.FC = () => {
       x: (event.evt.offsetX - layer.x()) * (gridInfo.resolution / scale),
       y: (event.evt.offsetY - layer.y()) * (gridInfo.resolution / scale),
     }
+  }
+
+  const getLayerPointerPoint = () => {
+    const layer = layerRef.current
+    if (!layer || !gridInfo)
+      return null
+
+    return layer.getRelativePointerPosition()
   }
 
   const createPathPayload = (start: NavPoint, end: NavPoint) => {
@@ -419,6 +448,11 @@ const Monitor: React.FC = () => {
   const handleLayerClick = (obj: Konva.KonvaEventObject<MouseEvent>) => {
     if (!layerRef.current || !gridInfo)
       return
+
+    if (selectionBoxDidDragRef.current) {
+      selectionBoxDidDragRef.current = false
+      return
+    }
 
     if (currentOp === 'select') {
       if (selectedId || selectedPointIds.length > 0)
@@ -568,7 +602,75 @@ const Monitor: React.FC = () => {
     }))
   }
 
+  const handleSelectionBoxStart = (event: Konva.KonvaEventObject<MouseEvent>) => {
+    if (currentOp !== 'select' || event.evt.button !== 0 || event.target !== layerRef.current)
+      return
+
+    const pointer = getLayerPointerPoint()
+    if (!pointer)
+      return
+
+    selectionBoxDidDragRef.current = false
+    setSelectionBox({
+      start: pointer,
+      end: pointer,
+    })
+  }
+
+  const handleSelectionBoxEnd = (event: Konva.KonvaEventObject<MouseEvent>) => {
+    if (currentOp !== 'select' || !selectionBox)
+      return
+
+    const pointer = getLayerPointerPoint()
+    const finalBox = pointer
+      ? {
+          ...selectionBox,
+          end: pointer,
+        }
+      : selectionBox
+    const x1 = Math.min(finalBox.start.x, finalBox.end.x)
+    const x2 = Math.max(finalBox.start.x, finalBox.end.x)
+    const y1 = Math.min(finalBox.start.y, finalBox.end.y)
+    const y2 = Math.max(finalBox.start.y, finalBox.end.y)
+    const hasSelectionArea = Math.abs(x2 - x1) > 0.03 || Math.abs(y2 - y1) > 0.03
+
+    setSelectionBox(null)
+    if (!hasSelectionArea)
+      return
+
+    selectionBoxDidDragRef.current = true
+    const selectedIds = currentPoints()
+      .filter(point => point.x >= x1 && point.x <= x2 && point.y >= y1 && point.y <= y2)
+      .map(point => point.uid)
+    const hasModifier = event.evt.shiftKey || event.evt.ctrlKey || event.evt.metaKey
+    const nextIds = hasModifier
+      ? Array.from(new Set([...selectedPointIds, ...selectedIds]))
+      : selectedIds
+
+    if (nextIds.length > 0)
+      selectPoints(nextIds, selectedIds[selectedIds.length - 1] ?? nextIds[nextIds.length - 1])
+    else if (!hasModifier)
+      selectPoint(null)
+  }
+
   const handleLayerMouseMove = () => {
+    if (currentOp === 'select' && selectionBox) {
+      const pointer = getLayerPointerPoint()
+      if (!pointer)
+        return
+
+      if (Math.hypot(pointer.x - selectionBox.start.x, pointer.y - selectionBox.start.y) > 0.03)
+        selectionBoxDidDragRef.current = true
+
+      setSelectionBox(state => state
+        ? {
+            ...state,
+            end: pointer,
+          }
+        : state)
+      return
+    }
+
     if (currentOp === 'waypointLine' && lineWaypointDraft && !lineWaypointPanelOpen && layerRef.current) {
       const pointer = layerRef.current.getRelativePointerPosition()
       if (!pointer)
@@ -616,7 +718,9 @@ const Monitor: React.FC = () => {
           scaleY={layerState?.scale}
           draggable={currentOp === 'move'}
           onDragMove={handleLayerDrag}
+          onMouseDown={handleSelectionBoxStart}
           onMouseMove={handleLayerMouseMove}
+          onMouseUp={handleSelectionBoxEnd}
           onClick={handleLayerClick}>
           <GridMap />
           {(gridInfo && displayedRobotPose && currentOp !== 'relocalize')
@@ -698,11 +802,26 @@ const Monitor: React.FC = () => {
             onSelect={event => handlePointClick(wp.uid, event)}
             isSelected={selectedPointIds.includes(wp.uid)}
             isPrimarySelected={wp.uid === selectedId}
+            isHovered={currentOp === 'select' && hoveredPointId === wp.uid}
+            onHoverChange={setHoveredPointId}
             isPathTarget={currentOp === 'pathway' && draftPathTargetId === wp.uid}
             isPathSource={currentOp === 'pathway' && wp.uid === selectedId} />)}
           {pathPointInfo.map((p, i) => <PathPoint
             key={i}
             point={p} />)}
+          {selectionBoxBounds && (
+            <Rect
+              x={selectionBoxBounds.x}
+              y={selectionBoxBounds.y}
+              width={selectionBoxBounds.width}
+              height={selectionBoxBounds.height}
+              fill="rgba(6, 182, 212, 0.12)"
+              stroke="#0891B2"
+              strokeWidth={Math.max(pathStrokeWidth * 0.35, 0.03)}
+              dash={[Math.max(pathStrokeWidth * 1.2, 0.1), Math.max(pathStrokeWidth * 0.7, 0.06)]}
+              listening={false}
+            />
+          )}
         </Layer>
       </Stage>
       {currentOp === 'waypointLine' && lineWaypointDraft && (

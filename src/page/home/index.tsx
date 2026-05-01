@@ -15,6 +15,18 @@ interface ApiResultLike {
   message?: string
 }
 
+type RunningMode = 'mapping' | 'navigation'
+
+function normalizeRunningMode(state: { data?: unknown; message?: string }): RunningMode | null {
+  const value = typeof state.data === 'string' && state.data.trim()
+    ? state.data.trim()
+    : state.message?.trim()
+
+  return value === 'mapping' || value === 'navigation'
+    ? value
+    : null
+}
+
 const Home: React.FC = () => {
   const { maps, setMaps, setMapsNew } = useGridStore(state => ({
     maps: state.maps,
@@ -90,13 +102,14 @@ const Home: React.FC = () => {
 
     try {
       const runningState = await apiServer.fetchRunningState()
+      const runningMode = normalizeRunningMode(runningState)
 
       if (runningState.code === 1) {
         const navigationResp = await apiServer.navigation(mapId, 'diff') as ApiResultLike
         if (navigationResp.code != null && navigationResp.code !== 0)
           throw new Error(navigationResp.message || '启动导航失败')
       }
-      else if (runningState.code === 0 && runningState.data === 'mapping') {
+      else if (runningState.code === 0 && runningMode === 'mapping') {
         toast.dismiss(loadingToast)
 
         // eslint-disable-next-line no-alert
@@ -109,7 +122,7 @@ const Home: React.FC = () => {
         if (navigationResp.code != null && navigationResp.code !== 0)
           throw new Error(navigationResp.message || '启动导航失败')
       }
-      else if (runningState.code === 0 && runningState.data === 'navigation') {
+      else if (runningState.code === 0 && runningMode === 'navigation') {
         const currentMap = await apiServer.fetchCurrentMap()
 
         if (currentMap.map_id !== mapId) {

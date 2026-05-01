@@ -71,7 +71,8 @@ const GridMap: React.FC = () => {
       x={mapState.x}
       y={mapState.y}
       width={mapState.width}
-      height={mapState.height} /> }
+      height={mapState.height}
+      listening={false} /> }
     </>
   )
 }
