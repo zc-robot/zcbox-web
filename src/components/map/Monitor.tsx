@@ -31,6 +31,7 @@ interface ImageState {
 
 const DEFAULT_LINE_WAYPOINT_COUNT = '5'
 const DEFAULT_LINE_WAYPOINT_SPACING = '1.00'
+const GRID_MAP_BACKGROUND_NAME = 'grid-map-background'
 
 interface SelectionBox {
   start: Point2D
@@ -603,7 +604,8 @@ const Monitor: React.FC = () => {
   }
 
   const handleSelectionBoxStart = (event: Konva.KonvaEventObject<MouseEvent>) => {
-    if (currentOp !== 'select' || event.evt.button !== 0 || event.target !== layerRef.current)
+    const isBackgroundTarget = event.target === layerRef.current || event.target.name() === GRID_MAP_BACKGROUND_NAME
+    if (currentOp !== 'select' || event.evt.button !== 0 || !isBackgroundTarget)
       return
 
     const pointer = getLayerPointerPoint()

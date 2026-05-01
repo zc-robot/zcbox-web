@@ -67,12 +67,12 @@ const GridMap: React.FC = () => {
   return (
     <>
     {mapState && <Image
+      name="grid-map-background"
       image={mapState.data}
       x={mapState.x}
       y={mapState.y}
       width={mapState.width}
-      height={mapState.height}
-      listening={false} /> }
+      height={mapState.height} /> }
     </>
   )
 }
