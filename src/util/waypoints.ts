@@ -176,7 +176,24 @@ export function createLineWaypointPreview(start: Point2D, end: Point2D, options:
   }
 }
 
-export function getEvenlyRedistributedWaypoints(selectedPoints: NavPoint[]): EvenWaypointLayout | null {
+export function getWaypointRedistributionSpacing(selectedPoints: NavPoint[]) {
+  if (selectedPoints.length < 2)
+    return null
+
+  const orderedPoints = orderWaypointsByLineProjection(selectedPoints)
+  if (!orderedPoints)
+    return null
+
+  const start = orderedPoints[0]
+  const end = orderedPoints[orderedPoints.length - 1]
+  const length = Math.hypot(end.x - start.x, end.y - start.y)
+  if (length < 1e-6)
+    return null
+
+  return length / (orderedPoints.length - 1)
+}
+
+export function getEvenlyRedistributedWaypoints(selectedPoints: NavPoint[], spacing?: number): EvenWaypointLayout | null {
   if (selectedPoints.length < 2)
     return null
 
@@ -190,16 +207,26 @@ export function getEvenlyRedistributedWaypoints(selectedPoints: NavPoint[]): Eve
     x: end.x - start.x,
     y: end.y - start.y,
   }
+  const length = Math.hypot(vector.x, vector.y)
+  if (length < 1e-6)
+    return null
+
+  const pointSpacing = spacing == null
+    ? length / (orderedPoints.length - 1)
+    : normalizeSpacing(spacing)
+  const unit = {
+    x: vector.x / length,
+    y: vector.y / length,
+  }
 
   return {
     orderedPoints,
     updates: orderedPoints.map((point, index) => {
-      const ratio = index / (orderedPoints.length - 1)
       return {
         uid: point.uid,
         point: {
-          x: start.x + vector.x * ratio,
-          y: start.y + vector.y * ratio,
+          x: start.x + unit.x * pointSpacing * index,
+          y: start.y + unit.y * pointSpacing * index,
         },
       }
     }),

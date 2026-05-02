@@ -3,6 +3,7 @@ import useWebSocket, { ReadyState } from 'react-use-websocket'
 import toast from 'react-hot-toast'
 import BatchRenameWaypointsModal from './BatchRenameWaypointsModal'
 import ExportRmfModal from './ExportRmfModal'
+import RedistributeWaypointsModal from './RedistributeWaypointsModal'
 import type { ExportRmfSelection } from './ExportRmfModal'
 import { useGridStore, useOperationStore, useProfileStore } from '@/store'
 import apiServer from '@/service/apiServer'
@@ -10,7 +11,7 @@ import type { NavPoint, PointMessage, RobotInfoMessage } from '@/types'
 import { useBatteryStateMqtt, useKeyPress, useLaserScanMqtt, useRobotPoseMqtt } from '@/hooks'
 import { parsePgm } from '@/util/transform'
 import { buildRmfBuildingYaml, sanitizeRmfFileName } from '@/util/rmf'
-import { getEvenlyRedistributedWaypoints, getWaypointsOnSameLine } from '@/util/waypoints'
+import { getEvenlyRedistributedWaypoints, getWaypointRedistributionSpacing, getWaypointsOnSameLine } from '@/util/waypoints'
 
 export interface TopDeckProps {
   mapId: number
@@ -36,6 +37,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   useLaserScanMqtt()
   const [showExportModal, setShowExportModal] = useState(false)
   const [showBatchRenameModal, setShowBatchRenameModal] = useState(false)
+  const [showRedistributeModal, setShowRedistributeModal] = useState(false)
   const { zoom, robotInfo, robotStatus, setRobotInfo, setMapGrid, setPathPointInfo, mapsNew, isScanVisible, setScanVisibility, updateScanPointSize, requestCenterRobot, relocalizationPose, beginRelocalization, cancelRelocalization } = useGridStore(state => ({
     zoom: state.zoom,
     robotInfo: state.robotInfo,
@@ -134,7 +136,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     toast.success('已采集当前位置为路径点')
   }
 
-  const redistributeSelectedWaypoints = () => {
+  const applyRedistributedWaypoints = (spacing?: number) => {
     if (selectedPointIds.length < 2) {
       toast.error('请先选择至少两个路径点')
       return
@@ -144,7 +146,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     const selectedPoints = selectedPointIds
       .map(id => pointMap.get(id))
       .filter((point): point is NavPoint => point != null)
-    const layout = getEvenlyRedistributedWaypoints(selectedPoints)
+    const layout = getEvenlyRedistributedWaypoints(selectedPoints, spacing)
 
     if (!layout) {
       toast.error('路径点距离过近，无法重排')
@@ -153,7 +155,17 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
 
     updateCurrentProfilePoints(layout.updates)
     selectPoints(layout.orderedPoints.map(point => point.uid), layout.orderedPoints[layout.orderedPoints.length - 1].uid)
+    setShowRedistributeModal(false)
     toast.success('已等距重排路径点')
+  }
+
+  const openRedistributeModal = () => {
+    if (selectedPointIds.length < 2) {
+      toast.error('请先选择至少两个路径点')
+      return
+    }
+
+    setShowRedistributeModal(true)
   }
 
   const getSelectedWaypoints = () => {
@@ -162,6 +174,9 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
       .map(id => pointMap.get(id))
       .filter((point): point is NavPoint => point != null)
   }
+
+  const selectedWaypoints = getSelectedWaypoints()
+  const selectedWaypointRedistributionSpacing = getWaypointRedistributionSpacing(selectedWaypoints)
 
   const getSelectedLineWaypoints = () => {
     const points = currentPoints()
@@ -512,7 +527,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
         </div>
         <div
           className={`${selectedPointIds.length >= 2 ? 'panel-item' : 'panel-item opacity-45'} group`}
-          onClick={redistributeSelectedWaypoints}>
+          onClick={openRedistributeModal}>
           <div className="i-material-symbols-align-horizontal-center-rounded panel-icon" />
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">等距重排 (/)</span>
         </div>
@@ -649,9 +664,16 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
       )}
       {showBatchRenameModal && (
         <BatchRenameWaypointsModal
-          points={getSelectedWaypoints()}
+          points={selectedWaypoints}
           onClose={() => setShowBatchRenameModal(false)}
           onConfirm={handleBatchRenameWaypoints} />
+      )}
+      {showRedistributeModal && (
+        <RedistributeWaypointsModal
+          points={selectedWaypoints}
+          defaultSpacing={selectedWaypointRedistributionSpacing}
+          onClose={() => setShowRedistributeModal(false)}
+          onConfirm={spacing => applyRedistributedWaypoints(spacing)} />
       )}
     </div>
   )

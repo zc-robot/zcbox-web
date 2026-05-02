@@ -18,7 +18,7 @@ import { useElementSize, useKeyPress } from '@/hooks'
 import { composePose, getRelativePose } from '@/util/transform'
 import type { NavPoint, PoseMessage } from '@/types'
 import type { LineWaypointMode, Point2D } from '@/util/waypoints'
-import { createLineConstraint, createLineWaypointPreview, getEvenlyRedistributedWaypoints } from '@/util/waypoints'
+import { createLineConstraint, createLineWaypointPreview, getEvenlyRedistributedWaypoints, getWaypointRedistributionSpacing } from '@/util/waypoints'
 
 interface ImageState {
   x: number
@@ -245,7 +245,17 @@ const Monitor: React.FC = () => {
     if (selectedPoints.length < 2)
       return
 
-    const layout = getEvenlyRedistributedWaypoints(selectedPoints)
+    const defaultSpacing = getWaypointRedistributionSpacing(selectedPoints)
+    // eslint-disable-next-line no-alert
+    const spacingText = prompt('请输入相邻路径点间距(m)', defaultSpacing ? defaultSpacing.toFixed(2) : '1.00')
+    if (spacingText == null)
+      return
+
+    const spacing = Number(spacingText)
+    if (!Number.isFinite(spacing) || spacing <= 0)
+      return
+
+    const layout = getEvenlyRedistributedWaypoints(selectedPoints, spacing)
     if (!layout)
       return
 
