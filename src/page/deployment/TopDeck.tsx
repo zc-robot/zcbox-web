@@ -10,9 +10,9 @@ import { useGridStore, useOperationStore, useProfileStore } from '@/store'
 import apiServer from '@/service/apiServer'
 import type { NavPoint, PointMessage, RobotInfoMessage } from '@/types'
 import { useBatteryStateMqtt, useKeyPress, useLaserScanMqtt, useRobotPoseMqtt } from '@/hooks'
-import { parsePgm } from '@/util/transform'
+import { canvasAngleToQuaternion, parsePgm } from '@/util/transform'
 import { buildRmfBuildingYaml, sanitizeRmfFileName } from '@/util/rmf'
-import { getEvenlyRedistributedWaypoints, getWaypointRedistributionSpacing, getWaypointsOnSameLine } from '@/util/waypoints'
+import { getEvenlyRedistributedWaypoints, getWaypointRedistributionSpacing, getWaypointsOnSameLine, orderWaypointsByLineProjection } from '@/util/waypoints'
 
 export interface TopDeckProps {
   mapId: number
@@ -21,6 +21,10 @@ export interface TopDeckProps {
 interface ApiResultLike {
   code?: number
   message?: string
+}
+
+function createSelectedWaypointTaskUid() {
+  return `selected_waypoints_${Date.now()}`
 }
 
 function isEditableTarget(target: EventTarget | null) {
@@ -181,6 +185,25 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const selectedWaypoints = getSelectedWaypoints()
   const selectedWaypointRedistributionSpacing = getWaypointRedistributionSpacing(selectedWaypoints)
 
+  const getSelectedWaypointsForNavigation = () => {
+    if (selectedWaypoints.length < 2)
+      return selectedWaypoints
+
+    const lineIds = new Set(
+      selectedWaypoints
+        .map(point => point.line_constraint?.uid)
+        .filter((lineUid): lineUid is string => lineUid != null),
+    )
+
+    if (lineIds.size === 1) {
+      const orderedLinePoints = orderWaypointsByLineProjection(selectedWaypoints)
+      if (orderedLinePoints)
+        return orderedLinePoints
+    }
+
+    return selectedWaypoints
+  }
+
   const getSelectedLineWaypoints = () => {
     const points = currentPoints()
     const pointMap = new Map(points.map(point => [point.uid, point]))
@@ -302,6 +325,64 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     catch (error) {
       toast.dismiss(loadingToast)
       toast.error(`重定位失败 ${error}`)
+    }
+  }
+
+  const handleGoToSelectedWaypoints = async () => {
+    if (selectedWaypoints.length === 0) {
+      toast.error('请先选择至少一个路径点')
+      return
+    }
+
+    if (robotStatus !== 'idle') {
+      toast.error(`机器人当前状态为 ${robotStatus ?? '未知'}，只有 idle 时可以前往选中路径点`)
+      return
+    }
+
+    const mapName = mapsNew.find(map => map.id === mapId)?.name
+    if (!mapName) {
+      toast.error('未找到当前地图名称，无法下发任务')
+      return
+    }
+
+    const orderedWaypoints = getSelectedWaypointsForNavigation()
+    const loadingToast = toast.loading(`正在下发 ${orderedWaypoints.length} 个路径点...`)
+
+    try {
+      const response = await apiServer.executeWaypointTask({
+        task_uid: createSelectedWaypointTaskUid(),
+        is_repeat: false,
+        wps: orderedWaypoints.map((point, index) => ({
+          pose: {
+            position: {
+              x: point.x,
+              y: -point.y,
+            },
+            orientation: canvasAngleToQuaternion(point.rotation),
+          },
+          is_dest: index === orderedWaypoints.length - 1,
+          nav_type: 'auto',
+          actions: [],
+          precise_xy: 0.3,
+          precise_rad: 6.28,
+          is_reverse: false,
+          inflation_radius: 1.1,
+          map: mapName,
+          uid: point.uid,
+        })),
+      })
+
+      toast.dismiss(loadingToast)
+      if (response.code === 0) {
+        toast.success('已下发选中路径点任务')
+        return
+      }
+
+      toast.error(response.message || '下发选中路径点任务失败')
+    }
+    catch (error) {
+      toast.dismiss(loadingToast)
+      toast.error(`下发选中路径点任务失败 ${error}`)
     }
   }
 
@@ -578,6 +659,12 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           onClick={openBatchRenameModal}>
           <div className="i-material-symbols-edit-note-rounded panel-icon" />
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">批量重命名</span>
+        </div>
+        <div
+          className={`${selectedWaypoints.length > 0 ? 'panel-item bg-green-600 hover:bg-green-700' : 'panel-item opacity-45'} group`}
+          onClick={handleGoToSelectedWaypoints}>
+          <div className="i-material-symbols-play-arrow-rounded panel-icon text-white" />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">前往选中点</span>
         </div>
         <div
           className={`${currentOp === 'pathway' ? 'panel-item-enabled' : 'panel-item'} group`}

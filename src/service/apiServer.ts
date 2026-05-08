@@ -1,11 +1,34 @@
 import ky from 'ky'
-import type { CurrentMapData, MapData, MapDataDetail, MapListItem, NavProfile, PointAction, PoseMessage, RobotParams } from '@/types'
+import type { CurrentMapData, MapData, MapDataDetail, MapListItem, NavProfile, PointAction, PoseMessage, QuaternionMessage, RobotParams } from '@/types'
 import { useBoundStore } from '@/store'
 
 interface Resp<T> {
   code: number
   message: string
   data: T
+}
+
+export interface ExecuteWaypointTaskPayload {
+  task_uid: string
+  is_repeat: boolean
+  wps: Array<{
+    pose: {
+      position: {
+        x: number
+        y: number
+      }
+      orientation: QuaternionMessage
+    }
+    is_dest: boolean
+    nav_type: 'auto' | 'manually'
+    actions: []
+    precise_xy: number
+    precise_rad: number
+    is_reverse: boolean
+    inflation_radius: number
+    map: string
+    uid: string
+  }>
 }
 
 class ApiServer {
@@ -219,6 +242,13 @@ class ApiServer {
         },
       },
     }).json()
+    return json
+  }
+
+  executeWaypointTask = async (payload: ExecuteWaypointTaskPayload) => {
+    const json = await this.robotHttpClient.post('execute_task', {
+      json: payload,
+    }).json<Resp<null | string>>()
     return json
   }
 
