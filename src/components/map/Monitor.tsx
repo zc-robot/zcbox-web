@@ -1,7 +1,7 @@
 import type Konva from 'konva'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
-import { Circle, Layer, Line, Rect, Stage } from 'react-konva'
+import { Circle, Group, Layer, Line, Rect, Stage, Text } from 'react-konva'
 import { shallow } from 'zustand/shallow'
 import Door from './Door'
 import GridMap from './GridMap'
@@ -18,7 +18,7 @@ import { useElementSize, useKeyPress } from '@/hooks'
 import { composePose, getRelativePose } from '@/util/transform'
 import type { NavPoint, PoseMessage } from '@/types'
 import type { LineWaypointMode, Point2D } from '@/util/waypoints'
-import { createLineConstraint, createLineWaypointPreview, getEvenlyRedistributedWaypoints, getWaypointRedistributionSpacing } from '@/util/waypoints'
+import { createLineConstraint, createLineWaypointPreview, getEvenlyRedistributedWaypoints, getWaypointRedistributionSpacing, orderWaypointsByLineProjection } from '@/util/waypoints'
 
 interface ImageState {
   x: number
@@ -38,6 +38,12 @@ const EDGE_PAN_SPEED_PX = 12
 interface SelectionBox {
   start: Point2D
   end: Point2D
+}
+
+interface LineRotationDragState {
+  lineUid: string
+  center: Point2D
+  lastAngle: number
 }
 
 function getLayerState(resolution: number, imageX: number, imageY: number, scale: number): ImageState {
@@ -70,6 +76,17 @@ function formatNumber(value: number) {
   return value.toFixed(2)
 }
 
+function getAngleDegrees(center: Point2D, point: Point2D) {
+  return Math.atan2(point.y - center.y, point.x - center.x) * 180 / Math.PI
+}
+
+function normalizeAngleDeltaDegrees(value: number) {
+  if (!Number.isFinite(value))
+    return 0
+
+  return ((value + 180) % 360 + 360) % 360 - 180
+}
+
 function getEdgePanDelta(pointer: Point2D, width: number, height: number) {
   let x = 0
   let y = 0
@@ -92,6 +109,8 @@ const Monitor: React.FC = () => {
   const lastHandledCenterRequestId = useRef(0)
   const relocalizationLaserOffset = useRef<PoseMessage | null>(null)
   const selectionBoxDidDragRef = useRef(false)
+  const lineRotationDragRef = useRef<LineRotationDragState | null>(null)
+  const lineRotationDidDragRef = useRef(false)
   const edgePanFrameRef = useRef<number | null>(null)
   const edgePanPointerRef = useRef<Point2D | null>(null)
   const offsetRef = useRef<Point2D>({ x: 0, y: 0 })
@@ -103,6 +122,7 @@ const Monitor: React.FC = () => {
   const [draftPathTargetId, setDraftPathTargetId] = useState<string | null>(null)
   const [hoveredPointId, setHoveredPointId] = useState<string | null>(null)
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null)
+  const [lineRotationActive, setLineRotationActive] = useState(false)
   const [lineWaypointDraft, setLineWaypointDraft] = useState<{ start: Point2D; end: Point2D } | null>(null)
   const [lineWaypointPanelOpen, setLineWaypointPanelOpen] = useState(false)
   const [lineWaypointMode, setLineWaypointMode] = useState<LineWaypointMode>('spacing')
@@ -136,11 +156,13 @@ const Monitor: React.FC = () => {
   }), shallow)
   const robotParams = useParamsStore(state => state.robotParams)
   const {
-    currentProfileId, currentPoints, appendCurrentProfilePoint, updateCurrentProfilePoints, removeCurrentProfilePoint,
+    profileVersion, currentProfileId, currentPoints, appendCurrentProfilePoint, updateCurrentProfilePoints, removeCurrentProfilePoint,
     currentPaths, appendCurrentProfilePath, removeCurrentProfilePath,
     currentDoors, appendCurrentProfileDoor, removeCurrentProfileDoor,
     currentLifts, appendCurrentProfileLift, removeCurrentProfileLift,
+    rotateCurrentProfileLineWaypoints,
   } = useProfileStore(state => ({
+    profileVersion: state.profiles,
     currentProfileId: state.currentProfileId,
     currentPoints: state.currentProfilePoints,
     appendCurrentProfilePoint: state.appendCurrentProfilePoint,
@@ -155,6 +177,7 @@ const Monitor: React.FC = () => {
     currentLifts: state.currentProfileLifts,
     appendCurrentProfileLift: state.appendCurrentProfileLift,
     removeCurrentProfileLift: state.removeCurrentProfileLift,
+    rotateCurrentProfileLineWaypoints: state.rotateCurrentProfileLineWaypoints,
   }), shallow)
 
   const pathStrokeWidth = useMemo(() => {
@@ -187,6 +210,53 @@ const Monitor: React.FC = () => {
       height: Math.abs(selectionBox.end.y - selectionBox.start.y),
     }
   }, [selectionBox])
+  const selectedLineRotationInfo = useMemo(() => {
+    if (currentOp !== 'select' || !layerState?.scale)
+      return null
+
+    const points = profileVersion.find(profile => profile.uid === currentProfileId)?.data.waypoints ?? []
+    const pointMap = new Map(points.map(point => [point.uid, point]))
+    const primaryId = selectedId?.startsWith('Point')
+      ? selectedId
+      : selectedPointIds[0]
+    const primaryPoint = primaryId ? pointMap.get(primaryId) : undefined
+    const lineUid = primaryPoint?.line_constraint?.uid
+    if (!lineUid)
+      return null
+
+    const linePoints = points.filter(point => point.line_constraint?.uid === lineUid)
+    if (linePoints.length < 2)
+      return null
+
+    const orderedPoints = orderWaypointsByLineProjection(linePoints)
+    if (!orderedPoints)
+      return null
+
+    const start = orderedPoints[0]
+    const end = orderedPoints[orderedPoints.length - 1]
+    const center = {
+      x: (start.x + end.x) / 2,
+      y: (start.y + end.y) / 2,
+    }
+    const angle = getAngleDegrees(start, end)
+    const angleRad = angle * Math.PI / 180
+    const screenUnit = 1 / layerState.scale
+    const handleOffset = Math.max(screenUnit * 44, pathStrokeWidth * 7)
+    const handleRadius = Math.max(screenUnit * 11, pathStrokeWidth * 1.4)
+    const handle = {
+      x: center.x + Math.sin(angleRad) * handleOffset,
+      y: center.y - Math.cos(angleRad) * handleOffset,
+    }
+
+    return {
+      lineUid,
+      orderedPoints,
+      center,
+      handle,
+      handleRadius,
+      screenUnit,
+    }
+  }, [currentOp, currentProfileId, layerState?.scale, pathStrokeWidth, profileVersion, selectedId, selectedPointIds])
   useEffect(() => {
     offsetRef.current = offset
   }, [offset])
@@ -435,6 +505,71 @@ const Monitor: React.FC = () => {
     return layer.getRelativePointerPosition()
   }
 
+  const setStageCursor = (cursor: string) => {
+    const container = layerRef.current?.getStage()?.container()
+    if (container)
+      container.style.cursor = cursor
+  }
+
+  const endLineRotationDrag = () => {
+    lineRotationDragRef.current = null
+    setLineRotationActive(false)
+    setStageCursor('')
+    window.setTimeout(() => {
+      lineRotationDidDragRef.current = false
+    }, 0)
+  }
+
+  const updateLineRotationDrag = () => {
+    const dragState = lineRotationDragRef.current
+    if (!dragState)
+      return false
+
+    const pointer = getLayerPointerPoint()
+    if (!pointer)
+      return true
+
+    const nextAngle = getAngleDegrees(dragState.center, pointer)
+    const delta = normalizeAngleDeltaDegrees(nextAngle - dragState.lastAngle)
+    if (Math.abs(delta) < 0.05)
+      return true
+
+    const rotated = rotateCurrentProfileLineWaypoints(dragState.lineUid, delta)
+    if (!rotated) {
+      endLineRotationDrag()
+      return true
+    }
+
+    dragState.lastAngle = nextAngle
+    lineRotationDidDragRef.current = true
+    return true
+  }
+
+  const handleLineRotationStart = (event: Konva.KonvaEventObject<MouseEvent>) => {
+    event.cancelBubble = true
+    if (!selectedLineRotationInfo)
+      return
+
+    const pointer = getLayerPointerPoint()
+    const startAngle = pointer
+      ? getAngleDegrees(selectedLineRotationInfo.center, pointer)
+      : getAngleDegrees(selectedLineRotationInfo.center, selectedLineRotationInfo.handle)
+    lineRotationDragRef.current = {
+      lineUid: selectedLineRotationInfo.lineUid,
+      center: selectedLineRotationInfo.center,
+      lastAngle: startAngle,
+    }
+    lineRotationDidDragRef.current = false
+    setLineRotationActive(true)
+    setStageCursor('grabbing')
+  }
+
+  const handleLineRotationEnd = (event: Konva.KonvaEventObject<MouseEvent>) => {
+    event.cancelBubble = true
+    if (lineRotationDragRef.current)
+      endLineRotationDrag()
+  }
+
   const createPathPayload = (start: NavPoint, end: NavPoint) => {
     const pid = uid('Path')
     return {
@@ -547,6 +682,11 @@ const Monitor: React.FC = () => {
   const handleLayerClick = (obj: Konva.KonvaEventObject<MouseEvent>) => {
     if (!layerRef.current || !gridInfo)
       return
+
+    if (lineRotationDidDragRef.current) {
+      lineRotationDidDragRef.current = false
+      return
+    }
 
     if (selectionBoxDidDragRef.current) {
       selectionBoxDidDragRef.current = false
@@ -727,6 +867,12 @@ const Monitor: React.FC = () => {
   }
 
   const handleSelectionBoxEnd = (event: Konva.KonvaEventObject<MouseEvent>) => {
+    if (lineRotationDragRef.current) {
+      event.cancelBubble = true
+      endLineRotationDrag()
+      return
+    }
+
     if (currentOp !== 'select' || !selectionBox)
       return
 
@@ -763,6 +909,9 @@ const Monitor: React.FC = () => {
   }
 
   const handleLayerMouseMove = () => {
+    if (updateLineRotationDrag())
+      return
+
     updateEdgePanPointer()
 
     if (currentOp === 'select' && selectionBox) {
@@ -815,6 +964,9 @@ const Monitor: React.FC = () => {
   }
 
   const handleLayerMouseLeave = () => {
+    if (lineRotationDragRef.current)
+      endLineRotationDrag()
+
     edgePanPointerRef.current = null
   }
 
@@ -922,6 +1074,84 @@ const Monitor: React.FC = () => {
             onHoverChange={setHoveredPointId}
             isPathTarget={currentOp === 'pathway' && draftPathTargetId === wp.uid}
             isPathSource={currentOp === 'pathway' && wp.uid === selectedId} />)}
+          {selectedLineRotationInfo && (
+            <>
+              <Line
+                points={selectedLineRotationInfo.orderedPoints.flatMap(point => [point.x, point.y])}
+                stroke="#0891B2"
+                strokeWidth={Math.max(selectedLineRotationInfo.screenUnit * 2, pathStrokeWidth * 0.65)}
+                dash={[selectedLineRotationInfo.screenUnit * 8, selectedLineRotationInfo.screenUnit * 5]}
+                lineCap="round"
+                lineJoin="round"
+                opacity={0.8}
+                listening={false}
+              />
+              <Line
+                points={[
+                  selectedLineRotationInfo.center.x,
+                  selectedLineRotationInfo.center.y,
+                  selectedLineRotationInfo.handle.x,
+                  selectedLineRotationInfo.handle.y,
+                ]}
+                stroke="#0F766E"
+                strokeWidth={Math.max(selectedLineRotationInfo.screenUnit * 1.5, pathStrokeWidth * 0.4)}
+                dash={[selectedLineRotationInfo.screenUnit * 5, selectedLineRotationInfo.screenUnit * 4]}
+                lineCap="round"
+                opacity={0.7}
+                listening={false}
+              />
+              <Circle
+                x={selectedLineRotationInfo.center.x}
+                y={selectedLineRotationInfo.center.y}
+                radius={selectedLineRotationInfo.handleRadius * 0.36}
+                fill="#0F766E"
+                stroke="white"
+                strokeWidth={selectedLineRotationInfo.screenUnit * 1.5}
+                listening={false}
+              />
+              <Group
+                x={selectedLineRotationInfo.handle.x}
+                y={selectedLineRotationInfo.handle.y}
+                onMouseDown={handleLineRotationStart}
+                onMouseUp={handleLineRotationEnd}
+                onClick={(event) => {
+                  event.cancelBubble = true
+                }}
+                onMouseEnter={(event) => {
+                  event.cancelBubble = true
+                  if (!lineRotationActive)
+                    setStageCursor('grab')
+                }}
+                onMouseLeave={(event) => {
+                  event.cancelBubble = true
+                  if (!lineRotationActive)
+                    setStageCursor('')
+                }}>
+                <Circle
+                  radius={selectedLineRotationInfo.handleRadius}
+                  fill={lineRotationActive ? '#0891B2' : '#0F766E'}
+                  stroke="white"
+                  strokeWidth={selectedLineRotationInfo.screenUnit * 2}
+                  shadowColor="black"
+                  shadowBlur={selectedLineRotationInfo.screenUnit * 8}
+                  shadowOpacity={0.24}
+                />
+                <Text
+                  x={-selectedLineRotationInfo.handleRadius}
+                  y={-selectedLineRotationInfo.handleRadius * 0.92}
+                  width={selectedLineRotationInfo.handleRadius * 2}
+                  height={selectedLineRotationInfo.handleRadius * 2}
+                  text="↻"
+                  align="center"
+                  verticalAlign="middle"
+                  fontSize={selectedLineRotationInfo.handleRadius * 1.45}
+                  fontStyle="bold"
+                  fill="white"
+                  listening={false}
+                />
+              </Group>
+            </>
+          )}
           {pathPointInfo.map((p, i) => <PathPoint
             key={i}
             point={p} />)}
