@@ -2,7 +2,14 @@ import type { StateCreator } from 'zustand'
 import type { NavDoor, NavLift, NavPath, NavPoint, NavProfile, NavTask, PoseMessage, TaskPoint } from '@/types'
 import { uid } from '@/util'
 import { quaternionToCanvasAngle } from '@/util/transform'
-import { projectPointToLineConstraint } from '@/util/waypoints'
+import {
+  getLineConstraintCenter,
+  normalizeRotationDegrees,
+  orderWaypointsByLineProjection,
+  projectPointToLineConstraint,
+  rotateLineConstraint,
+  rotatePointAround,
+} from '@/util/waypoints'
 
 export interface ProfileSlice {
   profiles: NavProfile[]
@@ -29,6 +36,7 @@ export interface ProfileSlice {
   appendCurrentProfilePointFromPose: (pose: PoseMessage) => string | null
   updateCurrentProfilePoint: (pid: string, point: Partial<NavPoint>) => void
   updateCurrentProfilePoints: (points: { uid: string; point: Partial<NavPoint> }[]) => void
+  rotateCurrentProfileLineWaypoints: (lineUid: string, angleDegrees: number) => boolean
   removeCurrentProfilePoint: (pid: string) => void
   appendCurrentProfilePath: (path: NavPath) => void
   updateCurrentProfilePath: (pid: string, path: Partial<NavPath>) => void
@@ -280,6 +288,72 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
       }
       return { profiles: newProfiles }
     })
+  },
+  rotateCurrentProfileLineWaypoints: (lineUid, angleDegrees) => {
+    if (!lineUid || !Number.isFinite(angleDegrees) || Math.abs(angleDegrees) < 1e-6)
+      return false
+
+    let didRotate = false
+    set((state) => {
+      const newProfiles = state.profiles.slice()
+      const p = newProfiles.find(p => p.uid === state.currentProfileId)
+      if (!p)
+        return { profiles: newProfiles }
+
+      ensureProfileData(p)
+      const linePoints = p.data.waypoints.filter(point => point.line_constraint?.uid === lineUid)
+      const constraint = linePoints[0]?.line_constraint
+      if (!constraint || linePoints.length < 2)
+        return { profiles: newProfiles }
+
+      const orderedLinePoints = orderWaypointsByLineProjection(linePoints)
+      const center = orderedLinePoints
+        ? {
+            x: (orderedLinePoints[0].x + orderedLinePoints[orderedLinePoints.length - 1].x) / 2,
+            y: (orderedLinePoints[0].y + orderedLinePoints[orderedLinePoints.length - 1].y) / 2,
+          }
+        : getLineConstraintCenter(constraint)
+      const rotatedConstraint = rotateLineConstraint(constraint, center, angleDegrees)
+      const linePointIds = new Set(linePoints.map(point => point.uid))
+      const nextPositions = new Map<string, { x: number; y: number }>()
+
+      p.data.waypoints = p.data.waypoints.map((waypoint) => {
+        if (!linePointIds.has(waypoint.uid))
+          return waypoint
+
+        const position = rotatePointAround(waypoint, center, angleDegrees)
+        nextPositions.set(waypoint.uid, position)
+        return {
+          ...waypoint,
+          x: position.x,
+          y: position.y,
+          rotation: normalizeRotationDegrees(waypoint.rotation + angleDegrees),
+          line_constraint: rotatedConstraint,
+        }
+      })
+
+      p.data.paths?.forEach((path) => {
+        const startPosition = nextPositions.get(path.start.uid)
+        const endPosition = nextPositions.get(path.end.uid)
+
+        if (startPosition) {
+          path.start.x = startPosition.x
+          path.start.y = startPosition.y
+        }
+
+        if (endPosition) {
+          path.end.x = endPosition.x
+          path.end.y = endPosition.y
+        }
+
+        if (startPosition && endPosition)
+          path.controls = path.controls.map(control => rotatePointAround(control, center, angleDegrees))
+      })
+
+      didRotate = true
+      return { profiles: newProfiles }
+    })
+    return didRotate
   },
   removeCurrentProfilePoint: (pid: string) => {
     set((state) => {

@@ -117,6 +117,42 @@ export function translateLineConstraint(constraint: LineConstraint, delta: Point
   }
 }
 
+export function normalizeRotationDegrees(value: number) {
+  if (!Number.isFinite(value))
+    return 0
+
+  const normalized = ((value + 180) % 360 + 360) % 360 - 180
+  return Number(normalized.toFixed(2))
+}
+
+export function rotatePointAround(point: Point2D, center: Point2D, angleDegrees: number): Point2D {
+  const angle = angleDegrees * Math.PI / 180
+  const dx = point.x - center.x
+  const dy = point.y - center.y
+  const cos = Math.cos(angle)
+  const sin = Math.sin(angle)
+
+  return {
+    x: center.x + dx * cos - dy * sin,
+    y: center.y + dx * sin + dy * cos,
+  }
+}
+
+export function getLineConstraintCenter(constraint: LineConstraint): Point2D {
+  return {
+    x: (constraint.start.x + constraint.end.x) / 2,
+    y: (constraint.start.y + constraint.end.y) / 2,
+  }
+}
+
+export function rotateLineConstraint(constraint: LineConstraint, center: Point2D, angleDegrees: number): LineConstraint {
+  return {
+    uid: constraint.uid,
+    start: rotatePointAround(constraint.start, center, angleDegrees),
+    end: rotatePointAround(constraint.end, center, angleDegrees),
+  }
+}
+
 export function getWaypointsOnSameLine(points: NavPoint[], point?: NavPoint) {
   const lineUid = point?.line_constraint?.uid
   if (!lineUid)

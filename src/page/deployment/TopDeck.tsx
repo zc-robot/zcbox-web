@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 import BatchRenameWaypointsModal from './BatchRenameWaypointsModal'
 import ExportRmfModal from './ExportRmfModal'
 import RedistributeWaypointsModal from './RedistributeWaypointsModal'
+import RotateLineWaypointsModal from './RotateLineWaypointsModal'
 import type { ExportRmfSelection } from './ExportRmfModal'
 import { useGridStore, useOperationStore, useProfileStore } from '@/store'
 import apiServer from '@/service/apiServer'
@@ -38,6 +39,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const [showExportModal, setShowExportModal] = useState(false)
   const [showBatchRenameModal, setShowBatchRenameModal] = useState(false)
   const [showRedistributeModal, setShowRedistributeModal] = useState(false)
+  const [showRotateLineModal, setShowRotateLineModal] = useState(false)
   const { zoom, robotInfo, robotStatus, setRobotInfo, setMapGrid, setPathPointInfo, mapsNew, isScanVisible, setScanVisibility, updateScanPointSize, requestCenterRobot, relocalizationPose, beginRelocalization, cancelRelocalization } = useGridStore(state => ({
     zoom: state.zoom,
     robotInfo: state.robotInfo,
@@ -63,13 +65,14 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     updateOp: state.updateOp,
     openPointEditor: state.openPointEditor,
   }))
-  const { currentProfile, currentTask, currentPoints, addProfiles, appendCurrentProfilePointFromPose, updateCurrentProfilePoints } = useProfileStore(state => ({
+  const { currentProfile, currentTask, currentPoints, addProfiles, appendCurrentProfilePointFromPose, updateCurrentProfilePoints, rotateCurrentProfileLineWaypoints } = useProfileStore(state => ({
     currentProfile: state.currentProfile,
     currentTask: state.getCurrentTask,
     currentPoints: state.currentProfilePoints,
     addProfiles: state.addProfiles,
     appendCurrentProfilePointFromPose: state.appendCurrentProfilePointFromPose,
     updateCurrentProfilePoints: state.updateCurrentProfilePoints,
+    rotateCurrentProfileLineWaypoints: state.rotateCurrentProfileLineWaypoints,
   }))
 
   const zoomInClick = () => zoom(1.1)
@@ -205,6 +208,38 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     updateOp('select')
     selectPoints(linePoints.map(point => point.uid), primaryId)
     toast.success('已选择整条线，拖动主路径点可整体移动')
+  }
+
+  const openRotateLineModal = () => {
+    const linePoints = getSelectedLineWaypoints()
+    if (linePoints.length < 2) {
+      toast.error('请先选择等距路径点线上的路径点')
+      return
+    }
+
+    setShowRotateLineModal(true)
+  }
+
+  const handleRotateLineWaypoints = (angleDegrees: number) => {
+    const linePoints = getSelectedLineWaypoints()
+    const lineUid = linePoints[0]?.line_constraint?.uid
+    if (!lineUid) {
+      toast.error('请先选择等距路径点线上的路径点')
+      return
+    }
+
+    const rotated = rotateCurrentProfileLineWaypoints(lineUid, angleDegrees)
+    if (!rotated) {
+      toast.error('整线旋转失败')
+      return
+    }
+
+    const primaryId = selectedId?.startsWith('Point') && linePoints.some(point => point.uid === selectedId)
+      ? selectedId
+      : linePoints[linePoints.length - 1].uid
+    selectPoints(linePoints.map(point => point.uid), primaryId)
+    setShowRotateLineModal(false)
+    toast.success('已旋转整条线')
   }
 
   const openBatchRenameModal = () => {
@@ -484,7 +519,8 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     }
   }, [cancelRelocalization, updateOp])
 
-  const selectedLineWaypointCount = getSelectedLineWaypoints().length
+  const selectedLineWaypoints = getSelectedLineWaypoints()
+  const selectedLineWaypointCount = selectedLineWaypoints.length
 
   return (
     <div className="panel-container">
@@ -524,6 +560,12 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           onClick={selectCurrentWaypointLine}>
           <div className="i-material-symbols-select-all-rounded panel-icon" />
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">选择整线</span>
+        </div>
+        <div
+          className={`${selectedLineWaypointCount >= 2 ? 'panel-item' : 'panel-item opacity-45'} group`}
+          onClick={openRotateLineModal}>
+          <div className="i-material-symbols-rotate-right-rounded panel-icon" />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">旋转整线</span>
         </div>
         <div
           className={`${selectedPointIds.length >= 2 ? 'panel-item' : 'panel-item opacity-45'} group`}
@@ -674,6 +716,12 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           defaultSpacing={selectedWaypointRedistributionSpacing}
           onClose={() => setShowRedistributeModal(false)}
           onConfirm={spacing => applyRedistributedWaypoints(spacing)} />
+      )}
+      {showRotateLineModal && (
+        <RotateLineWaypointsModal
+          points={selectedLineWaypoints}
+          onClose={() => setShowRotateLineModal(false)}
+          onConfirm={handleRotateLineWaypoints} />
       )}
     </div>
   )
