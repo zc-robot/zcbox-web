@@ -14,6 +14,8 @@ import { canvasAngleToQuaternion, parsePgm } from '@/util/transform'
 import { buildRmfBuildingYaml, sanitizeRmfFileName } from '@/util/rmf'
 import { getEvenlyRedistributedWaypoints, getWaypointRedistributionSpacing, getWaypointsOnSameLine, orderWaypointsByLineProjection } from '@/util/waypoints'
 
+type ExecuteWaypointNavType = 'auto' | 'manually'
+
 export interface TopDeckProps {
   mapId: number
 }
@@ -44,6 +46,10 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const [showBatchRenameModal, setShowBatchRenameModal] = useState(false)
   const [showRedistributeModal, setShowRedistributeModal] = useState(false)
   const [showRotateLineModal, setShowRotateLineModal] = useState(false)
+  const [showExecuteOptions, setShowExecuteOptions] = useState(false)
+  const [executePreciseXY, setExecutePreciseXY] = useState('0.05')
+  const [executePreciseRad, setExecutePreciseRad] = useState('0.05')
+  const [executeNavType, setExecuteNavType] = useState<ExecuteWaypointNavType>('auto')
   const { zoom, robotInfo, robotStatus, setRobotInfo, setMapGrid, setPathPointInfo, mapsNew, isScanVisible, setScanVisibility, updateScanPointSize, requestCenterRobot, relocalizationPose, beginRelocalization, cancelRelocalization } = useGridStore(state => ({
     zoom: state.zoom,
     robotInfo: state.robotInfo,
@@ -345,6 +351,17 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
       return
     }
 
+    const preciseXY = Number(executePreciseXY)
+    const preciseRad = Number(executePreciseRad)
+    if (!Number.isFinite(preciseXY) || preciseXY <= 0) {
+      toast.error('请输入有效的坐标精度')
+      return
+    }
+    if (!Number.isFinite(preciseRad) || preciseRad <= 0) {
+      toast.error('请输入有效的朝向精度')
+      return
+    }
+
     const orderedWaypoints = getSelectedWaypointsForNavigation()
     const loadingToast = toast.loading(`正在下发 ${orderedWaypoints.length} 个路径点...`)
 
@@ -361,10 +378,10 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
             orientation: canvasAngleToQuaternion(point.rotation),
           },
           is_dest: index === orderedWaypoints.length - 1,
-          nav_type: 'auto',
+          nav_type: executeNavType,
           actions: [],
-          precise_xy: 0.3,
-          precise_rad: 6.28,
+          precise_xy: preciseXY,
+          precise_rad: preciseRad,
           is_reverse: false,
           inflation_radius: 1.1,
           map: mapName,
@@ -665,6 +682,47 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           onClick={handleGoToSelectedWaypoints}>
           <div className="i-material-symbols-play-arrow-rounded panel-icon text-white" />
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">前往选中点</span>
+        </div>
+        <div className="relative">
+          <div
+            className="panel-item group"
+            onClick={() => setShowExecuteOptions(prev => !prev)}>
+            <div className="i-material-symbols-tune-rounded panel-icon" />
+            <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">前往参数</span>
+          </div>
+          {showExecuteOptions && (
+            <div
+              className="absolute z-50 top-11 left-0 w-56 rounded-xl border-(solid 1px gray-300) bg-white p-3 text-sm text-gray-800 shadow-lg"
+              onClick={event => event.stopPropagation()}>
+              <div className="mb-2 font-bold">前往选中点参数</div>
+              <label className="mb-2 flex items-center justify-between gap-3">
+                <span className="text-gray-600">导航方式</span>
+                <select
+                  className="w-26 rounded border-(solid 1px gray-300) bg-gray-50 px-2 py-1"
+                  value={executeNavType}
+                  onChange={event => setExecuteNavType(event.target.value as ExecuteWaypointNavType)}>
+                  <option value="auto">auto</option>
+                  <option value="manually">manually</option>
+                </select>
+              </label>
+              <label className="mb-2 flex items-center justify-between gap-3">
+                <span className="text-gray-600">坐标精度</span>
+                <input
+                  className="w-26 rounded border-(solid 1px gray-300) bg-gray-50 px-2 py-1 text-right"
+                  inputMode="decimal"
+                  value={executePreciseXY}
+                  onChange={event => setExecutePreciseXY(event.target.value)} />
+              </label>
+              <label className="flex items-center justify-between gap-3">
+                <span className="text-gray-600">朝向精度</span>
+                <input
+                  className="w-26 rounded border-(solid 1px gray-300) bg-gray-50 px-2 py-1 text-right"
+                  inputMode="decimal"
+                  value={executePreciseRad}
+                  onChange={event => setExecutePreciseRad(event.target.value)} />
+              </label>
+            </div>
+          )}
         </div>
         <div
           className={`${currentOp === 'pathway' ? 'panel-item-enabled' : 'panel-item'} group`}
