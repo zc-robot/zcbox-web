@@ -6,15 +6,17 @@ import ExportRmfModal from './ExportRmfModal'
 import RedistributeWaypointsModal from './RedistributeWaypointsModal'
 import RotateLineWaypointsModal from './RotateLineWaypointsModal'
 import type { ExportRmfSelection } from './ExportRmfModal'
-import { useGridStore, useOperationStore, useProfileStore } from '@/store'
+import { useGridStore, useOperationStore, useParamsStore, useProfileStore } from '@/store'
 import apiServer from '@/service/apiServer'
-import type { NavPoint, PointMessage, RobotInfoMessage } from '@/types'
+import type { NavPoint, PointMessage, RobotInfoMessage, RobotStatus } from '@/types'
 import { useBatteryStateMqtt, useKeyPress, useLaserScanMqtt, useRobotPoseMqtt } from '@/hooks'
 import { canvasAngleToQuaternion, parsePgm } from '@/util/transform'
 import { buildRmfBuildingYaml, sanitizeRmfFileName } from '@/util/rmf'
 import { getEvenlyRedistributedWaypoints, getWaypointRedistributionSpacing, getWaypointsOnSameLine, orderWaypointsByLineProjection } from '@/util/waypoints'
 
 type ExecuteWaypointNavType = 'auto' | 'manually'
+
+const EXECUTABLE_ROBOT_STATUSES = new Set<RobotStatus>(['idle', 'succeeded', 'failed', 'canceled'])
 
 export interface TopDeckProps {
   mapId: number
@@ -50,6 +52,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const [executePreciseXY, setExecutePreciseXY] = useState('0.05')
   const [executePreciseRad, setExecutePreciseRad] = useState('0.05')
   const [executeNavType, setExecuteNavType] = useState<ExecuteWaypointNavType>('auto')
+  const [executeActionId, setExecuteActionId] = useState('')
   const { zoom, robotInfo, robotStatus, setRobotInfo, setMapGrid, setPathPointInfo, mapsNew, isScanVisible, setScanVisibility, updateScanPointSize, requestCenterRobot, relocalizationPose, beginRelocalization, cancelRelocalization } = useGridStore(state => ({
     zoom: state.zoom,
     robotInfo: state.robotInfo,
@@ -84,6 +87,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     updateCurrentProfilePoints: state.updateCurrentProfilePoints,
     rotateCurrentProfileLineWaypoints: state.rotateCurrentProfileLineWaypoints,
   }))
+  const pointActions = useParamsStore(state => state.pointActions)
 
   const zoomInClick = () => zoom(1.1)
   const zoomOutClick = () => zoom(0.9)
@@ -334,14 +338,23 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     }
   }
 
+  const toggleExecuteWaypointOptions = () => {
+    if (selectedWaypoints.length === 0) {
+      toast.error('请先选择至少一个路径点')
+      return
+    }
+
+    setShowExecuteOptions(prev => !prev)
+  }
+
   const handleGoToSelectedWaypoints = async () => {
     if (selectedWaypoints.length === 0) {
       toast.error('请先选择至少一个路径点')
       return
     }
 
-    if (robotStatus !== 'idle') {
-      toast.error(`机器人当前状态为 ${robotStatus ?? '未知'}，只有 idle 时可以前往选中路径点`)
+    if (!robotStatus || !EXECUTABLE_ROBOT_STATUSES.has(robotStatus)) {
+      toast.error(`机器人当前状态为 ${robotStatus ?? '未知'}，只有 idle/succeeded/failed/canceled 时可以前往选中路径点`)
       return
     }
 
@@ -362,6 +375,15 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
       return
     }
 
+    const selectedAction = executeActionId
+      ? pointActions.find(action => `${action.id}` === executeActionId)
+      : undefined
+    if (executeActionId && !selectedAction) {
+      toast.error('请选择有效的行为')
+      return
+    }
+    const executeActions = selectedAction ? [selectedAction] : []
+
     const orderedWaypoints = getSelectedWaypointsForNavigation()
     const loadingToast = toast.loading(`正在下发 ${orderedWaypoints.length} 个路径点...`)
 
@@ -379,7 +401,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           },
           is_dest: index === orderedWaypoints.length - 1,
           nav_type: executeNavType,
-          actions: [],
+          actions: index === orderedWaypoints.length - 1 ? executeActions : [],
           precise_xy: preciseXY,
           precise_rad: preciseRad,
           is_reverse: false,
@@ -391,6 +413,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
 
       toast.dismiss(loadingToast)
       if (response.code === 0) {
+        setShowExecuteOptions(false)
         toast.success('已下发选中路径点任务')
         return
       }
@@ -677,24 +700,19 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           <div className="i-material-symbols-edit-note-rounded panel-icon" />
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">批量重命名</span>
         </div>
-        <div
-          className={`${selectedWaypoints.length > 0 ? 'panel-item bg-green-600 hover:bg-green-700' : 'panel-item opacity-45'} group`}
-          onClick={handleGoToSelectedWaypoints}>
-          <div className="i-material-symbols-play-arrow-rounded panel-icon text-white" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">前往选中点</span>
-        </div>
         <div className="relative">
           <div
-            className="panel-item group"
-            onClick={() => setShowExecuteOptions(prev => !prev)}>
-            <div className="i-material-symbols-tune-rounded panel-icon" />
-            <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">前往参数</span>
+            className={`${selectedWaypoints.length > 0 ? 'panel-item bg-green-600 hover:bg-green-700' : 'panel-item opacity-45'} group`}
+            onClick={toggleExecuteWaypointOptions}>
+            <div className="i-material-symbols-play-arrow-rounded panel-icon text-white" />
+            <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">前往选中点</span>
           </div>
           {showExecuteOptions && (
             <div
               className="absolute z-50 top-11 left-0 w-56 rounded-xl border-(solid 1px gray-300) bg-white p-3 text-sm text-gray-800 shadow-lg"
               onClick={event => event.stopPropagation()}>
-              <div className="mb-2 font-bold">前往选中点参数</div>
+              <div className="mb-1 font-bold">前往选中点</div>
+              <div className="mb-3 text-xs text-gray-500">确认后下发 {selectedWaypoints.length} 个路径点</div>
               <label className="mb-2 flex items-center justify-between gap-3">
                 <span className="text-gray-600">导航方式</span>
                 <select
@@ -703,6 +721,18 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
                   onChange={event => setExecuteNavType(event.target.value as ExecuteWaypointNavType)}>
                   <option value="auto">auto</option>
                   <option value="manually">manually</option>
+                </select>
+              </label>
+              <label className="mb-2 flex items-center justify-between gap-3">
+                <span className="text-gray-600">终点行为</span>
+                <select
+                  className="w-26 rounded border-(solid 1px gray-300) bg-gray-50 px-2 py-1"
+                  value={executeActionId}
+                  onChange={event => setExecuteActionId(event.target.value)}>
+                  <option value="">无</option>
+                  {pointActions.map(action => (
+                    <option key={action.id} value={action.id}>{action.name}</option>
+                  ))}
                 </select>
               </label>
               <label className="mb-2 flex items-center justify-between gap-3">
@@ -721,6 +751,20 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
                   value={executePreciseRad}
                   onChange={event => setExecutePreciseRad(event.target.value)} />
               </label>
+              <div className="mt-3 flex justify-end gap-2">
+                <button
+                  type="button"
+                  className="rounded-md border-(solid 1px gray-300) px-3 py-1 text-gray-600 hover:bg-gray-100"
+                  onClick={() => setShowExecuteOptions(false)}>
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md bg-green-600 px-3 py-1 text-white hover:bg-green-700"
+                  onClick={handleGoToSelectedWaypoints}>
+                  确认前往
+                </button>
+              </div>
             </div>
           )}
         </div>

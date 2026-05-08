@@ -21,7 +21,7 @@ export interface ExecuteWaypointTaskPayload {
     }
     is_dest: boolean
     nav_type: 'auto' | 'manually'
-    actions: []
+    actions: PointAction[]
     precise_xy: number
     precise_rad: number
     is_reverse: boolean
