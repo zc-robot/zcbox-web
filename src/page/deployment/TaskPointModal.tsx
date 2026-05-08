@@ -104,7 +104,7 @@ const TaskPointModal: React.FC<TaskPointModalProps> = ({ index, task, point, onC
             className="w-20"
             type="number"
             value={preciseXY}
-            defaultValue={0.3}
+            defaultValue={0.05}
             onChange={e => setPreciseXY(e.target.value)} />
           米
           <Input
@@ -112,7 +112,7 @@ const TaskPointModal: React.FC<TaskPointModalProps> = ({ index, task, point, onC
             type="number"
             value={preciseRad}
             onChange={e => setPreciseRad(e.target.value)}
-            defaultValue={6.28} />
+            defaultValue={6.2} />
           rad
         </div>
 

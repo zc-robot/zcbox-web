@@ -20,6 +20,11 @@ function roundToTwoDecimals(value: number) {
   return Math.round(value * 100) / 100
 }
 
+function compareWaypointName(a: NavPoint, b: NavPoint) {
+  return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+    || a.uid.localeCompare(b.uid, undefined, { numeric: true, sensitivity: 'base' })
+}
+
 const doorTypeOptions: DoorType[] = ['sliding', 'hinged', 'double_sliding', 'double_hinged']
 
 interface ProfileItemProps {
@@ -819,8 +824,12 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
     updateCurrentProfileLift: state.updateCurrentProfileLift,
     removeCurrentProfileLift: state.removeCurrentProfileLift,
   }))
-  const robotInfo = useGridStore(state => state.robotInfo)
+  const { robotInfo, requestCenterPoint } = useGridStore(state => ({
+    robotInfo: state.robotInfo,
+    requestCenterPoint: state.requestCenterPoint,
+  }), shallow)
   const configPoint = currentPoints.find(point => point.uid === editingPointId)
+  const sortedCurrentPoints = currentPoints.slice().sort(compareWaypointName)
   const configDoor = selectedId?.startsWith('Door')
     ? currentDoors.find(door => door.uid === selectedId)
     : undefined
@@ -890,6 +899,11 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
 
     select(id)
     openPointEditor(id)
+  }
+
+  const selectWaypointFromPanel = (point: NavPoint) => {
+    select(point.uid)
+    requestCenterPoint(point)
   }
 
   const activateCurrentDisplayTool = () => {
@@ -978,7 +992,7 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
         className={'flex flex-col h-[calc(100vh-17.5rem)] overflow-auto'}
         onClick={() => select(null)}>
         {currentDisplay === 'point'
-          ? currentPoints.map(p => <div
+          ? sortedCurrentPoints.map(p => <div
             key={p.uid}>
             <PointItem
               point={p}
@@ -988,14 +1002,15 @@ const ProfileDeck: React.FC<ProfileDeckProps> = ({ mapId }) => {
                 updateOp('select')
                 if (e.shiftKey || e.ctrlKey || e.metaKey) {
                   togglePointSelection(p.uid)
+                  requestCenterPoint(p)
                   return
                 }
 
-                select(p.uid)
+                selectWaypointFromPanel(p)
               }}
               onEditClicked={() => {
                 openPointEditor(p.uid)
-                select(p.uid)
+                selectWaypointFromPanel(p)
                 updateOp('select')
               }}
               onDoubleClicked={() => {

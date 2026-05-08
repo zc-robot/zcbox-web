@@ -107,6 +107,7 @@ function getEdgePanDelta(pointer: Point2D, width: number, height: number) {
 const Monitor: React.FC = () => {
   const layerRef = useRef<Konva.Layer>(null)
   const lastHandledCenterRequestId = useRef(0)
+  const lastHandledCenterPointRequestId = useRef(0)
   const relocalizationLaserOffset = useRef<PoseMessage | null>(null)
   const selectionBoxDidDragRef = useRef(false)
   const lineRotationDragRef = useRef<LineRotationDragState | null>(null)
@@ -140,7 +141,7 @@ const Monitor: React.FC = () => {
     togglePointSelection: state.togglePointSelection,
     openPointEditor: state.openPointEditor,
   }), shallow)
-  const { scale, gridInfo, robotInfo, pathPointInfo, isScanVisible, laserPose, laserScan, scanPointSize, centerRobotRequestId, relocalizationPose, updateRelocalizationPose, cancelRelocalization } = useGridStore(state => ({
+  const { scale, gridInfo, robotInfo, pathPointInfo, isScanVisible, laserPose, laserScan, scanPointSize, centerRobotRequestId, centerPointRequest, relocalizationPose, updateRelocalizationPose, cancelRelocalization } = useGridStore(state => ({
     scale: state.scale,
     gridInfo: state.gridInfo,
     robotInfo: state.robotInfo,
@@ -150,6 +151,7 @@ const Monitor: React.FC = () => {
     laserScan: state.laserScan,
     scanPointSize: state.scanPointSize,
     centerRobotRequestId: state.centerRobotRequestId,
+    centerPointRequest: state.centerPointRequest,
     relocalizationPose: state.relocalizationPose,
     updateRelocalizationPose: state.updateRelocalizationPose,
     cancelRelocalization: state.cancelRelocalization,
@@ -366,6 +368,24 @@ const Monitor: React.FC = () => {
     })
     lastHandledCenterRequestId.current = centerRobotRequestId
   }, [centerRobotRequestId, gridInfo, height, robotInfo, scale, width])
+
+  useEffect(() => {
+    if (!gridInfo || !centerPointRequest || !width || !height)
+      return
+    if (centerPointRequest.requestId <= lastHandledCenterPointRequestId.current)
+      return
+
+    const resolution = gridInfo.resolution
+    const imageX = gridInfo.origin.position.x
+    const imageY = -(gridInfo.origin.position.y + gridInfo.height * resolution)
+    const nextLayerState = getLayerState(resolution, imageX, imageY, scale)
+
+    setOffset({
+      x: width / 2 - (nextLayerState.x + centerPointRequest.x * nextLayerState.scale),
+      y: height / 2 - (nextLayerState.y + centerPointRequest.y * nextLayerState.scale),
+    })
+    lastHandledCenterPointRequestId.current = centerPointRequest.requestId
+  }, [centerPointRequest, gridInfo, height, scale, width])
 
   useEffect(() => {
     if (currentOp !== 'select')

@@ -91,6 +91,14 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
 
   const zoomInClick = () => zoom(1.1)
   const zoomOutClick = () => zoom(0.9)
+  const centerRobotOnCanvas = () => {
+    if (!robotInfo) {
+      toast.error('暂无机器人位姿')
+      return
+    }
+
+    requestCenterRobot()
+  }
   const toggleScanVisibility = () => setScanVisibility(!isScanVisible)
   const increaseScanPointSize = () => updateScanPointSize(0.01)
   const decreaseScanPointSize = () => updateScanPointSize(-0.01)
@@ -817,6 +825,12 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           onClick={zoomOutClick}>
           <div className="i-material-symbols-zoom-out-rounded panel-icon" />
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">缩小</span>
+        </div>
+        <div
+          className="panel-item group"
+          onClick={centerRobotOnCanvas}>
+          <div className="i-material-symbols-my-location-rounded panel-icon" />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">机器人居中</span>
         </div>
         <div
           className={`${isScanVisible ? 'panel-item-enabled' : 'panel-item'} group`}

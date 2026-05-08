@@ -3,6 +3,12 @@ import type { GridInfoMessage, LaserScanMessage, MapData, MapListItem, PointMess
 
 const defaultScanPointSize = 0.08
 
+interface CenterPointRequest {
+  requestId: number
+  x: number
+  y: number
+}
+
 export interface GridSlice {
   scale: number
   maps: MapData[]
@@ -18,6 +24,7 @@ export interface GridSlice {
   isScanVisible: boolean
   scanPointSize: number
   centerRobotRequestId: number
+  centerPointRequest: CenterPointRequest | null
   relocalizationPose: PoseMessage | null
 
   // Actions
@@ -33,6 +40,7 @@ export interface GridSlice {
   setScanVisibility: (visible: boolean) => void
   updateScanPointSize: (delta: number) => void
   requestCenterRobot: () => void
+  requestCenterPoint: (point: { x: number; y: number }) => void
   beginRelocalization: () => void
   updateRelocalizationPose: (pose: PoseMessage) => void
   cancelRelocalization: () => void
@@ -91,6 +99,7 @@ export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
   isScanVisible: false,
   scanPointSize: defaultScanPointSize,
   centerRobotRequestId: 0,
+  centerPointRequest: null,
   relocalizationPose: null,
 
   // Actions
@@ -170,6 +179,15 @@ export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
       centerRobotRequestId: state.centerRobotRequestId + 1,
     }))
   },
+  requestCenterPoint: (point) => {
+    set(state => ({
+      centerPointRequest: {
+        requestId: (state.centerPointRequest?.requestId ?? 0) + 1,
+        x: point.x,
+        y: point.y,
+      },
+    }))
+  },
   beginRelocalization: () => {
     const pose = get().robotInfo?.pose
     set({
@@ -195,6 +213,7 @@ export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
       hasMqttBattery: false,
       isScanVisible: false,
       scanPointSize: defaultScanPointSize,
+      centerPointRequest: null,
       relocalizationPose: null,
     })
   },

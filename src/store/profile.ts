@@ -558,11 +558,11 @@ export const profileSlice: StateCreator<ProfileSlice> = (set, get) => ({
           t.points.push({
             uid: point.uid,
             type: 'auto',
-            precise: false,
+            precise: true,
             reverse: false,
-            dest: false,
-            precise_rad: 6.28,
-            precise_xy: 0.3,
+            dest: true,
+            precise_rad: 6.2,
+            precise_xy: 0.05,
             actions: [],
           })
         }
