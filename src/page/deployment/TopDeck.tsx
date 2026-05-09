@@ -5,6 +5,7 @@ import BatchRenameWaypointsModal from './BatchRenameWaypointsModal'
 import ExportRmfModal from './ExportRmfModal'
 import RedistributeWaypointsModal from './RedistributeWaypointsModal'
 import RotateLineWaypointsModal from './RotateLineWaypointsModal'
+import ShelfStateModal from './ShelfStateModal'
 import type { ExportRmfSelection } from './ExportRmfModal'
 import { useGridStore, useOperationStore, useParamsStore, useProfileStore } from '@/store'
 import apiServer from '@/service/apiServer'
@@ -48,6 +49,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const [showBatchRenameModal, setShowBatchRenameModal] = useState(false)
   const [showRedistributeModal, setShowRedistributeModal] = useState(false)
   const [showRotateLineModal, setShowRotateLineModal] = useState(false)
+  const [showShelfStateModal, setShowShelfStateModal] = useState(false)
   const [showExecuteOptions, setShowExecuteOptions] = useState(false)
   const [executePreciseXY, setExecutePreciseXY] = useState('0.05')
   const [executePreciseRad, setExecutePreciseRad] = useState('0.05')
@@ -833,6 +835,12 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">机器人居中</span>
         </div>
         <div
+          className="panel-item group"
+          onClick={() => setShowShelfStateModal(true)}>
+          <div className="i-material-symbols-inventory-2-outline-rounded panel-icon" />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">货架状态</span>
+        </div>
+        <div
           className={`${isScanVisible ? 'panel-item-enabled' : 'panel-item'} group`}
           onClick={toggleScanVisibility}>
           <div className={`${isScanVisible ? 'i-material-symbols-sensors-rounded' : 'i-material-symbols-sensors-off-rounded'} panel-icon`} />
@@ -906,6 +914,9 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           currentProfileUid={currentProfile()?.uid}
           onClose={() => setShowExportModal(false)}
           onConfirm={handleExportRmf} />
+      )}
+      {showShelfStateModal && (
+        <ShelfStateModal onClose={() => setShowShelfStateModal(false)} />
       )}
       {showBatchRenameModal && (
         <BatchRenameWaypointsModal

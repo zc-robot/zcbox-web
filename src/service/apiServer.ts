@@ -31,6 +31,13 @@ export interface ExecuteWaypointTaskPayload {
   }>
 }
 
+export interface ShelfState {
+  shelf_present: boolean
+  stock: number
+  coil_address: number
+  holding_register_address: number
+}
+
 class ApiServer {
   private get derivedRealtimeHost() {
     const state = useBoundStore.getState()
@@ -249,6 +256,18 @@ class ApiServer {
     const json = await this.robotHttpClient.post('execute_task', {
       json: payload,
     }).json<Resp<null | string>>()
+    return json
+  }
+
+  fetchShelfState = async () => {
+    const json = await this.client.get('robot/shelf_state').json<Resp<ShelfState>>()
+    return json
+  }
+
+  updateShelfState = async (payload: Pick<ShelfState, 'shelf_present' | 'stock'>) => {
+    const json = await this.client.post('robot/shelf_state', {
+      json: payload,
+    }).json<Resp<ShelfState>>()
     return json
   }
 
