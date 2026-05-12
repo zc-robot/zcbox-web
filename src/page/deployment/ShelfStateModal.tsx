@@ -11,11 +11,17 @@ function formatBoolean(value: boolean) {
   return value ? '有货架' : '无货架'
 }
 
+function formatLiftEnabled(value: boolean) {
+  return value ? '启动' : '关闭'
+}
+
 const ShelfStateModal: React.FC<ShelfStateModalProps> = ({ onClose }) => {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [shelfPresent, setShelfPresent] = useState(false)
   const [stock, setStock] = useState('0')
+  const [liftEnabled, setLiftEnabled] = useState(false)
+  const [liftTargetHeight, setLiftTargetHeight] = useState('0')
   const [state, setState] = useState<ShelfState | null>(null)
 
   const loadShelfState = async () => {
@@ -30,6 +36,8 @@ const ShelfStateModal: React.FC<ShelfStateModalProps> = ({ onClose }) => {
       setState(response.data)
       setShelfPresent(response.data.shelf_present)
       setStock(`${response.data.stock}`)
+      setLiftEnabled(response.data.lift_enabled)
+      setLiftTargetHeight(`${response.data.lift_target_height}`)
     }
     catch (error) {
       toast.error(`读取货架状态失败 ${error}`)
@@ -49,12 +57,19 @@ const ShelfStateModal: React.FC<ShelfStateModalProps> = ({ onClose }) => {
       toast.error('库存必须是 0-65535 的整数')
       return
     }
+    const parsedLiftTargetHeight = Number(liftTargetHeight)
+    if (!Number.isInteger(parsedLiftTargetHeight) || parsedLiftTargetHeight < 0 || parsedLiftTargetHeight > 65535) {
+      toast.error('目标高度必须是 0-65535 的整数')
+      return
+    }
 
     setSaving(true)
     try {
       const response = await apiServer.updateShelfState({
         shelf_present: shelfPresent,
         stock: parsedStock,
+        lift_enabled: liftEnabled,
+        lift_target_height: parsedLiftTargetHeight,
       })
 
       if (response.code !== 0 || !response.data) {
@@ -65,7 +80,9 @@ const ShelfStateModal: React.FC<ShelfStateModalProps> = ({ onClose }) => {
       setState(response.data)
       setShelfPresent(response.data.shelf_present)
       setStock(`${response.data.stock}`)
-      toast.success('货架状态已更新')
+      setLiftEnabled(response.data.lift_enabled)
+      setLiftTargetHeight(`${response.data.lift_target_height}`)
+      toast.success('Modbus 状态已更新')
     }
     catch (error) {
       toast.error(`写入货架状态失败 ${error}`)
@@ -77,11 +94,11 @@ const ShelfStateModal: React.FC<ShelfStateModalProps> = ({ onClose }) => {
 
   return (
     <div className="fixed z-100 top-0 left-0 right-0 bottom-0 flex flex-(justify-center items-center) bg-gray-900/30">
-      <div className="w-24rem rounded-2xl bg-white p-5 shadow-xl border-(solid 1px gray-200)">
+      <div className="max-h-[90vh] w-24rem overflow-auto rounded-2xl bg-white p-5 shadow-xl border-(solid 1px gray-200)">
         <div className="flex items-center">
           <div className="i-material-symbols-inventory-2-outline-rounded mr-2 text-6 text-emerald-700" />
           <div>
-            <div className="text-5 font-bold">货架 Modbus 状态</div>
+            <div className="text-5 font-bold">机器人 Modbus 状态</div>
             <div className="text-xs text-gray-500">Modbus TCP :502</div>
           </div>
           <div
@@ -90,8 +107,13 @@ const ShelfStateModal: React.FC<ShelfStateModalProps> = ({ onClose }) => {
         </div>
 
         <div className="mt-4 rounded-xl bg-gray-50 p-3 text-sm text-gray-600">
-          <div>线圈 401: {state ? formatBoolean(state.shelf_present) : loading ? '读取中...' : '未读取'}</div>
+          <div className="font-bold text-gray-700">货架</div>
+          <div className="mt-1">线圈 401: {state ? formatBoolean(state.shelf_present) : loading ? '读取中...' : '未读取'}</div>
           <div className="mt-1">保持寄存器 50: {state ? state.stock : loading ? '读取中...' : '未读取'}</div>
+          <div className="mt-3 font-bold text-gray-700">升降机构</div>
+          <div className="mt-1">线圈 7: {state ? formatLiftEnabled(state.lift_enabled) : loading ? '读取中...' : '未读取'}</div>
+          <div className="mt-1">实际高度 HR 51: {state ? state.lift_real_height : loading ? '读取中...' : '未读取'}</div>
+          <div className="mt-1">目标高度 HR 52: {state ? state.lift_target_height : loading ? '读取中...' : '未读取'}</div>
         </div>
 
         <label className="mt-4 flex items-center justify-between gap-4 text-sm">
@@ -118,6 +140,34 @@ const ShelfStateModal: React.FC<ShelfStateModalProps> = ({ onClose }) => {
             disabled={loading || saving}
             onChange={event => setStock(event.target.value)} />
         </label>
+
+        <div className="mt-5 border-t-(solid 1px gray-200) pt-4">
+          <div className="mb-3 text-sm font-bold text-gray-700">升降机构</div>
+          <label className="flex items-center justify-between gap-4 text-sm">
+            <span className="font-bold text-gray-700">启动目标高度</span>
+            <select
+              className="w-32 rounded-md border-(solid 1px gray-300) bg-gray-50 px-2 py-1"
+              value={liftEnabled ? 'true' : 'false'}
+              disabled={loading || saving}
+              onChange={event => setLiftEnabled(event.target.value === 'true')}>
+              <option value="true">启动</option>
+              <option value="false">关闭</option>
+            </select>
+          </label>
+
+          <label className="mt-3 flex items-center justify-between gap-4 text-sm">
+            <span className="font-bold text-gray-700">目标高度</span>
+            <input
+              className="w-32 rounded-md border-(solid 1px gray-300) bg-gray-50 px-2 py-1 text-right"
+              type="number"
+              min="0"
+              max="65535"
+              step="1"
+              value={liftTargetHeight}
+              disabled={loading || saving}
+              onChange={event => setLiftTargetHeight(event.target.value)} />
+          </label>
+        </div>
 
         <div className="mt-5 flex justify-between">
           <button

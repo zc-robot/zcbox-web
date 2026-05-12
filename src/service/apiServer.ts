@@ -34,8 +34,14 @@ export interface ExecuteWaypointTaskPayload {
 export interface ShelfState {
   shelf_present: boolean
   stock: number
+  lift_enabled: boolean
+  lift_real_height: number
+  lift_target_height: number
   coil_address: number
   holding_register_address: number
+  lift_enable_coil_address: number
+  lift_real_height_register_address: number
+  lift_target_height_register_address: number
 }
 
 class ApiServer {
@@ -264,7 +270,7 @@ class ApiServer {
     return json
   }
 
-  updateShelfState = async (payload: Pick<ShelfState, 'shelf_present' | 'stock'>) => {
+  updateShelfState = async (payload: Pick<ShelfState, 'shelf_present' | 'stock' | 'lift_enabled' | 'lift_target_height'>) => {
     const json = await this.client.post('robot/shelf_state', {
       json: payload,
     }).json<Resp<ShelfState>>()

@@ -104,6 +104,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const toggleScanVisibility = () => setScanVisibility(!isScanVisible)
   const increaseScanPointSize = () => updateScanPointSize(0.01)
   const decreaseScanPointSize = () => updateScanPointSize(-0.01)
+  const activateMoveMode = () => updateOp('move')
   const activateSelectMode = () => updateOp('select')
   const activateManualWaypointPlacement = () => {
     if (!currentProfile()) {
@@ -643,6 +644,14 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     activateManualWaypointPlacement()
   }, ['v', 'V'])
 
+  useKeyPress((event, isDown) => {
+    if (!isDown || isEditableTarget(event.target))
+      return
+
+    event.preventDefault()
+    activateMoveMode()
+  }, ['m', 'M'])
+
   useEffect(() => {
     return () => {
       cancelRelocalization()
@@ -658,9 +667,9 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
       <div className="flex">
         <div
           className={`${currentOp === 'move' ? 'panel-item-enabled' : 'panel-item'} group`}
-          onClick={() => updateOp('move')}>
+          onClick={activateMoveMode}>
           <div className="i-material-symbols-back-hand-outline-rounded panel-icon" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">移动</span>
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">移动 (M)</span>
         </div>
         <div
           className={`${currentOp === 'select' ? 'panel-item-enabled' : 'panel-item'} group`}
