@@ -96,7 +96,15 @@ const Waypoint: React.FC<WaypointProp> = ({
     }
   }, [isPrimarySelected])
 
-  const marker = useMemo(() => {
+  const width = useMemo(() => {
+    if (!params)
+      return 0
+    if (params.robot_footprint.is_round)
+      return params.robot_footprint.radius / 5
+    return params.robot_footprint.robot_width / 5
+  }, [params])
+
+  const footprintMarker = useMemo(() => {
     if (!params)
       return null
 
@@ -109,7 +117,6 @@ const Waypoint: React.FC<WaypointProp> = ({
       width: robotWidth,
       length: robotLength,
       strokeWidth,
-      badgeSize: Math.max(robotWidth * 0.42, 0.12),
       robotCenterOffset: -footprint.nav_center2robot_center,
     }
   }, [params])
@@ -125,6 +132,8 @@ const Waypoint: React.FC<WaypointProp> = ({
       return '#06B6D4'
     return '#F59E0B'
   }, [isHovered, isPathSource, isPathTarget, isSelected])
+
+  const showFootprintHighlight = Boolean(footprintMarker && currentOp === 'select' && (isHovered || isSelected || isPathSource || isPathTarget))
 
   const getConstrainedPosition = (x: number, y: number) => projectPointToLineConstraint({ x, y }, point.line_constraint)
 
@@ -235,7 +244,7 @@ const Waypoint: React.FC<WaypointProp> = ({
 
   return (
     <>
-      {marker && (
+      {params && (
         <Group
           ref={groupRef}
           x={point.x}
@@ -250,102 +259,90 @@ const Waypoint: React.FC<WaypointProp> = ({
           onTap={handleSelect}
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}>
-          {isHovered && currentOp === 'select' && (
+          {showFootprintHighlight && footprintMarker && (
             <Rect
               x={0}
               y={0}
-              offsetX={marker.width / 2}
-              offsetY={marker.length / 2 + marker.robotCenterOffset}
-              width={marker.width}
-              height={marker.length}
+              offsetX={footprintMarker.width / 2}
+              offsetY={footprintMarker.length / 2 + footprintMarker.robotCenterOffset}
+              width={footprintMarker.width}
+              height={footprintMarker.length}
               rotation={90}
-              stroke="#06B6D4"
-              strokeWidth={marker.strokeWidth * 1.35}
+              fill={`${fillColor}18`}
+              stroke={fillColor}
+              strokeWidth={footprintMarker.strokeWidth * 1.35}
               opacity={0.9}
-              dash={[marker.strokeWidth * 3.5, marker.strokeWidth * 2.4]}
+              dash={[footprintMarker.strokeWidth * 3.5, footprintMarker.strokeWidth * 2.4]}
               listening={false}
             />
           )}
-          <Rect
-            x={0}
-            y={0}
-            offsetX={marker.width / 2}
-            offsetY={marker.length / 2 + marker.robotCenterOffset}
-            width={marker.width}
-            height={marker.length}
-            rotation={90}
-            fill={`${fillColor}33`}
+          <Circle
+            radius={width * 0.95}
+            fill="white"
             stroke={fillColor}
-            strokeWidth={marker.strokeWidth}
+            strokeWidth={width * 0.25}
           />
           <Circle
-            radius={marker.strokeWidth * 1.25}
+            radius={width * 0.28}
             fill={fillColor}
           />
           <Line
-            points={[0, 0, marker.length / 2, 0]}
+            points={[width * 0.18, 0, width * 0.72, 0]}
             stroke={fillColor}
-            strokeWidth={marker.strokeWidth}
+            strokeWidth={width * 0.28}
             lineCap="round"
           />
           <Line
             points={[
-              marker.length / 2, 0,
-              marker.length / 2 - marker.strokeWidth * 2.2, -marker.strokeWidth * 1.35,
-              marker.length / 2 - marker.strokeWidth * 2.2, marker.strokeWidth * 1.35,
+              width * 0.62, -width * 0.24,
+              width * 1.08, 0,
+              width * 0.62, width * 0.24,
             ]}
             fill={fillColor}
             closed
           />
           {(isPathSource || isPathTarget) && (
-            <Rect
-              x={0}
-              y={0}
-              offsetX={marker.width / 2}
-              offsetY={marker.length / 2 + marker.robotCenterOffset}
-              width={marker.width}
-              height={marker.length}
-              rotation={90}
+            <Circle
+              radius={width * 1.35}
               stroke={fillColor}
-              strokeWidth={marker.strokeWidth * 1.2}
-              dash={[marker.strokeWidth * 3.5, marker.strokeWidth * 2.5]}
-              listening={false}
+              strokeWidth={width * 0.12}
+              dash={[width * 0.4, width * 0.25]}
             />
           )}
           {point.is_charger && (
             <Group
-              x={marker.width * 0.7}
-              y={-(marker.length / 2 + marker.badgeSize * 0.8)}
+              x={width * 1.45}
+              y={-width * 1.1}
               rotation={-point.rotation}>
               <Rect
-                x={-marker.badgeSize * 0.5}
-                y={-marker.badgeSize * 0.34}
-                width={marker.badgeSize}
-                height={marker.badgeSize * 0.68}
-                cornerRadius={marker.badgeSize * 0.1}
+                x={-width * 0.42}
+                y={-width * 0.28}
+                width={width * 0.84}
+                height={width * 0.56}
+                cornerRadius={width * 0.08}
                 fill="#16A34A"
                 stroke="white"
-                strokeWidth={marker.badgeSize * 0.08}
+                strokeWidth={width * 0.08}
               />
               <Rect
-                x={marker.badgeSize * 0.5}
-                y={-marker.badgeSize * 0.14}
-                width={marker.badgeSize * 0.16}
-                height={marker.badgeSize * 0.28}
-                cornerRadius={marker.badgeSize * 0.04}
+                x={width * 0.42}
+                y={-width * 0.12}
+                width={width * 0.14}
+                height={width * 0.24}
+                cornerRadius={width * 0.04}
                 fill="#16A34A"
                 stroke="white"
-                strokeWidth={marker.badgeSize * 0.04}
+                strokeWidth={width * 0.04}
               />
               <Line
                 points={[
-                  -marker.badgeSize * 0.18, -marker.badgeSize * 0.14,
-                  0, -marker.badgeSize * 0.14,
-                  -marker.badgeSize * 0.08, marker.badgeSize * 0.16,
-                  marker.badgeSize * 0.16, marker.badgeSize * 0.16,
+                  -width * 0.15, -width * 0.12,
+                  0, -width * 0.12,
+                  -width * 0.06, width * 0.14,
+                  width * 0.14, width * 0.14,
                 ]}
                 stroke="white"
-                strokeWidth={marker.badgeSize * 0.08}
+                strokeWidth={width * 0.08}
                 lineCap="round"
                 lineJoin="round"
               />
@@ -353,21 +350,21 @@ const Waypoint: React.FC<WaypointProp> = ({
           )}
           {point.is_parking_spot && (
             <Group
-              x={point.is_charger ? marker.width * 1.22 : marker.width * 0.7}
-              y={-(marker.length / 2 + marker.badgeSize * 0.8)}
+              x={point.is_charger ? width * 2.35 : width * 1.45}
+              y={-width * 1.1}
               rotation={-point.rotation}>
               <Circle
-                radius={marker.badgeSize * 0.5}
+                radius={width * 0.42}
                 fill="#2563EB"
                 stroke="white"
-                strokeWidth={marker.badgeSize * 0.08}
+                strokeWidth={width * 0.08}
               />
               <Text
-                x={-marker.badgeSize * 0.22}
-                y={-marker.badgeSize * 0.31}
-                width={marker.badgeSize * 0.44}
+                x={-width * 0.18}
+                y={-width * 0.26}
+                width={width * 0.36}
                 align="center"
-                fontSize={marker.badgeSize * 0.62}
+                fontSize={width * 0.52}
                 fontStyle="bold"
                 fill="white"
                 text="P"
