@@ -292,7 +292,7 @@ class ApiServer {
   private buildRmfBuildingYamlUploadUrl(targetHost: string) {
     const trimmedHost = targetHost.trim()
     if (!trimmedHost)
-      throw new Error('RMF Web Viz IP不能为空')
+      throw new Error('上传目标 IP不能为空')
 
     const url = new URL(/^https?:\/\//i.test(trimmedHost) ? trimmedHost : `http://${trimmedHost}`)
     if (!url.port)
