@@ -12,8 +12,10 @@ export interface ExportRmfSelection {
 interface ExportRmfModalProps {
   currentMapId: number
   currentProfileUid?: string
+  defaultUploadHost: string
+  isSubmitting?: boolean
   onClose: () => void
-  onConfirm: (selections: ExportRmfSelection[]) => void
+  onConfirm: (selections: ExportRmfSelection[], targetHost: string) => void
 }
 
 function removeMapValue<T>(record: Record<number, T>, mapId: number) {
@@ -22,9 +24,30 @@ function removeMapValue<T>(record: Record<number, T>, mapId: number) {
   return next
 }
 
+function formatRmfUploadEndpoint(targetHost: string) {
+  const trimmedHost = targetHost.trim()
+  if (!trimmedHost)
+    return '请输入目标 IP / Host'
+
+  try {
+    const url = new URL(/^https?:\/\//i.test(trimmedHost) ? trimmedHost : `http://${trimmedHost}`)
+    if (!url.port)
+      url.port = '6080'
+    url.pathname = '/api/map/building_yaml'
+    url.search = ''
+    url.hash = ''
+    return url.toString()
+  }
+  catch {
+    return '目标 IP / Host 格式不正确'
+  }
+}
+
 const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
   currentMapId,
   currentProfileUid,
+  defaultUploadHost,
+  isSubmitting = false,
   onClose,
   onConfirm,
 }) => {
@@ -39,6 +62,11 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
     currentMapId && currentProfileUid ? { [currentMapId]: currentProfileUid } : {},
   )
   const [loadingProfileIds, setLoadingProfileIds] = useState<number[]>([])
+  const [targetHost, setTargetHost] = useState(defaultUploadHost)
+
+  useEffect(() => {
+    setTargetHost(defaultUploadHost)
+  }, [defaultUploadHost])
 
   useEffect(() => {
     const loadMaps = async () => {
@@ -127,7 +155,11 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
     }
   }
 
-  const canConfirm = orderedSelectedMaps.length > 0
+  const trimmedTargetHost = targetHost.trim()
+  const uploadEndpointPreview = formatRmfUploadEndpoint(targetHost)
+  const canConfirm = !isSubmitting
+    && trimmedTargetHost.length > 0
+    && orderedSelectedMaps.length > 0
     && orderedSelectedMaps.every((map) => {
       const profiles = profilesByMapId[map.id]
       const selectedProfileId = selectedProfileIds[map.id]
@@ -157,25 +189,42 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
       return
     }
 
-    onConfirm(selections)
+    onConfirm(selections, trimmedTargetHost)
+  }
+
+  const handleClose = () => {
+    if (!isSubmitting)
+      onClose()
   }
 
   return (
     <div
       className="fixed z-100 top-0 left-0 right-0 bottom-0 flex flex-(justify-center items-center) bg-gray-900/30"
-      onClick={onClose}>
+      onClick={handleClose}>
       <div
         className="flex flex-col border-(solid 1px gray-300) shadow-md w-42rem max-w-90vw min-h-24rem max-h-85vh p-4 bg-white rounded-2xl"
         onClick={event => event.stopPropagation()}>
         <div className="flex items-end text-3">
-          <span className="text-5 font-bold mr-3">生成RMF配置文件</span>
+          <span className="text-5 font-bold mr-3">上传导航图</span>
           <span className="text-gray-500">选择地图层和对应部署配置</span>
           <div
             className="i-material-symbols-cancel-outline-rounded flex-self-center ml-a text-5"
-            onClick={onClose} />
+            onClick={handleClose} />
         </div>
         <div className="mt-3 rounded-lg bg-gray-100 p-3 text-sm text-gray-600">
-          导出的 level 名称使用地图名称。可以同时勾选多个地图，每个地图选择一个部署配置后合并导出。
+          生成的 map.building.yaml 会上传到 RMF Web Viz，不再下载到本地。level 名称使用地图名称，可以同时勾选多个地图并合并上传。
+        </div>
+        <div className="mt-3 rounded-xl border-(solid 1px gray-200) p-3">
+          <label className="block text-sm font-bold mb-2">RMF Web Viz IP / Host</label>
+          <input
+            className="w-full box-border bg-gray-50 border-(solid 1px gray-300) rounded-lg px-3 py-2 text-sm"
+            value={targetHost}
+            disabled={isSubmitting}
+            placeholder="192.168.12.1"
+            onChange={event => setTargetHost(event.target.value)} />
+          <div className="mt-2 text-xs text-gray-500">
+            上传接口: {uploadEndpointPreview}
+          </div>
         </div>
         <div className="mt-4 grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] gap-4 min-h-0 flex-1 overflow-hidden">
           <div className="border-(solid 1px gray-200) rounded-xl p-3 overflow-auto">
@@ -217,7 +266,7 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
                 return (
                   <div key={map.id} className="rounded-lg border-(solid 1px gray-200) p-3">
                     <div className="font-medium">{map.name}</div>
-                    <div className="text-xs text-gray-500 mb-2">{`导出为 level: ${map.name}`}</div>
+                    <div className="text-xs text-gray-500 mb-2">{`上传为 level: ${map.name}`}</div>
                     {isLoadingProfiles && (
                       <div className="text-sm text-gray-500">正在加载部署配置...</div>
                     )}
@@ -248,14 +297,15 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
         <div className="flex justify-end gap-3 mt-4">
           <button
             className="border-none bg-gray-200 px-4 py-2 rounded-lg text-sm"
-            onClick={onClose}>
+            disabled={isSubmitting}
+            onClick={handleClose}>
             取消
           </button>
           <button
             className={`border-none px-4 py-2 rounded-lg text-sm ${canConfirm ? 'bg-emerald-600 text-white' : 'bg-gray-200 text-gray-500'}`}
             disabled={!canConfirm}
             onClick={handleConfirm}>
-            导出
+            {isSubmitting ? '上传中...' : '上传'}
           </button>
         </div>
       </div>

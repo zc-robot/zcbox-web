@@ -51,6 +51,8 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const [showRotateLineModal, setShowRotateLineModal] = useState(false)
   const [showShelfStateModal, setShowShelfStateModal] = useState(false)
   const [showExecuteOptions, setShowExecuteOptions] = useState(false)
+  const [rmfUploadHost, setRmfUploadHost] = useState(() => apiServer.defaultRmfWebVizHost)
+  const [isUploadingRmf, setIsUploadingRmf] = useState(false)
   const [executePreciseXY, setExecutePreciseXY] = useState('0.05')
   const [executePreciseRad, setExecutePreciseRad] = useState('0.05')
   const [executeNavType, setExecuteNavType] = useState<ExecuteWaypointNavType>('auto')
@@ -540,6 +542,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   }
 
   const handleGenerateRmfClicked = () => {
+    setRmfUploadHost(apiServer.defaultRmfWebVizHost)
     setShowExportModal(true)
   }
 
@@ -581,7 +584,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     }
   }
 
-  const handleExportRmf = (selections: ExportRmfSelection[]) => {
+  const handleExportRmf = async (selections: ExportRmfSelection[], targetHost: string) => {
     if (selections.length === 0) {
       toast.error('请先选择至少一个地图和部署配置')
       return
@@ -600,17 +603,25 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
         buildingName,
       },
     )
-    const blob = new Blob([content], { type: 'application/x-yaml;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = 'map.building.yaml'
-    document.body.appendChild(anchor)
-    anchor.click()
-    anchor.remove()
-    URL.revokeObjectURL(url)
-    setShowExportModal(false)
-    toast.success('RMF配置文件已生成')
+
+    const loadingToast = toast.loading('正在上传导航图...')
+    setIsUploadingRmf(true)
+    try {
+      const response = await apiServer.uploadRmfBuildingYaml(targetHost, content)
+      if (!response.ok || response.returncode !== 0)
+        throw new Error(response.stderr || response.stdout || `returncode=${response.returncode}`)
+
+      setShowExportModal(false)
+      toast.dismiss(loadingToast)
+      toast.success('导航图已上传')
+    }
+    catch (error) {
+      toast.dismiss(loadingToast)
+      toast.error(`上传导航图失败 ${error}`)
+    }
+    finally {
+      setIsUploadingRmf(false)
+    }
   }
 
   useKeyPress((event, isDown) => {
@@ -913,14 +924,16 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           onClick={handleGenerateRmfClicked}>
           <div
             className="i-material-symbols-description-outline-rounded panel-icon" />
-          <span className="mr-1 text-sm font-medium whitespace-nowrap">生成RMF配置文件</span>
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">生成RMF配置文件</span>
+          <span className="mr-1 text-sm font-medium whitespace-nowrap">上传导航图</span>
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">上传导航图</span>
         </div>
       </div>
       {showExportModal && (
         <ExportRmfModal
           currentMapId={mapId}
           currentProfileUid={currentProfile()?.uid}
+          defaultUploadHost={rmfUploadHost}
+          isSubmitting={isUploadingRmf}
           onClose={() => setShowExportModal(false)}
           onConfirm={handleExportRmf} />
       )}

@@ -44,6 +44,14 @@ export interface ShelfState {
   lift_target_height_register_address: number
 }
 
+export interface RmfBuildingYamlUploadResponse {
+  ok: boolean
+  returncode: number
+  stdout?: string
+  stderr?: string
+  [key: string]: unknown
+}
+
 class ApiServer {
   private get derivedRealtimeHost() {
     const state = useBoundStore.getState()
@@ -82,6 +90,10 @@ class ApiServer {
 
   get mqttWsUrl() {
     return `${this.derivedRealtimeWsProtocol}://${this.derivedRealtimeHost}:9001`
+  }
+
+  get defaultRmfWebVizHost() {
+    return this.derivedRealtimeHost
   }
 
   get robotPoseMqttWsUrl() {
@@ -274,6 +286,35 @@ class ApiServer {
     const json = await this.client.post('robot/shelf_state', {
       json: payload,
     }).json<Resp<ShelfState>>()
+    return json
+  }
+
+  private buildRmfBuildingYamlUploadUrl(targetHost: string) {
+    const trimmedHost = targetHost.trim()
+    if (!trimmedHost)
+      throw new Error('RMF Web Viz IP不能为空')
+
+    const url = new URL(/^https?:\/\//i.test(trimmedHost) ? trimmedHost : `http://${trimmedHost}`)
+    if (!url.port)
+      url.port = '6080'
+    url.pathname = '/api/map/building_yaml'
+    url.search = ''
+    url.hash = ''
+    return url.toString()
+  }
+
+  uploadRmfBuildingYaml = async (targetHost: string, content: string) => {
+    const formData = new FormData()
+    formData.append(
+      'file',
+      new Blob([content], { type: 'application/x-yaml;charset=utf-8' }),
+      'map.building.yaml',
+    )
+
+    const json = await ky.post(this.buildRmfBuildingYamlUploadUrl(targetHost), {
+      body: formData,
+      timeout: 30 * 60 * 1000,
+    }).json<RmfBuildingYamlUploadResponse>()
     return json
   }
 
