@@ -5,10 +5,10 @@ import { unstable_useBlocker as useBlocker } from 'react-router-dom'
 import MapInfoModal from './MapInfoModal'
 import ControllerDeck from '@/components/ControllerDeck'
 import { useGridStore } from '@/store'
-import type { RobotInfoMessage } from '@/types'
 import apiServer from '@/service/apiServer'
 import Monitor from '@/components/map/Monitor'
 import { useBatteryStateMqtt, useCompressedMapMqtt, useLaserScanMqtt, useRobotPoseMqtt } from '@/hooks'
+import { parseFiniteNumber, parseRobotStatus } from '@/util'
 
 const Mapping: React.FC = () => {
   useRobotPoseMqtt()
@@ -22,11 +22,12 @@ const Mapping: React.FC = () => {
   }, [isMapping])
   const blocker = useBlocker(shouldBlocker)
 
-  const { resetGrid, zoom, robotStatus, setRobotInfo, isScanVisible, setScanVisibility, updateScanPointSize } = useGridStore(state => ({
+  const { resetGrid, zoom, robotStatus, updateRobotFsm, updateLocalizationQuality, isScanVisible, setScanVisibility, updateScanPointSize } = useGridStore(state => ({
     resetGrid: state.resetGrid,
     zoom: state.zoom,
     robotStatus: state.robotInfo?.fsm,
-    setRobotInfo: state.setRobotInfo,
+    updateRobotFsm: state.updateRobotFsm,
+    updateLocalizationQuality: state.updateLocalizationQuality,
     isScanVisible: state.isScanVisible,
     setScanVisibility: state.setScanVisibility,
     updateScanPointSize: state.updateScanPointSize,
@@ -38,19 +39,26 @@ const Mapping: React.FC = () => {
     reconnectInterval: 2000,
     retryOnError: true,
   }
-  const { lastMessage: robotMessage, readyState: robotState } = useWebSocket(apiServer.robotDataWsUrl, wsOption)
+  const { lastMessage: robotFsmMessage, readyState: robotState } = useWebSocket(apiServer.robotFsmWsUrl, wsOption)
+  const { lastMessage: localizationQualityMessage } = useWebSocket(apiServer.localizationQualityWsUrl, wsOption)
 
   useEffect(() => {
-    if (robotMessage != null) {
-      try {
-        const msg = JSON.parse(robotMessage.data) as RobotInfoMessage
-        setRobotInfo(msg)
-      }
-      catch (e) {
-        console.error('Failed to parse robot data', robotMessage.data, e)
-      }
+    if (robotFsmMessage != null) {
+      const status = parseRobotStatus(robotFsmMessage.data)
+      if (status)
+        updateRobotFsm(status)
+      else
+        console.error('Failed to parse robot FSM', robotFsmMessage.data)
     }
-  }, [robotMessage, setRobotInfo])
+
+    if (localizationQualityMessage != null) {
+      const quality = parseFiniteNumber(localizationQualityMessage.data)
+      if (quality != null)
+        updateLocalizationQuality(quality)
+      else
+        console.error('Failed to parse localization quality', localizationQualityMessage.data)
+    }
+  }, [localizationQualityMessage, robotFsmMessage, updateLocalizationQuality, updateRobotFsm])
 
   useEffect(() => {
     if (blocker.state === 'blocked') {

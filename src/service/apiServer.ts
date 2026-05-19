@@ -81,11 +81,12 @@ class ApiServer {
     return d
   }
 
-  get robotDataWsUrl() {
-    const url = new URL(`${this.wsDomain}/robot_data`)
-    url.searchParams.set('mqtt_host', this.derivedRealtimeHost)
+  get robotFsmWsUrl() {
+    return `${this.wsDomain}/robot_fsm`
+  }
 
-    return url.toString()
+  get localizationQualityWsUrl() {
+    return `${this.wsDomain}/localization_quality`
   }
 
   get mqttWsUrl() {

@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand'
-import type { GridInfoMessage, LaserScanMessage, MapData, MapListItem, PointMessage, PoseMessage, RobotInfoMessage } from '@/types'
+import type { GridInfoMessage, LaserScanMessage, MapData, MapListItem, PointMessage, PoseMessage, RobotInfoMessage, RobotStatus } from '@/types'
 
 const defaultScanPointSize = 0.08
 
@@ -33,6 +33,8 @@ export interface GridSlice {
   setMapGrid: (data: number[], grid: GridInfoMessage) => void
   setPathPointInfo: (points: PointMessage[]) => void
   setRobotInfo: (robot: RobotInfoMessage) => void
+  updateRobotFsm: (fsm: RobotStatus) => void
+  updateLocalizationQuality: (quality: number) => void
   updateRobotPose: (pose: PoseMessage) => void
   updateRobotBattery: (battery: number, batteryCurrent: number) => void
   updateLaserPose: (pose: PoseMessage) => void
@@ -128,6 +130,26 @@ export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
             ...createDefaultRobotInfo(),
             ...robot,
             batteryCurrent: robot.batteryCurrent ?? 0,
+          },
+    }))
+  },
+  updateRobotFsm: (fsm) => {
+    set(state => ({
+      robotInfo: state.robotInfo
+        ? { ...state.robotInfo, fsm }
+        : {
+            ...createDefaultRobotInfo(),
+            fsm,
+          },
+    }))
+  },
+  updateLocalizationQuality: (quality) => {
+    set(state => ({
+      robotInfo: state.robotInfo
+        ? { ...state.robotInfo, localization_quality: quality }
+        : {
+            ...createDefaultRobotInfo(),
+            localization_quality: quality,
           },
     }))
   },

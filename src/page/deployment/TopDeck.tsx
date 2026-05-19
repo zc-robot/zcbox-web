@@ -9,8 +9,9 @@ import ShelfStateModal from './ShelfStateModal'
 import type { ExportRmfSelection } from './ExportRmfModal'
 import { useGridStore, useOperationStore, useParamsStore, useProfileStore } from '@/store'
 import apiServer from '@/service/apiServer'
-import type { NavPoint, PointMessage, RobotInfoMessage, RobotStatus } from '@/types'
+import type { NavPoint, PointMessage, RobotStatus } from '@/types'
 import { useBatteryStateMqtt, useKeyPress, useLaserScanMqtt, useRobotPoseMqtt } from '@/hooks'
+import { parseFiniteNumber, parseRobotStatus } from '@/util'
 import { canvasAngleToQuaternion, parsePgm } from '@/util/transform'
 import { buildRmfBuildingYaml, sanitizeRmfFileName } from '@/util/rmf'
 import { getEvenlyRedistributedWaypoints, getWaypointRedistributionSpacing, getWaypointsOnSameLine, orderWaypointsByLineProjection } from '@/util/waypoints'
@@ -57,11 +58,12 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const [executePreciseRad, setExecutePreciseRad] = useState('0.05')
   const [executeNavType, setExecuteNavType] = useState<ExecuteWaypointNavType>('auto')
   const [executeActionId, setExecuteActionId] = useState('')
-  const { zoom, robotInfo, robotStatus, setRobotInfo, setMapGrid, setPathPointInfo, mapsNew, isScanVisible, setScanVisibility, updateScanPointSize, requestCenterRobot, relocalizationPose, beginRelocalization, cancelRelocalization } = useGridStore(state => ({
+  const { zoom, robotInfo, robotStatus, updateRobotFsm, updateLocalizationQuality, setMapGrid, setPathPointInfo, mapsNew, isScanVisible, setScanVisibility, updateScanPointSize, requestCenterRobot, relocalizationPose, beginRelocalization, cancelRelocalization } = useGridStore(state => ({
     zoom: state.zoom,
     robotInfo: state.robotInfo,
     robotStatus: state.robotInfo?.fsm,
-    setRobotInfo: state.setRobotInfo,
+    updateRobotFsm: state.updateRobotFsm,
+    updateLocalizationQuality: state.updateLocalizationQuality,
     setMapGrid: state.setMapGrid,
     setPathPointInfo: state.setPathPointInfo,
     mapsNew: state.mapsNew,
@@ -445,19 +447,27 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     reconnectInterval: 2000,
     retryOnError: true,
   }
-  const { lastMessage: robotMessage, readyState: robotState } = useWebSocket(apiServer.robotDataWsUrl, wsOption)
+  const { lastMessage: robotFsmMessage, readyState: robotState } = useWebSocket(apiServer.robotFsmWsUrl, wsOption)
+  const { lastMessage: localizationQualityMessage } = useWebSocket(apiServer.localizationQualityWsUrl, wsOption)
   const { lastMessage: pathMessage } = useWebSocket(`${apiServer.wsDomain}/path_plan`, wsOption)
 
   useEffect(() => {
-    if (robotMessage !== null) {
-      try {
-        const msg = JSON.parse(robotMessage.data) as RobotInfoMessage
-        setRobotInfo(msg)
-      }
-      catch (e) {
-        console.error('Failed to parse robot data', robotMessage.data, e)
-      }
+    if (robotFsmMessage !== null) {
+      const status = parseRobotStatus(robotFsmMessage.data)
+      if (status)
+        updateRobotFsm(status)
+      else
+        console.error('Failed to parse robot FSM', robotFsmMessage.data)
     }
+
+    if (localizationQualityMessage !== null) {
+      const quality = parseFiniteNumber(localizationQualityMessage.data)
+      if (quality != null)
+        updateLocalizationQuality(quality)
+      else
+        console.error('Failed to parse localization quality', localizationQualityMessage.data)
+    }
+
     if (pathMessage !== null) {
       try {
         const msg = JSON.parse(pathMessage.data) as { path: PointMessage[] }
@@ -467,7 +477,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
         console.error('Failed to parse path data', pathMessage.data, e)
       }
     }
-  }, [pathMessage, robotMessage, setPathPointInfo, setRobotInfo])
+  }, [localizationQualityMessage, pathMessage, robotFsmMessage, setPathPointInfo, updateLocalizationQuality, updateRobotFsm])
 
   const handleFetchClicked = async () => {
     try {
