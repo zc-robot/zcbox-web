@@ -12,3 +12,18 @@ For now, the `.env.production.local` file should contain the following variables
 ```
 VITE_API_DOMAIN=http://192.168.1.173:1234
 ```
+
+### Desktop app
+
+This project can also be packaged as an Electron desktop app for macOS and Windows.
+
+```bash
+pnpm desktop:dev
+pnpm desktop:build
+pnpm desktop:build:mac
+pnpm desktop:build:win
+```
+
+Packaged artifacts are written to `release/`. macOS and Windows installers are also available from the `Desktop builds` GitHub Actions workflow.
+
+Desktop builds load the app from local files, so automatic host detection falls back to `127.0.0.1`. Use `VITE_DESKTOP_HOST`, `VITE_API_DOMAIN`, or `VITE_WS_DOMAIN` in `.env.production.local` to bake in a robot host, or change the host settings in the app.

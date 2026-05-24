@@ -1,15 +1,22 @@
 {
   "name": "zc-web",
+  "productName": "Zcbox",
   "type": "module",
   "version": "0.0.0",
   "private": true,
+  "main": "desktop/main.cjs",
   "scripts": {
     "mock": "node ./mock/index.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "desktop:dev": "node scripts/electron-dev.cjs",
+    "desktop:pack": "pnpm build && electron-builder --dir",
+    "desktop:build": "pnpm build && electron-builder",
+    "desktop:build:mac": "pnpm build && electron-builder --mac --x64 --arm64",
+    "desktop:build:win": "pnpm build && electron-builder --win --x64"
   },
   "dependencies": {
     "comlink": "^4.4.1",
@@ -41,6 +48,8 @@
     "@unocss/preset-uno": "^0.51.8",
     "@unocss/transformer-variant-group": "^0.51.8",
     "@vitejs/plugin-react": "^4.0.0",
+    "electron": "^42.2.0",
+    "electron-builder": "^26.8.1",
     "eslint": "^8.42.0",
     "eslint-config-ts": "^4.0.1",
     "typescript": "^5.0.4",
@@ -48,6 +57,41 @@
     "vite": "^4.3.9",
     "vite-plugin-comlink": "^3.0.5",
     "ws": "^8.13.0"
+  },
+  "build": {
+    "appId": "com.zcbox.desktop",
+    "productName": "Zcbox",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "desktop/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.utilities",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   },
   "eslintConfig": {
     "extends": [
@@ -60,6 +104,7 @@
     "ignorePatterns": [
       "mock",
       "dist",
+      "release",
       "node_modules"
     ]
   }

@@ -53,22 +53,41 @@ export interface RmfBuildingYamlUploadResponse {
 }
 
 class ApiServer {
+  private get fallbackRealtimeUrl() {
+    try {
+      return new URL(this.wsDomain)
+    }
+    catch {
+      return null
+    }
+  }
+
   private get derivedRealtimeHost() {
     const state = useBoundStore.getState()
 
-    if (state.isGetDomainAuto && typeof window !== 'undefined')
-      return window.location.hostname
+    if (state.isGetDomainAuto && typeof window !== 'undefined') {
+      if (window.location.hostname)
+        return window.location.hostname
 
-    return new URL(this.wsDomain).hostname
+      return import.meta.env.VITE_DESKTOP_HOST || this.fallbackRealtimeUrl?.hostname || '127.0.0.1'
+    }
+
+    return this.fallbackRealtimeUrl?.hostname || '127.0.0.1'
   }
 
   private get derivedRealtimeWsProtocol() {
     const state = useBoundStore.getState()
 
-    if (state.isGetDomainAuto && typeof window !== 'undefined')
-      return window.location.protocol === 'https:' ? 'wss' : 'ws'
+    if (state.isGetDomainAuto && typeof window !== 'undefined') {
+      if (window.location.protocol === 'https:')
+        return 'wss'
+      if (window.location.protocol === 'file:')
+        return this.fallbackRealtimeUrl?.protocol === 'wss:' ? 'wss' : 'ws'
 
-    return new URL(this.wsDomain).protocol === 'wss:' ? 'wss' : 'ws'
+      return 'ws'
+    }
+
+    return this.fallbackRealtimeUrl?.protocol === 'wss:' ? 'wss' : 'ws'
   }
 
   get wsDomain() {

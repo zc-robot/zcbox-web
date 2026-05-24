@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react'
-import { RouterProvider, createBrowserRouter } from 'react-router-dom'
+import { RouterProvider, createHashRouter } from 'react-router-dom'
 import Deployment from './deployment'
 import Home from './home'
 import NotFound from './404'
@@ -9,7 +9,7 @@ import Mapping from './mapping'
 import { useParamsStore } from '@/store'
 import apiServer from '@/service/apiServer'
 
-const router = createBrowserRouter([
+const router = createHashRouter([
   {
     path: '/',
     element: <Home />,
@@ -20,15 +20,15 @@ const router = createBrowserRouter([
         element: <Default />,
       },
       {
-        path: '/mapping',
+        path: 'mapping',
         element: <Mapping />,
       },
       {
-        path: '/deployment/:mapId',
+        path: 'deployment/:mapId',
         element: <Deployment />,
       },
       {
-        path: '/settings',
+        path: 'settings',
         element: <Settings />,
       },
     ],
@@ -47,12 +47,15 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (isGetDomainAuto) {
-      const currentUrl = window.location.href
-      const url = new URL(currentUrl)
-      const host = url.hostname
-      const wsDomain = `ws://${host}:1234`
-      const apiDomain = `http://${host}:5000`
-      // const apiDomain = `http://${host}:1234`
+      const isFileProtocol = window.location.protocol === 'file:'
+      const host = window.location.hostname || import.meta.env.VITE_DESKTOP_HOST || '127.0.0.1'
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+      const wsDomain = isFileProtocol && import.meta.env.VITE_WS_DOMAIN
+        ? import.meta.env.VITE_WS_DOMAIN
+        : `${wsProtocol}://${host}:1234`
+      const apiDomain = isFileProtocol && import.meta.env.VITE_API_DOMAIN
+        ? import.meta.env.VITE_API_DOMAIN
+        : `http://${host}:5000`
       updateApiDomain(apiDomain)
       updateWsDomain(wsDomain)
     }

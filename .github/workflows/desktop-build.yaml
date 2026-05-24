@@ -1,0 +1,73 @@
+name: Desktop builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      api:
+        description: API DOMAIN
+        required: false
+        default: ''
+      ws:
+        description: WS DOMAIN
+        required: false
+        default: ''
+      desktop_host:
+        description: Desktop auto-host fallback
+        required: false
+        default: ''
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: mac
+            artifact: zcbox-macos
+          - os: windows-latest
+            target: win
+            artifact: zcbox-windows
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: false
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8.6.1
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: ./pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Set env
+        shell: bash
+        env:
+          VITE_API_DOMAIN_INPUT: ${{ github.event.inputs.api }}
+          VITE_WS_DOMAIN_INPUT: ${{ github.event.inputs.ws }}
+          VITE_DESKTOP_HOST_INPUT: ${{ github.event.inputs.desktop_host }}
+        run: |
+          if [ -n "$VITE_API_DOMAIN_INPUT" ]; then
+            printf 'VITE_API_DOMAIN=%s\n' "$VITE_API_DOMAIN_INPUT" >> .env.production.local
+          fi
+          if [ -n "$VITE_WS_DOMAIN_INPUT" ]; then
+            printf 'VITE_WS_DOMAIN=%s\n' "$VITE_WS_DOMAIN_INPUT" >> .env.production.local
+          fi
+          if [ -n "$VITE_DESKTOP_HOST_INPUT" ]; then
+            printf 'VITE_DESKTOP_HOST=%s\n' "$VITE_DESKTOP_HOST_INPUT" >> .env.production.local
+          fi
+      - name: Build desktop app
+        run: pnpm desktop:build:${{ matrix.target }}
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: release/**
+          retention-days: 7
