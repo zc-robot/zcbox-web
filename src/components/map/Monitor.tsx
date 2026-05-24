@@ -8,6 +8,7 @@ import GridMap from './GridMap'
 import LaserScan from './LaserScan'
 import Lift from './Lift'
 import Pathway from './Pathway'
+import PointCloud from './PointCloud'
 import RelocalizationRobot from './RelocalizationRobot'
 import Robot from './Robot'
 import Waypoint from './Waypoint'
@@ -141,7 +142,7 @@ const Monitor: React.FC = () => {
     togglePointSelection: state.togglePointSelection,
     openPointEditor: state.openPointEditor,
   }), shallow)
-  const { scale, gridInfo, robotInfo, pathPointInfo, isScanVisible, laserPose, laserScan, scanPointSize, centerRobotRequestId, centerPointRequest, relocalizationPose, updateRelocalizationPose, cancelRelocalization } = useGridStore(state => ({
+  const { scale, gridInfo, robotInfo, pathPointInfo, isScanVisible, laserPose, laserScan, scanPointSize, isPointCloudVisible, pointCloud, pointCloudPointSize, centerRobotRequestId, centerPointRequest, relocalizationPose, updateRelocalizationPose, cancelRelocalization } = useGridStore(state => ({
     scale: state.scale,
     gridInfo: state.gridInfo,
     robotInfo: state.robotInfo,
@@ -150,6 +151,9 @@ const Monitor: React.FC = () => {
     laserPose: state.laserPose,
     laserScan: state.laserScan,
     scanPointSize: state.scanPointSize,
+    isPointCloudVisible: state.isPointCloudVisible,
+    pointCloud: state.pointCloud,
+    pointCloudPointSize: state.pointCloudPointSize,
     centerRobotRequestId: state.centerRobotRequestId,
     centerPointRequest: state.centerPointRequest,
     relocalizationPose: state.relocalizationPose,
@@ -871,7 +875,7 @@ const Monitor: React.FC = () => {
   }
 
   const handleSelectionBoxStart = (event: Konva.KonvaEventObject<MouseEvent>) => {
-    const isBackgroundTarget = event.target === layerRef.current || event.target.name() === GRID_MAP_BACKGROUND_NAME
+    const isBackgroundTarget = event.target === event.currentTarget || event.target.name() === GRID_MAP_BACKGROUND_NAME
     if (currentOp !== 'select' || event.evt.button !== 0 || !isBackgroundTarget)
       return
 
@@ -1011,6 +1015,12 @@ const Monitor: React.FC = () => {
           onMouseUp={handleSelectionBoxEnd}
           onClick={handleLayerClick}>
           <GridMap />
+          {(gridInfo && isPointCloudVisible && pointCloud)
+            && <PointCloud
+              cloud={pointCloud}
+              robotPose={displayedRobotPose ?? null}
+              pointSize={pointCloudPointSize} />
+          }
           {(gridInfo && displayedRobotPose && currentOp !== 'relocalize')
             && <Robot
               pose={displayedRobotPose} />

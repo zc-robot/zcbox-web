@@ -41,6 +41,8 @@ export const useBoundStore = create<GridSlice & OperationSlice & ProfileSlice & 
       apiDomain: state.apiDomain,
       wsDomain: state.wsDomain,
       isGetDomainAuto: state.isGetDomainAuto,
+      nestControllerIp: state.nestControllerIp,
+      nestControllerHistory: state.nestControllerHistory,
       robotParams: state.robotParams,
       mapParams: state.mapParams,
     }),

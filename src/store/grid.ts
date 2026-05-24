@@ -1,7 +1,8 @@
 import type { StateCreator } from 'zustand'
-import type { GridInfoMessage, LaserScanMessage, MapData, MapListItem, PointMessage, PoseMessage, RobotInfoMessage, RobotStatus } from '@/types'
+import type { GridInfoMessage, LaserScanMessage, MapData, MapListItem, PointCloudMessage, PointMessage, PoseMessage, RobotInfoMessage, RobotStatus } from '@/types'
 
 const defaultScanPointSize = 0.08
+const defaultPointCloudPointSize = 0.05
 
 interface CenterPointRequest {
   requestId: number
@@ -19,10 +20,13 @@ export interface GridSlice {
   robotInfo: RobotInfoMessage | null
   laserPose: PoseMessage | null
   laserScan: LaserScanMessage | null
+  pointCloud: PointCloudMessage | null
   hasMqttPose: boolean
   hasMqttBattery: boolean
   isScanVisible: boolean
   scanPointSize: number
+  isPointCloudVisible: boolean
+  pointCloudPointSize: number
   centerRobotRequestId: number
   centerPointRequest: CenterPointRequest | null
   relocalizationPose: PoseMessage | null
@@ -39,8 +43,11 @@ export interface GridSlice {
   updateRobotBattery: (battery: number, batteryCurrent: number) => void
   updateLaserPose: (pose: PoseMessage) => void
   updateLaserScan: (scan: LaserScanMessage) => void
+  updatePointCloud: (cloud: PointCloudMessage) => void
   setScanVisibility: (visible: boolean) => void
   updateScanPointSize: (delta: number) => void
+  setPointCloudVisibility: (visible: boolean) => void
+  updatePointCloudPointSize: (delta: number) => void
   requestCenterRobot: () => void
   requestCenterPoint: (point: { x: number; y: number }) => void
   beginRelocalization: () => void
@@ -96,10 +103,13 @@ export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
   robotInfo: null,
   laserPose: null,
   laserScan: null,
+  pointCloud: null,
   hasMqttPose: false,
   hasMqttBattery: false,
   isScanVisible: false,
   scanPointSize: defaultScanPointSize,
+  isPointCloudVisible: false,
+  pointCloudPointSize: defaultPointCloudPointSize,
   centerRobotRequestId: 0,
   centerPointRequest: null,
   relocalizationPose: null,
@@ -179,6 +189,9 @@ export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
   updateLaserScan: (scan) => {
     set({ laserScan: scan })
   },
+  updatePointCloud: (pointCloud) => {
+    set({ pointCloud })
+  },
   setScanVisibility: (visible) => {
     if (visible) {
       set({ isScanVisible: true })
@@ -194,6 +207,22 @@ export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
   updateScanPointSize: (delta) => {
     set(state => ({
       scanPointSize: Math.min(0.3, Math.max(0.01, Number((state.scanPointSize + delta).toFixed(3)))),
+    }))
+  },
+  setPointCloudVisibility: (visible) => {
+    if (visible) {
+      set({ isPointCloudVisible: true })
+      return
+    }
+
+    set({
+      isPointCloudVisible: false,
+      pointCloud: null,
+    })
+  },
+  updatePointCloudPointSize: (delta) => {
+    set(state => ({
+      pointCloudPointSize: Math.min(0.3, Math.max(0.01, Number((state.pointCloudPointSize + delta).toFixed(3)))),
     }))
   },
   requestCenterRobot: () => {
@@ -231,10 +260,13 @@ export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
       robotInfo: null,
       laserPose: null,
       laserScan: null,
+      pointCloud: null,
       hasMqttPose: false,
       hasMqttBattery: false,
       isScanVisible: false,
       scanPointSize: defaultScanPointSize,
+      isPointCloudVisible: false,
+      pointCloudPointSize: defaultPointCloudPointSize,
       centerPointRequest: null,
       relocalizationPose: null,
     })

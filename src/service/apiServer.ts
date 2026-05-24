@@ -52,6 +52,10 @@ export interface RmfBuildingYamlUploadResponse {
   [key: string]: unknown
 }
 
+interface ZenohNamespaceResponse {
+  namespace: string
+}
+
 class ApiServer {
   private get fallbackRealtimeUrl() {
     try {
@@ -167,6 +171,11 @@ class ApiServer {
   fetchRunningState = async () => {
     const json = await this.client.get('isRunning').json<Resp<string>>()
     return json
+  }
+
+  fetchZenohNamespace = async () => {
+    const json = await this.client.get('zenoh/zenoh').json<Resp<ZenohNamespaceResponse>>()
+    return json.data.namespace
   }
 
   downloadMap = async (filepath: string) => {

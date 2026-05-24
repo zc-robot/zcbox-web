@@ -74,6 +74,26 @@ export interface LaserScanMessage {
   ranges: number[],
 }
 
+export type PointCloudPoint = [number, number, number]
+
+export interface PointCloudMessage {
+  key?: string,
+  topic?: string,
+  frameId: string,
+  stamp: {
+    sec: number,
+    nanosec: number,
+  },
+  height: number,
+  width: number,
+  pointStep: number,
+  rowStep: number,
+  isDense: boolean,
+  pointCount: number,
+  sampledCount: number,
+  points: PointCloudPoint[],
+}
+
 export interface PoseMessage {
   position: PointMessage,
   orientation: QuaternionMessage,

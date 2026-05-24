@@ -10,7 +10,7 @@ import type { ExportRmfSelection } from './ExportRmfModal'
 import { useGridStore, useOperationStore, useParamsStore, useProfileStore } from '@/store'
 import apiServer from '@/service/apiServer'
 import type { NavPoint, PointMessage, RobotStatus } from '@/types'
-import { useBatteryStateMqtt, useKeyPress, useLaserScanMqtt, useRobotPoseMqtt } from '@/hooks'
+import { useBatteryStateMqtt, useKeyPress, useLaserScanMqtt, usePointCloudZenoh, useRobotPoseMqtt, useRobotPoseZenoh } from '@/hooks'
 import { parseFiniteNumber, parseRobotStatus } from '@/util'
 import { canvasAngleToQuaternion, parsePgm } from '@/util/transform'
 import { buildRmfBuildingYaml, sanitizeRmfFileName } from '@/util/rmf'
@@ -43,9 +43,11 @@ function isEditableTarget(target: EventTarget | null) {
 }
 
 const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
+  useRobotPoseZenoh()
   useRobotPoseMqtt()
   useBatteryStateMqtt()
   useLaserScanMqtt()
+  usePointCloudZenoh()
   const [showExportModal, setShowExportModal] = useState(false)
   const [showBatchRenameModal, setShowBatchRenameModal] = useState(false)
   const [showRedistributeModal, setShowRedistributeModal] = useState(false)
@@ -58,7 +60,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const [executePreciseRad, setExecutePreciseRad] = useState('0.05')
   const [executeNavType, setExecuteNavType] = useState<ExecuteWaypointNavType>('auto')
   const [executeActionId, setExecuteActionId] = useState('')
-  const { zoom, robotInfo, robotStatus, updateRobotFsm, updateLocalizationQuality, setMapGrid, setPathPointInfo, mapsNew, isScanVisible, setScanVisibility, updateScanPointSize, requestCenterRobot, relocalizationPose, beginRelocalization, cancelRelocalization } = useGridStore(state => ({
+  const { zoom, robotInfo, robotStatus, updateRobotFsm, updateLocalizationQuality, setMapGrid, setPathPointInfo, mapsNew, isScanVisible, setScanVisibility, updateScanPointSize, isPointCloudVisible, setPointCloudVisibility, updatePointCloudPointSize, requestCenterRobot, relocalizationPose, beginRelocalization, cancelRelocalization } = useGridStore(state => ({
     zoom: state.zoom,
     robotInfo: state.robotInfo,
     robotStatus: state.robotInfo?.fsm,
@@ -70,6 +72,9 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     isScanVisible: state.isScanVisible,
     setScanVisibility: state.setScanVisibility,
     updateScanPointSize: state.updateScanPointSize,
+    isPointCloudVisible: state.isPointCloudVisible,
+    setPointCloudVisibility: state.setPointCloudVisibility,
+    updatePointCloudPointSize: state.updatePointCloudPointSize,
     requestCenterRobot: state.requestCenterRobot,
     relocalizationPose: state.relocalizationPose,
     beginRelocalization: state.beginRelocalization,
@@ -108,6 +113,9 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const toggleScanVisibility = () => setScanVisibility(!isScanVisible)
   const increaseScanPointSize = () => updateScanPointSize(0.01)
   const decreaseScanPointSize = () => updateScanPointSize(-0.01)
+  const togglePointCloudVisibility = () => setPointCloudVisibility(!isPointCloudVisible)
+  const increasePointCloudPointSize = () => updatePointCloudPointSize(0.01)
+  const decreasePointCloudPointSize = () => updatePointCloudPointSize(-0.01)
   const activateMoveMode = () => updateOp('move')
   const activateSelectMode = () => updateOp('select')
   const activateManualWaypointPlacement = () => {
@@ -894,6 +902,34 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
               <div className="i-material-symbols-add-rounded panel-icon" />
               <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
                 增大扫描点
+              </span>
+            </div>
+          </>
+        )}
+        <div
+          className={`${isPointCloudVisible ? 'panel-item-enabled' : 'panel-item'} group`}
+          onClick={togglePointCloudVisibility}>
+          <div className="i-material-symbols-grain-rounded panel-icon" />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">
+            {isPointCloudVisible ? '隐藏点云' : '显示点云'}
+          </span>
+        </div>
+        {isPointCloudVisible && (
+          <>
+            <div
+              className="panel-item group"
+              onClick={decreasePointCloudPointSize}>
+              <div className="i-material-symbols-remove-rounded panel-icon" />
+              <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">
+                减小点云点
+              </span>
+            </div>
+            <div
+              className="panel-item group"
+              onClick={increasePointCloudPointSize}>
+              <div className="i-material-symbols-add-rounded panel-icon" />
+              <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">
+                增大点云点
               </span>
             </div>
           </>

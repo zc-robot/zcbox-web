@@ -6,6 +6,7 @@ import NotFound from './404'
 import Settings from './settings'
 import Default from './home/Default'
 import Mapping from './mapping'
+import NestControllerStartup from '@/components/NestControllerStartup'
 import { useParamsStore } from '@/store'
 import apiServer from '@/service/apiServer'
 
@@ -36,6 +37,7 @@ const router = createHashRouter([
 ])
 
 const App: React.FC = () => {
+  const [isControllerReady, setIsControllerReady] = React.useState(false)
   const { updateRobotParams, updatePointActions } = useParamsStore(state => ({
     updateRobotParams: state.updateRobotParams,
     updatePointActions: state.updatePointActions,
@@ -46,6 +48,9 @@ const App: React.FC = () => {
   const apiDomain = useParamsStore(state => state.apiDomain)
 
   useEffect(() => {
+    if (!isControllerReady)
+      return
+
     if (isGetDomainAuto) {
       const isFileProtocol = window.location.protocol === 'file:'
       const host = window.location.hostname || import.meta.env.VITE_DESKTOP_HOST || '127.0.0.1'
@@ -59,9 +64,12 @@ const App: React.FC = () => {
       updateApiDomain(apiDomain)
       updateWsDomain(wsDomain)
     }
-  }, [isGetDomainAuto, updateApiDomain, updateWsDomain])
+  }, [isControllerReady, isGetDomainAuto, updateApiDomain, updateWsDomain])
 
   useEffect(() => {
+    if (!isControllerReady)
+      return
+
     const fetchParams = async () => {
       const params = await apiServer.fetchParams()
       if (params)
@@ -74,7 +82,10 @@ const App: React.FC = () => {
     // 只有当apiDomain不为空时才获取参数
     if (apiDomain)
       fetchParams()
-  }, [apiDomain, updatePointActions, updateRobotParams])
+  }, [apiDomain, isControllerReady, updatePointActions, updateRobotParams])
+
+  if (!isControllerReady)
+    return <NestControllerStartup onConnected={() => setIsControllerReady(true)} />
 
   return (
     <RouterProvider router={router} />

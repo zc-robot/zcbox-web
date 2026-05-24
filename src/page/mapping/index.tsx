@@ -7,13 +7,15 @@ import ControllerDeck from '@/components/ControllerDeck'
 import { useGridStore } from '@/store'
 import apiServer from '@/service/apiServer'
 import Monitor from '@/components/map/Monitor'
-import { useBatteryStateMqtt, useCompressedMapMqtt, useLaserScanMqtt, useRobotPoseMqtt } from '@/hooks'
+import { useBatteryStateMqtt, useCompressedMapMqtt, useLaserScanMqtt, usePointCloudZenoh, useRobotPoseMqtt, useRobotPoseZenoh } from '@/hooks'
 import { parseFiniteNumber, parseRobotStatus } from '@/util'
 
 const Mapping: React.FC = () => {
+  useRobotPoseZenoh()
   useRobotPoseMqtt()
   useBatteryStateMqtt()
   useLaserScanMqtt()
+  usePointCloudZenoh()
   const isMapMqttConnected = useCompressedMapMqtt()
   const [showModal, setShowModal] = useState<boolean>(false)
   const [isMapping, setIsMapping] = useState<boolean>(false)
@@ -22,7 +24,7 @@ const Mapping: React.FC = () => {
   }, [isMapping])
   const blocker = useBlocker(shouldBlocker)
 
-  const { resetGrid, zoom, robotStatus, updateRobotFsm, updateLocalizationQuality, isScanVisible, setScanVisibility, updateScanPointSize } = useGridStore(state => ({
+  const { resetGrid, zoom, robotStatus, updateRobotFsm, updateLocalizationQuality, isScanVisible, setScanVisibility, updateScanPointSize, isPointCloudVisible, setPointCloudVisibility, updatePointCloudPointSize } = useGridStore(state => ({
     resetGrid: state.resetGrid,
     zoom: state.zoom,
     robotStatus: state.robotInfo?.fsm,
@@ -31,6 +33,9 @@ const Mapping: React.FC = () => {
     isScanVisible: state.isScanVisible,
     setScanVisibility: state.setScanVisibility,
     updateScanPointSize: state.updateScanPointSize,
+    isPointCloudVisible: state.isPointCloudVisible,
+    setPointCloudVisibility: state.setPointCloudVisibility,
+    updatePointCloudPointSize: state.updatePointCloudPointSize,
   }))
 
   const wsOption = {
@@ -87,6 +92,9 @@ const Mapping: React.FC = () => {
   const toggleScanVisibility = () => setScanVisibility(!isScanVisible)
   const increaseScanPointSize = () => updateScanPointSize(0.01)
   const decreaseScanPointSize = () => updateScanPointSize(-0.01)
+  const togglePointCloudVisibility = () => setPointCloudVisibility(!isPointCloudVisible)
+  const increasePointCloudPointSize = () => updatePointCloudPointSize(0.01)
+  const decreasePointCloudPointSize = () => updatePointCloudPointSize(-0.01)
 
   const handleSaveClicked = async () => {
     setShowModal(true)
@@ -154,6 +162,34 @@ const Mapping: React.FC = () => {
                 <div className="i-material-symbols-add-rounded panel-icon" />
                 <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
                   增大扫描点
+                </span>
+              </div>
+            </>
+          )}
+          <div
+            className={`${isPointCloudVisible ? 'panel-item-enabled' : 'panel-item'} group`}
+            onClick={togglePointCloudVisibility}>
+            <div className="i-material-symbols-grain-rounded panel-icon" />
+            <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">
+              {isPointCloudVisible ? '隐藏点云' : '显示点云'}
+            </span>
+          </div>
+          {isPointCloudVisible && (
+            <>
+              <div
+                className="panel-item group"
+                onClick={decreasePointCloudPointSize}>
+                <div className="i-material-symbols-remove-rounded panel-icon" />
+                <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">
+                  减小点云点
+                </span>
+              </div>
+              <div
+                className="panel-item group"
+                onClick={increasePointCloudPointSize}>
+                <div className="i-material-symbols-add-rounded panel-icon" />
+                <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">
+                  增大点云点
                 </span>
               </div>
             </>

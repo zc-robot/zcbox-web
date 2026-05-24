@@ -6,6 +6,8 @@ export interface ParamsSlice {
   apiDomain: string
   wsDomain: string
   isGetDomainAuto: boolean
+  nestControllerIp: string
+  nestControllerHistory: string[]
   robotParams: RobotParams | null
   pointActions: PointAction[]
   mapParams: {
@@ -18,6 +20,7 @@ export interface ParamsSlice {
   updateApiDomain: (domain: string) => void
   updateWsDomain: (domain: string) => void
   updateIsGetDomainAuto: (domainAuto: boolean) => void
+  rememberNestControllerIp: (ip: string) => void
   updateMapParams: (by: { resolution?: number; model?: string }) => void
   updateRobotParams: (by: RobotParams) => void
   updatePointActions: (by: PointAction[]) => void
@@ -30,6 +33,8 @@ export const paramsSlice: StateCreator<ParamsSlice> = set => ({
   apiDomain: '',
   wsDomain: '',
   isGetDomainAuto: true,
+  nestControllerIp: '',
+  nestControllerHistory: [],
   robotParams: null,
   pointActions: [],
   mapParams: {
@@ -49,6 +54,22 @@ export const paramsSlice: StateCreator<ParamsSlice> = set => ({
   },
   updateIsGetDomainAuto: (domainAuto: boolean) => {
     set({ isGetDomainAuto: domainAuto })
+  },
+  rememberNestControllerIp: (ip: string) => {
+    const normalizedIp = ip.trim()
+
+    set((state) => {
+      if (!normalizedIp)
+        return state
+
+      return {
+        nestControllerIp: normalizedIp,
+        nestControllerHistory: [
+          normalizedIp,
+          ...state.nestControllerHistory.filter(item => item !== normalizedIp),
+        ].slice(0, 8),
+      }
+    })
   },
   updateMapParams: (by: { resolution?: number; model?: string }) => {
     set((state) => {
