@@ -6,28 +6,45 @@ interface LaserScanProps {
   pose: PoseMessage
   scan: LaserScanMessage
   pointSize: number
+  color?: string
 }
 
-const LaserScan: React.FC<LaserScanProps> = ({ pose, scan, pointSize }) => {
+const LaserScan: React.FC<LaserScanProps> = ({ pose, scan, pointSize, color = 'rgba(14, 165, 233, 0.85)' }) => {
   return (
     <Shape
       listening={false}
       sceneFunc={(context, shape) => {
         const originX = pose.position.x
         const originY = -pose.position.y
-        const baseAngle = pose.pyr.yaw + scan.angleMin
+        const yaw = pose.pyr.yaw
 
-        context.fillStyle = 'rgba(14, 165, 233, 0.85)'
+        context.fillStyle = color
 
-        for (let i = 0; i < scan.ranges.length; i++) {
-          const range = scan.ranges[i]
-          if (!Number.isFinite(range) || range < scan.rangeMin || range > scan.rangeMax)
-            continue
+        if (scan.transformApplied && scan.points?.length) {
+          const cosYaw = Math.cos(yaw)
+          const sinYaw = Math.sin(yaw)
 
-          const angle = baseAngle + i * scan.angleIncrement
-          const x = originX + range * Math.cos(angle)
-          const y = originY - range * Math.sin(angle)
-          context.fillRect(x - pointSize / 2, y - pointSize / 2, pointSize, pointSize)
+          for (const point of scan.points) {
+            const localX = point[0]
+            const localY = point[1]
+            const x = originX + localX * cosYaw - localY * sinYaw
+            const y = originY - (localX * sinYaw + localY * cosYaw)
+            context.fillRect(x - pointSize / 2, y - pointSize / 2, pointSize, pointSize)
+          }
+        }
+        else {
+          const baseAngle = yaw + scan.angleMin
+
+          for (let i = 0; i < scan.ranges.length; i++) {
+            const range = scan.ranges[i]
+            if (!Number.isFinite(range) || range < scan.rangeMin || range > scan.rangeMax)
+              continue
+
+            const angle = baseAngle + i * scan.angleIncrement
+            const x = originX + range * Math.cos(angle)
+            const y = originY - range * Math.sin(angle)
+            context.fillRect(x - pointSize / 2, y - pointSize / 2, pointSize, pointSize)
+          }
         }
 
         context.fillStyle = 'rgba(249, 115, 22, 0.95)'

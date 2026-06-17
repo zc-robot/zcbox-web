@@ -9,6 +9,7 @@ import Mapping from './mapping'
 import NestControllerStartup from '@/components/NestControllerStartup'
 import { useParamsStore } from '@/store'
 import apiServer from '@/service/apiServer'
+import { isValidIpv4, normalizeNestControllerIp } from '@/util/nestController'
 
 const router = createHashRouter([
   {
@@ -45,7 +46,32 @@ const App: React.FC = () => {
   const isGetDomainAuto = useParamsStore(state => state.isGetDomainAuto)
   const updateApiDomain = useParamsStore(state => state.updateApiDomain)
   const updateWsDomain = useParamsStore(state => state.updateWsDomain)
+  const updateIsGetDomainAuto = useParamsStore(state => state.updateIsGetDomainAuto)
+  const nestControllerIp = useParamsStore(state => state.nestControllerIp)
   const apiDomain = useParamsStore(state => state.apiDomain)
+
+  useEffect(() => {
+    if (isControllerReady)
+      return
+
+    const normalizedIp = normalizeNestControllerIp(nestControllerIp)
+    if (!isValidIpv4(normalizedIp))
+      return
+
+    updateApiDomain(`http://${normalizedIp}:5000`)
+    updateWsDomain(`ws://${normalizedIp}:1234`)
+    updateIsGetDomainAuto(false)
+    setIsControllerReady(true)
+  }, [isControllerReady, nestControllerIp, updateApiDomain, updateIsGetDomainAuto, updateWsDomain])
+
+  useEffect(() => {
+    if (!isControllerReady)
+      return
+
+    const normalizedIp = normalizeNestControllerIp(nestControllerIp)
+    if (!isValidIpv4(normalizedIp))
+      setIsControllerReady(false)
+  }, [isControllerReady, nestControllerIp])
 
   useEffect(() => {
     if (!isControllerReady)

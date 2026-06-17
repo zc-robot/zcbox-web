@@ -35,13 +35,18 @@ export interface ShelfState {
   shelf_present: boolean
   stock: number
   lift_enabled: boolean
+  coil_804?: boolean
+  coil_805?: boolean
   lift_real_height: number
   lift_target_height: number
   coil_address: number
   holding_register_address: number
   lift_enable_coil_address: number
+  coil_804_address?: number
+  coil_805_address?: number
   lift_real_height_register_address: number
   lift_target_height_register_address: number
+  source?: 'desktop-modbus' | 'http'
 }
 
 export interface RmfBuildingYamlUploadResponse {
@@ -54,6 +59,70 @@ export interface RmfBuildingYamlUploadResponse {
 
 interface ZenohNamespaceResponse {
   namespace: string
+}
+
+export interface CameraGatewayInfo {
+  node?: string
+  http_port: number
+  rtsp_port: number
+  preview_fps?: number
+  live_fps?: number
+}
+
+export interface CameraSource {
+  id: string
+  topic: string
+  ros_type: string
+  adapter: string
+  available: boolean
+  active: boolean
+  subscription_active?: boolean
+  viewers?: number
+  latest_frame?: {
+    seq: number
+    width: number
+    height: number
+    encoding: string
+    fps: number
+    last_frame_age_ms: number
+  }
+  paths: {
+    snapshot: string
+    preview: string
+    start: string
+    stop: string
+    live: string
+  }
+  outputs?: {
+    live?: {
+      kind: 'rtsp'
+      path: string
+      port: number
+      url_template?: string
+      shared: boolean
+      requires_start?: boolean
+    }
+  }
+}
+
+export interface CameraSourcesResponse {
+  sources: CameraSource[]
+  gateway: CameraGatewayInfo
+}
+
+export interface CameraStreamResponse {
+  ok: boolean
+  source_id: string
+  active: boolean
+  live?: {
+    kind: 'rtsp'
+    path: string
+    port: number
+    url: string
+    shared: boolean
+  }
+  message?: string
+  state?: string
 }
 
 class ApiServer {
@@ -79,21 +148,6 @@ class ApiServer {
     return this.fallbackRealtimeUrl?.hostname || '127.0.0.1'
   }
 
-  private get derivedRealtimeWsProtocol() {
-    const state = useBoundStore.getState()
-
-    if (state.isGetDomainAuto && typeof window !== 'undefined') {
-      if (window.location.protocol === 'https:')
-        return 'wss'
-      if (window.location.protocol === 'file:')
-        return this.fallbackRealtimeUrl?.protocol === 'wss:' ? 'wss' : 'ws'
-
-      return 'ws'
-    }
-
-    return this.fallbackRealtimeUrl?.protocol === 'wss:' ? 'wss' : 'ws'
-  }
-
   get wsDomain() {
     let d = useBoundStore.getState().wsDomain
     if (d === '')
@@ -112,20 +166,39 @@ class ApiServer {
     return `${this.wsDomain}/localization_quality`
   }
 
-  get mqttWsUrl() {
-    return `${this.derivedRealtimeWsProtocol}://${this.derivedRealtimeHost}:9001`
-  }
-
   get defaultRmfWebVizHost() {
     return this.derivedRealtimeHost
   }
 
-  get robotPoseMqttWsUrl() {
-    return this.mqttWsUrl
-  }
-
   private get robotHttpBaseUrl() {
     return `http://${this.derivedRealtimeHost}:1234`
+  }
+
+  private get cameraGatewayHost() {
+    return this.derivedRealtimeHost
+  }
+
+  private get cameraGatewayPort() {
+    return 8083
+  }
+
+  private get cameraGatewayBaseUrl() {
+    return `http://${this.cameraGatewayHost}:${this.cameraGatewayPort}`
+  }
+
+  private get controllerHost() {
+    const state = useBoundStore.getState()
+    if (state.nestControllerIp)
+      return state.nestControllerIp
+
+    if (state.apiDomain) {
+      try {
+        return new URL(state.apiDomain).hostname
+      }
+      catch {}
+    }
+
+    return this.derivedRealtimeHost
   }
 
   private get client() {
@@ -151,6 +224,71 @@ class ApiServer {
         'x-api-key': '1234567890',
       },
     })
+  }
+
+  private async requestCameraGateway<T>(path: string, method: 'GET' | 'POST' = 'GET') {
+    const requestPath = path.startsWith('/') ? path : `/${path}`
+    if (window.zcDesktop?.requestCameraGateway) {
+      const response = await window.zcDesktop.requestCameraGateway<T>({
+        host: this.cameraGatewayHost,
+        port: this.cameraGatewayPort,
+        path: requestPath,
+        method,
+      })
+      return response.body
+    }
+
+    const url = new URL(requestPath, this.cameraGatewayBaseUrl)
+    return ky(url.toString(), {
+      method,
+      timeout: 10000,
+    }).json<T>()
+  }
+
+  private async fetchCameraGatewayDataUrl(path: string) {
+    const requestPath = path.startsWith('/') ? path : `/${path}`
+    const url = new URL(requestPath, this.cameraGatewayBaseUrl)
+    url.searchParams.set('ts', String(Date.now()))
+
+    if (window.zcDesktop?.fetchCameraGatewayBinary) {
+      const response = await window.zcDesktop.fetchCameraGatewayBinary({
+        host: this.cameraGatewayHost,
+        port: this.cameraGatewayPort,
+        path: `${url.pathname}${url.search}`,
+        method: 'GET',
+      })
+      return `data:${response.contentType};base64,${response.data}`
+    }
+
+    const response = await ky(url.toString(), {
+      timeout: 10000,
+    }).blob()
+
+    return URL.createObjectURL(response)
+  }
+
+  cameraGatewayUrl = (path: string, cacheBust = false) => {
+    const url = new URL(path, this.cameraGatewayBaseUrl)
+    if (cacheBust)
+      url.searchParams.set('ts', String(Date.now()))
+
+    return url.toString()
+  }
+
+  fetchCameraSources = async () => {
+    return this.requestCameraGateway<CameraSourcesResponse>('/api/v1/sources')
+  }
+
+  startCameraStream = async (source: CameraSource) => {
+    return this.requestCameraGateway<CameraStreamResponse>(source.paths.start, 'POST')
+  }
+
+  stopCameraStream = async (source: CameraSource) => {
+    return this.requestCameraGateway<CameraStreamResponse>(source.paths.stop, 'POST')
+  }
+
+  fetchCameraSnapshotDataUrl = async (source: CameraSource) => {
+    return this.fetchCameraGatewayDataUrl(source.paths.snapshot)
   }
 
   fetchMapListNew = async () => {
@@ -307,15 +445,86 @@ class ApiServer {
   }
 
   fetchShelfState = async () => {
+    if (window.zcDesktop?.readShelfStateModbus) {
+      try {
+        const response = await window.zcDesktop.readShelfStateModbus({
+          host: this.controllerHost,
+          port: 502,
+        })
+
+        if (response.ok && response.state) {
+          return {
+            code: 0,
+            message: 'success',
+            data: response.state,
+          }
+        }
+      }
+      catch (error) {
+        console.warn('Desktop Modbus shelf state read failed; falling back to HTTP API.', error)
+      }
+    }
+
     const json = await this.client.get('robot/shelf_state').json<Resp<ShelfState>>()
+    if (json.data)
+      json.data.source = 'http'
     return json
   }
 
   updateShelfState = async (payload: Pick<ShelfState, 'shelf_present' | 'stock' | 'lift_enabled' | 'lift_target_height'>) => {
+    if (window.zcDesktop?.writeShelfStateModbus) {
+      try {
+        const response = await window.zcDesktop.writeShelfStateModbus({
+          host: this.controllerHost,
+          port: 502,
+          state: payload,
+        })
+
+        if (response.ok && response.state) {
+          return {
+            code: 0,
+            message: 'success',
+            data: response.state,
+          }
+        }
+      }
+      catch (error) {
+        console.warn('Desktop Modbus shelf state write failed; falling back to HTTP API.', error)
+      }
+    }
+
     const json = await this.client.post('robot/shelf_state', {
       json: payload,
     }).json<Resp<ShelfState>>()
+    if (json.data)
+      json.data.source = 'http'
     return json
+  }
+
+  updateModbusCoil = async (address: number, value: boolean) => {
+    if (!window.zcDesktop?.writeModbusCoil) {
+      return {
+        code: 1,
+        message: 'Modbus 线圈控制仅支持桌面应用',
+        data: null,
+      }
+    }
+
+    const response = await window.zcDesktop.writeModbusCoil({
+      host: this.controllerHost,
+      port: 502,
+      address,
+      value,
+    })
+
+    return {
+      code: response.ok ? 0 : 1,
+      message: response.ok ? 'success' : '写入线圈失败',
+      data: {
+        address: response.address,
+        value: response.value,
+      },
+    }
   }
 
   private buildRmfBuildingYamlUploadUrl(targetHost: string) {

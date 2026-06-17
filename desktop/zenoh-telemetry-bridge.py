@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 import argparse
+import base64
 import json
 import math
 import os
 import signal
 import struct
+import sys
 import threading
 import time
 import urllib.error
@@ -13,11 +15,17 @@ import xml.etree.ElementTree as ET
 
 
 CDR_HEADER_SIZE = 4
-DEFAULT_TOPICS = (
-    "**/depth/points/filtered",
-    "**/depth/points",
-    "**/yolo/detections_pointcloud",
-)
+POSE_DOUBLE_COUNT = 7
+
+BASE_SUBSCRIPTIONS = {
+    "battery/state": "battery",
+}
+
+SCAN_SUBSCRIPTIONS = {
+    "laser_pose": "laser-pose",
+}
+
+DEFAULT_SCAN_TOPICS = ["scan/filtered"]
 DEFAULT_TF_TOPICS = (
     "tf",
     "tf_static",
@@ -28,15 +36,8 @@ DEFAULT_TARGET_FRAMES = (
     "base",
 )
 
-POINT_FIELD_DATATYPES = {
-    1: ("b", 1),
-    2: ("B", 1),
-    3: ("h", 2),
-    4: ("H", 2),
-    5: ("i", 4),
-    6: ("I", 4),
-    7: ("f", 4),
-    8: ("d", 8),
+MAP_SUBSCRIPTIONS = {
+    "map/compressed": "compressed-map",
 }
 
 running = True
@@ -127,6 +128,9 @@ class CdrReader:
     def read_uint32(self):
         return self.read("I", 4, 4)
 
+    def read_float32(self):
+        return self.read("f", 4, 4)
+
     def read_float64(self):
         return self.read("d", 8, 8)
 
@@ -139,39 +143,19 @@ class CdrReader:
         self.offset += length
         return value.split(b"\0", 1)[0].decode("utf-8", errors="replace")
 
-    def read_uint8_sequence(self):
+    def skip_time(self):
+        self.read_int32()
+        self.read_uint32()
+
+    def skip_string(self):
+        self.read_string()
+
+    def read_float32_sequence(self):
         length = self.read_uint32()
-        if self.offset + length > len(self.payload):
-            raise CdrDecodeError("invalid uint8 sequence length")
-
-        value = self.payload[self.offset:self.offset + length]
-        self.offset += length
-        return value
-
-
-def normalize_topics(namespace, topics):
-    namespace = namespace.strip("/")
-    normalized = []
-
-    for topic in topics:
-        topic = topic.strip("/")
-        if not topic:
-            continue
-
-        if topic.startswith(f"{namespace}/"):
-            key_expr = topic
-        else:
-            key_expr = f"{namespace}/{topic}"
-
-        if key_expr not in normalized:
-            normalized.append(key_expr)
-
-    return normalized
-
-
-def create_payload_signature(payload):
-    tail = payload[-128:] if len(payload) > 128 else b""
-    return (len(payload), payload[:128], tail)
+        values = []
+        for _ in range(length):
+            values.append(self.read_float32())
+        return values
 
 
 def normalize_frame_id(frame_id):
@@ -196,13 +180,9 @@ def rpy_to_quaternion(roll, pitch, yaw):
     ])
 
 
-def quaternion_norm(quaternion):
-    x, y, z, w = quaternion
-    return math.hypot(x, y, z, w)
-
-
 def normalize_quaternion(quaternion):
-    norm = quaternion_norm(quaternion)
+    x, y, z, w = quaternion
+    norm = math.hypot(x, y, z, w)
     if not math.isfinite(norm) or norm < 1e-9:
         return None
 
@@ -478,114 +458,142 @@ def fetch_urdf_static_transforms(host):
     return parse_urdf_static_transforms(urdf)
 
 
-def read_point_value(data, offset, field, endian):
-    format_info = POINT_FIELD_DATATYPES.get(field["datatype"])
-    if format_info is None:
+def quaternion_to_euler(x, y, z, w):
+    sin_roll = 2 * (w * x + y * z)
+    cos_roll = 1 - 2 * (x * x + y * y)
+    roll = math.atan2(sin_roll, cos_roll)
+
+    sin_pitch = 2 * (w * y - z * x)
+    pitch = math.copysign(math.pi / 2, sin_pitch) if abs(sin_pitch) >= 1 else math.asin(sin_pitch)
+
+    sin_yaw = 2 * (w * z + x * y)
+    cos_yaw = 1 - 2 * (y * y + z * z)
+    yaw = math.atan2(sin_yaw, cos_yaw)
+
+    return roll, pitch, yaw
+
+
+def create_pose_message(values):
+    if len(values) != POSE_DOUBLE_COUNT or not all(math.isfinite(value) for value in values):
         return None
 
-    format_code, size = format_info
-    value_offset = offset + field["offset"]
-    if value_offset + size > len(data):
+    position_x, position_y, position_z, orientation_x, orientation_y, orientation_z, orientation_w = values
+    quaternion_norm = math.hypot(orientation_x, orientation_y, orientation_z, orientation_w)
+    if not math.isfinite(quaternion_norm) or quaternion_norm < 0.5 or quaternion_norm > 1.5:
         return None
 
-    return struct.unpack_from(f"{endian}{format_code}", data, value_offset)[0]
-
-
-def decode_pointcloud_payload_with_alignment(payload, endian, aligned, max_points):
-    reader = CdrReader(payload, endian, aligned)
-
-    stamp_sec = reader.read_int32()
-    stamp_nanosec = reader.read_uint32()
-    frame_id = reader.read_string()
-    height = reader.read_uint32()
-    width = reader.read_uint32()
-
-    field_count = reader.read_uint32()
-    if field_count <= 0 or field_count > 256:
-        raise CdrDecodeError("invalid field count")
-
-    fields = []
-    for _ in range(field_count):
-        fields.append({
-            "name": reader.read_string(),
-            "offset": reader.read_uint32(),
-            "datatype": reader.read_uint8(),
-            "count": reader.read_uint32(),
-        })
-
-    is_bigendian = reader.read_bool()
-    point_step = reader.read_uint32()
-    row_step = reader.read_uint32()
-    data = reader.read_uint8_sequence()
-    is_dense = reader.read_bool()
-
-    if point_step <= 0 or point_step > 4096:
-        raise CdrDecodeError("invalid point step")
-
-    point_count = min(width * height, len(data) // point_step)
-    if point_count <= 0:
-        raise CdrDecodeError("empty pointcloud")
-
-    fields_by_name = {field["name"].lower(): field for field in fields}
-    x_field = fields_by_name.get("x")
-    y_field = fields_by_name.get("y")
-    z_field = fields_by_name.get("z")
-    if x_field is None or y_field is None or z_field is None:
-        raise CdrDecodeError("pointcloud is missing x/y/z fields")
-
-    data_endian = ">" if is_bigendian else "<"
-    stride = max(1, math.ceil(point_count / max_points))
-    points = []
-
-    for index in range(0, point_count, stride):
-        offset = index * point_step
-        x = read_point_value(data, offset, x_field, data_endian)
-        y = read_point_value(data, offset, y_field, data_endian)
-        z = read_point_value(data, offset, z_field, data_endian)
-        if x is None or y is None or z is None:
-            continue
-        if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(z)):
-            continue
-
-        points.append([x, y, z])
-
-    if not points:
-        raise CdrDecodeError("pointcloud has no finite x/y/z points")
+    normalized_x = orientation_x / quaternion_norm
+    normalized_y = orientation_y / quaternion_norm
+    normalized_z = orientation_z / quaternion_norm
+    normalized_w = orientation_w / quaternion_norm
+    roll, pitch, yaw = quaternion_to_euler(normalized_x, normalized_y, normalized_z, normalized_w)
 
     return {
-        "frameId": frame_id,
-        "stamp": {
-            "sec": stamp_sec,
-            "nanosec": stamp_nanosec,
+        "position": {
+            "x": position_x,
+            "y": position_y,
+            "z": position_z,
         },
-        "height": height,
-        "width": width,
-        "pointStep": point_step,
-        "rowStep": row_step,
-        "isDense": is_dense,
-        "pointCount": point_count,
-        "sampledCount": len(points),
-        "points": points,
+        "orientation": {
+            "x": normalized_x,
+            "y": normalized_y,
+            "z": normalized_z,
+            "w": normalized_w,
+        },
+        "pyr": {
+            "yaw": yaw,
+            "pitch": pitch,
+            "roll": roll,
+        },
     }
 
 
-def decode_pointcloud_payload(payload, max_points):
+def decode_pose_payload(payload):
     endian = get_cdr_endian(payload)
     if endian is None:
         return None
 
     for aligned in (True, False):
         try:
-            return decode_pointcloud_payload_with_alignment(payload, endian, aligned, max_points)
+            reader = CdrReader(payload, endian, aligned)
+            values = [reader.read_float64() for _ in range(POSE_DOUBLE_COUNT)]
+            pose = create_pose_message(values)
+            if pose is not None:
+                return pose
         except CdrDecodeError:
             continue
 
     return None
 
 
-def decode_tf_payload_with_alignment(payload, endian, aligned):
-    reader = CdrReader(payload, endian, aligned)
-    return decode_tf_payload_with_reader(reader)
+def decode_battery_payload(payload):
+    endian = get_cdr_endian(payload)
+    if endian is None:
+        return None
+
+    for aligned in (True, False):
+        try:
+            reader = CdrReader(payload, endian, aligned)
+            reader.skip_time()
+            reader.skip_string()
+            reader.read_float32()
+            reader.read_float32()
+            current = reader.read_float32()
+            reader.read_float32()
+            reader.read_float32()
+            reader.read_float32()
+            percentage = reader.read_float32()
+            if not math.isfinite(current) or not math.isfinite(percentage):
+                return None
+            return {
+                "battery": percentage * 100,
+                "batteryCurrent": current,
+            }
+        except CdrDecodeError:
+            continue
+
+    return None
+
+
+def decode_laser_scan_payload(payload):
+    endian = get_cdr_endian(payload)
+    if endian is None:
+        return None
+
+    for aligned in (True, False):
+        try:
+            reader = CdrReader(payload, endian, aligned)
+            stamp_sec = reader.read_int32()
+            stamp_nanosec = reader.read_uint32()
+            frame_id = reader.read_string()
+            angle_min = reader.read_float32()
+            reader.read_float32()
+            angle_increment = reader.read_float32()
+            reader.read_float32()
+            reader.read_float32()
+            range_min = reader.read_float32()
+            range_max = reader.read_float32()
+            invalid_range = range_max + 1 if math.isfinite(range_max) else 0
+            ranges = [
+                value if math.isfinite(value) else invalid_range
+                for value in reader.read_float32_sequence()
+            ]
+            return {
+                "frameId": frame_id,
+                "stamp": {
+                    "sec": stamp_sec,
+                    "nanosec": stamp_nanosec,
+                },
+                "angleMin": angle_min,
+                "angleIncrement": angle_increment,
+                "rangeMin": range_min,
+                "rangeMax": range_max,
+                "ranges": ranges,
+            }
+        except CdrDecodeError:
+            continue
+
+    return None
 
 
 def decode_tf_payload_with_reader(reader):
@@ -647,7 +655,7 @@ def decode_tf_payload(payload):
 
     for aligned in (True, False):
         try:
-            transforms = decode_tf_payload_with_alignment(payload, endian, aligned)
+            transforms = decode_tf_payload_with_reader(CdrReader(payload, endian, aligned))
             if transforms:
                 return transforms
         except CdrDecodeError:
@@ -656,21 +664,118 @@ def decode_tf_payload(payload):
     return None
 
 
-def apply_tf_to_cloud(cloud, transform_store, target_frames):
-    source_frame = cloud["frameId"]
+def apply_tf_to_scan(scan, transform_store, target_frames):
+    source_frame = scan.get("frameId", "")
     transform, target_frame = transform_store.find_transform(source_frame, target_frames)
-    cloud["originalFrameId"] = source_frame
-    cloud["targetFrameId"] = target_frame or target_frames[0]
-    cloud["tfFrameCount"] = transform_store.frame_count()
+    scan["originalFrameId"] = source_frame
+    scan["targetFrameId"] = target_frame or (target_frames[0] if target_frames else "")
+    scan["tfFrameCount"] = transform_store.frame_count()
 
     if transform is None:
-        cloud["transformApplied"] = False
-        return cloud
+        scan["transformApplied"] = False
+        return scan
 
-    cloud["frameId"] = target_frame
-    cloud["transformApplied"] = True
-    cloud["points"] = [apply_transform(transform, point) for point in cloud["points"]]
-    return cloud
+    points = []
+    angle = scan["angleMin"]
+    for range_value in scan["ranges"]:
+        if math.isfinite(range_value) and scan["rangeMin"] <= range_value <= scan["rangeMax"]:
+            points.append(apply_transform(transform, [
+                range_value * math.cos(angle),
+                range_value * math.sin(angle),
+                0,
+            ]))
+        angle += scan["angleIncrement"]
+
+    scan["frameId"] = target_frame
+    scan["transformApplied"] = True
+    scan["points"] = points
+    scan["sampledCount"] = len(points)
+    return scan
+
+
+def normalize_subscriptions(namespace, subscriptions):
+    namespace = namespace.strip("/")
+    normalized = {}
+
+    for topic, message_type in subscriptions.items():
+        topic = topic.strip("/")
+        if not topic:
+            continue
+
+        key_expr = topic if topic.startswith(f"{namespace}/") else f"{namespace}/{topic}"
+        normalized[key_expr] = {
+            "type": message_type,
+            "topic": topic,
+        }
+
+    return normalized
+
+
+def normalize_topics(namespace, topics):
+    namespace = namespace.strip("/")
+    normalized = []
+
+    for topic in topics:
+        topic = topic.strip("/")
+        if not topic:
+            continue
+
+        key_expr = topic if topic.startswith(f"{namespace}/") else f"{namespace}/{topic}"
+        if key_expr not in normalized:
+            normalized.append(key_expr)
+
+    return normalized
+
+
+def encode_twist_payload(command):
+    payload = bytearray(52)
+    struct.pack_into(">H", payload, 0, 1)
+    struct.pack_into(">H", payload, 2, 0)
+    offset = CDR_HEADER_SIZE
+    values = [
+        command.get("linearX", 0),
+        command.get("linearY", 0),
+        command.get("linearZ", 0),
+        command.get("angularX", 0),
+        command.get("angularY", 0),
+        command.get("angularZ", 0),
+    ]
+
+    for value in values:
+        if not isinstance(value, (int, float)) or not math.isfinite(value):
+            value = 0
+        struct.pack_into("<d", payload, offset, value)
+        offset += 8
+
+    return bytes(payload)
+
+
+def handle_stdin(command_publisher):
+    global running
+
+    try:
+        for line in sys.stdin:
+            if not running:
+                break
+            if not line.strip():
+                continue
+
+            try:
+                message = json.loads(line)
+            except json.JSONDecodeError:
+                emit({"type": "error", "message": "invalid stdin JSON"})
+                continue
+
+            if message.get("type") == "cmd_vel":
+                try:
+                    command_publisher.put(encode_twist_payload(message.get("command") or {}))
+                except Exception as error:
+                    emit({"type": "error", "message": f"failed to publish cmd_vel: {error}"})
+            elif message.get("type") == "stop":
+                running = False
+                break
+    finally:
+        running = False
 
 
 def parse_args():
@@ -679,27 +784,42 @@ def parse_args():
     parser.add_argument("--namespace", required=True)
     parser.add_argument("--port", type=int, default=7447)
     parser.add_argument("--parent-pid", type=int, default=0)
-    parser.add_argument("--topic", action="append", default=[])
+    parser.add_argument("--include-scan", action="store_true")
+    parser.add_argument("--scan-topic", action="append", default=[])
     parser.add_argument("--tf-topic", action="append", default=[])
     parser.add_argument("--target-frame", action="append", default=[])
-    parser.add_argument("--max-points", type=int, default=3500)
-    parser.add_argument("--min-interval-ms", type=int, default=250)
-    parser.add_argument("--max-samples", type=int, default=0)
+    parser.add_argument("--include-map", action="store_true")
     return parser.parse_args()
+
+
+def build_subscriptions(args):
+    subscriptions = dict(BASE_SUBSCRIPTIONS)
+
+    if args.include_scan:
+        subscriptions.update(SCAN_SUBSCRIPTIONS)
+        scan_topics = args.scan_topic if args.scan_topic else DEFAULT_SCAN_TOPICS
+        for topic in scan_topics:
+            topic = topic.strip()
+            if topic:
+                subscriptions[topic] = "laser-scan"
+
+    if args.include_map:
+        subscriptions.update(MAP_SUBSCRIPTIONS)
+
+    return normalize_subscriptions(args.namespace, subscriptions)
 
 
 def main():
     args = parse_args()
     start_parent_monitor(args.parent_pid)
-    max_points = max(100, min(args.max_points, 20000))
-    min_interval = max(0, args.min_interval_ms) / 1000
-    key_exprs = normalize_topics(args.namespace, args.topic or DEFAULT_TOPICS)
-    tf_key_exprs = normalize_topics(args.namespace, args.tf_topic or DEFAULT_TF_TOPICS)
+    subscriptions = build_subscriptions(args)
+    tf_key_exprs = normalize_topics(args.namespace, args.tf_topic or DEFAULT_TF_TOPICS) if args.include_scan else []
     target_frames = [
         normalize_frame_id(frame)
         for frame in (args.target_frame or DEFAULT_TARGET_FRAMES)
         if normalize_frame_id(frame)
     ]
+    command_key = f"{args.namespace.strip('/')}/cmd_vel_collision"
 
     try:
         import zenoh
@@ -718,72 +838,92 @@ def main():
     config.insert_json5("transport/shared_memory/enabled", "false")
 
     session = None
+    command_publisher = None
     subscribers = []
-    sample_count = 0
-    last_emit_at_by_key = {}
-    recent_payload_signatures = {}
     last_decode_error_at = {}
     last_tf_decode_error_at = {}
     transform_store = TransformStore()
     urdf_static_transform_count = 0
     urdf_static_error = None
 
-    try:
-        urdf_static_transforms = fetch_urdf_static_transforms(args.host)
-        transform_store.update(urdf_static_transforms, True)
-        urdf_static_transform_count = len(urdf_static_transforms)
-    except (ET.ParseError, OSError, RuntimeError, urllib.error.URLError, json.JSONDecodeError) as error:
-        urdf_static_error = str(error)
+    if args.include_scan:
+        try:
+            urdf_static_transforms = fetch_urdf_static_transforms(args.host)
+            transform_store.update(urdf_static_transforms, True)
+            urdf_static_transform_count = len(urdf_static_transforms)
+        except (ET.ParseError, OSError, RuntimeError, urllib.error.URLError, json.JSONDecodeError) as error:
+            urdf_static_error = str(error)
 
     def on_sample(sample):
-        nonlocal sample_count
-
         now = time.monotonic()
         key = str(sample.key_expr)
+        subscription = subscriptions.get(key)
+        message_type = subscription.get("type") if subscription else None
         payload = sample.payload.to_bytes()
-        payload_signature = create_payload_signature(payload)
-        last_payload_at = recent_payload_signatures.get(payload_signature)
-        if last_payload_at is not None and now - last_payload_at < 0.05:
-            return
-        recent_payload_signatures[payload_signature] = now
-        if len(recent_payload_signatures) > 128:
-            stale_signatures = [
-                signature
-                for signature, seen_at in recent_payload_signatures.items()
-                if now - seen_at > 1
-            ]
-            for signature in stale_signatures:
-                recent_payload_signatures.pop(signature, None)
 
-        if min_interval > 0 and now - last_emit_at_by_key.get(key, 0) < min_interval:
+        if message_type == "battery":
+            battery = decode_battery_payload(payload)
+            if battery is None:
+                emit_decode_error(key, len(payload), now)
+                return
+            emit({
+                "type": "battery",
+                "key": key,
+                **battery,
+            })
             return
 
-        cloud = decode_pointcloud_payload(payload, max_points)
-        if cloud is None:
-            if now - last_decode_error_at.get(key, 0) > 2:
-                emit({
-                    "type": "decode-error",
-                    "key": key,
-                    "byteLength": len(payload),
-                })
-                last_decode_error_at[key] = now
+        if message_type == "laser-pose":
+            pose = decode_pose_payload(payload)
+            if pose is None:
+                emit_decode_error(key, len(payload), now)
+                return
+            emit({
+                "type": "laser-pose",
+                "key": key,
+                "pose": pose,
+            })
             return
 
-        cloud = apply_tf_to_cloud(cloud, transform_store, target_frames)
-        cloud["type"] = "pointcloud"
-        cloud["key"] = key
-        cloud["topic"] = key
-        emit(cloud)
-        last_emit_at_by_key[key] = now
-        sample_count += 1
-        if args.max_samples > 0 and sample_count >= args.max_samples:
-            handle_stop(None, None)
+        if message_type == "laser-scan":
+            scan = decode_laser_scan_payload(payload)
+            if scan is None:
+                emit_decode_error(key, len(payload), now)
+                return
+            scan = apply_tf_to_scan(scan, transform_store, target_frames)
+            emit({
+                "type": "laser-scan",
+                "key": key,
+                "topic": subscription.get("topic"),
+                "scan": scan,
+            })
+            return
+
+        if message_type == "compressed-map":
+            emit({
+                "type": "compressed-map",
+                "key": key,
+                "byteLength": len(payload),
+                "payloadBase64": base64.b64encode(payload).decode("ascii"),
+            })
+            return
+
+    def emit_decode_error(key, byte_length, now):
+        if now - last_decode_error_at.get(key, 0) <= 2:
+            return
+
+        emit({
+            "type": "decode-error",
+            "key": key,
+            "byteLength": byte_length,
+        })
+        last_decode_error_at[key] = now
 
     def on_tf_sample(sample):
         now = time.monotonic()
         payload = sample.payload.to_bytes()
-        transforms = decode_tf_payload(payload)
         key = str(sample.key_expr)
+        transforms = decode_tf_payload(payload)
         if transforms is None:
             if now - last_tf_decode_error_at.get(key, 0) > 2:
                 emit({
@@ -801,23 +941,28 @@ def main():
             "type": "status",
             "state": "connecting",
             "endpoint": f"tcp/{args.host}:{args.port}",
-            "keys": key_exprs,
+            "keys": list(subscriptions.keys()),
             "tfKeys": tf_key_exprs,
             "targetFrames": target_frames,
             "urdfStaticTransforms": urdf_static_transform_count,
             "urdfStaticError": urdf_static_error,
+            "commandKey": command_key,
         })
         session = zenoh.open(config)
-        subscribers = [session.declare_subscriber(key_expr, on_sample) for key_expr in key_exprs]
-        subscribers.extend(session.declare_subscriber(key_expr, on_tf_sample) for key_expr in tf_key_exprs)
+        command_publisher = session.declare_publisher(command_key)
+        subscribers = [session.declare_subscriber(key, on_sample) for key in subscriptions]
+        subscribers.extend(session.declare_subscriber(key, on_tf_sample) for key in tf_key_exprs)
+        stdin_thread = threading.Thread(target=handle_stdin, args=(command_publisher,), daemon=True)
+        stdin_thread.start()
         emit({
             "type": "status",
             "state": "subscribed",
-            "keys": key_exprs,
+            "keys": list(subscriptions.keys()),
             "tfKeys": tf_key_exprs,
             "targetFrames": target_frames,
             "urdfStaticTransforms": urdf_static_transform_count,
             "urdfStaticError": urdf_static_error,
+            "commandKey": command_key,
         })
 
         while running:
@@ -829,6 +974,12 @@ def main():
         })
         return 1
     finally:
+        if command_publisher is not None:
+            try:
+                command_publisher.put(encode_twist_payload({}))
+                command_publisher.undeclare()
+            except Exception:
+                pass
         for subscriber in subscribers:
             subscriber.undeclare()
         if session is not None:

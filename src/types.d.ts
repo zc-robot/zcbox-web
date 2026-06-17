@@ -67,11 +67,32 @@ export interface RobotInfoMessage {
 }
 
 export interface LaserScanMessage {
+  key?: string,
+  topic?: string,
+  frameId?: string,
+  originalFrameId?: string,
+  targetFrameId?: string,
+  transformApplied?: boolean,
+  tfFrameCount?: number,
+  stamp?: {
+    sec: number,
+    nanosec: number,
+  },
   angleMin: number,
   angleIncrement: number,
   rangeMin: number,
   rangeMax: number,
   ranges: number[],
+  points?: [number, number, number][],
+}
+
+export interface TwistCommand {
+  linearX?: number,
+  linearY?: number,
+  linearZ?: number,
+  angularX?: number,
+  angularY?: number,
+  angularZ?: number,
 }
 
 export type PointCloudPoint = [number, number, number]
@@ -80,6 +101,10 @@ export interface PointCloudMessage {
   key?: string,
   topic?: string,
   frameId: string,
+  originalFrameId?: string,
+  targetFrameId?: string,
+  transformApplied?: boolean,
+  tfFrameCount?: number,
   stamp: {
     sec: number,
     nanosec: number,

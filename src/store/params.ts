@@ -1,6 +1,12 @@
 import type { StateCreator } from 'zustand'
 import type { FootprintParams, JointParams, LanguageCode, PointAction, RobotParams } from '@/types'
 
+export const defaultPointCloudTopics = [
+  '**/depth/points/filtered',
+  '**/depth/points',
+  '**/yolo/detections_pointcloud',
+]
+
 export interface ParamsSlice {
   language: LanguageCode
   apiDomain: string
@@ -8,6 +14,7 @@ export interface ParamsSlice {
   isGetDomainAuto: boolean
   nestControllerIp: string
   nestControllerHistory: string[]
+  pointCloudTopics: string[]
   robotParams: RobotParams | null
   pointActions: PointAction[]
   mapParams: {
@@ -21,6 +28,8 @@ export interface ParamsSlice {
   updateWsDomain: (domain: string) => void
   updateIsGetDomainAuto: (domainAuto: boolean) => void
   rememberNestControllerIp: (ip: string) => void
+  changeNestController: () => void
+  updatePointCloudTopics: (topics: string[]) => void
   updateMapParams: (by: { resolution?: number; model?: string }) => void
   updateRobotParams: (by: RobotParams) => void
   updatePointActions: (by: PointAction[]) => void
@@ -35,6 +44,7 @@ export const paramsSlice: StateCreator<ParamsSlice> = set => ({
   isGetDomainAuto: true,
   nestControllerIp: '',
   nestControllerHistory: [],
+  pointCloudTopics: defaultPointCloudTopics,
   robotParams: null,
   pointActions: [],
   mapParams: {
@@ -69,6 +79,26 @@ export const paramsSlice: StateCreator<ParamsSlice> = set => ({
           ...state.nestControllerHistory.filter(item => item !== normalizedIp),
         ].slice(0, 8),
       }
+    })
+  },
+  changeNestController: () => {
+    set({
+      apiDomain: '',
+      wsDomain: '',
+      isGetDomainAuto: false,
+      nestControllerIp: '',
+    })
+  },
+  updatePointCloudTopics: (topics: string[]) => {
+    const normalizedTopics = topics
+      .map(topic => topic.trim())
+      .filter(Boolean)
+      .filter((topic, index, allTopics) => allTopics.indexOf(topic) === index)
+
+    set({
+      pointCloudTopics: normalizedTopics.length > 0
+        ? normalizedTopics
+        : defaultPointCloudTopics,
     })
   },
   updateMapParams: (by: { resolution?: number; model?: string }) => {

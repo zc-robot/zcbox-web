@@ -8,11 +8,11 @@ import GridMap from './GridMap'
 import LaserScan from './LaserScan'
 import Lift from './Lift'
 import Pathway from './Pathway'
-import PointCloud from './PointCloud'
 import RelocalizationRobot from './RelocalizationRobot'
 import Robot from './Robot'
 import Waypoint from './Waypoint'
 import PathPoint from './PathPoint'
+import { getLidarScanColor } from '@/constants/lidar'
 import { uid } from '@/util'
 import { useGridStore, useOperationStore, useParamsStore, useProfileStore } from '@/store'
 import { useElementSize, useKeyPress } from '@/hooks'
@@ -142,18 +142,17 @@ const Monitor: React.FC = () => {
     togglePointSelection: state.togglePointSelection,
     openPointEditor: state.openPointEditor,
   }), shallow)
-  const { scale, gridInfo, robotInfo, pathPointInfo, isScanVisible, laserPose, laserScan, scanPointSize, isPointCloudVisible, pointCloud, pointCloudPointSize, centerRobotRequestId, centerPointRequest, relocalizationPose, updateRelocalizationPose, cancelRelocalization } = useGridStore(state => ({
+  const { scale, gridInfo, robotInfo, hasLivePose, pathPointInfo, isScanVisible, laserPose, laserScans, selectedLidarScanTopics, scanPointSize, centerRobotRequestId, centerPointRequest, relocalizationPose, updateRelocalizationPose, cancelRelocalization } = useGridStore(state => ({
     scale: state.scale,
     gridInfo: state.gridInfo,
     robotInfo: state.robotInfo,
+    hasLivePose: state.hasLivePose,
     pathPointInfo: state.pathPointInfo,
     isScanVisible: state.isScanVisible,
     laserPose: state.laserPose,
-    laserScan: state.laserScan,
+    laserScans: state.laserScans,
+    selectedLidarScanTopics: state.selectedLidarScanTopics,
     scanPointSize: state.scanPointSize,
-    isPointCloudVisible: state.isPointCloudVisible,
-    pointCloud: state.pointCloud,
-    pointCloudPointSize: state.pointCloudPointSize,
     centerRobotRequestId: state.centerRobotRequestId,
     centerPointRequest: state.centerPointRequest,
     relocalizationPose: state.relocalizationPose,
@@ -356,7 +355,7 @@ const Monitor: React.FC = () => {
   }, [gridInfo, scale])
 
   useEffect(() => {
-    if (!gridInfo || !robotInfo || !width || !height)
+    if (!gridInfo || !robotInfo || !hasLivePose || !width || !height)
       return
     if (centerRobotRequestId <= lastHandledCenterRequestId.current)
       return
@@ -371,7 +370,7 @@ const Monitor: React.FC = () => {
       y: height / 2 - (nextLayerState.y + -robotInfo.pose.position.y * nextLayerState.scale),
     })
     lastHandledCenterRequestId.current = centerRobotRequestId
-  }, [centerRobotRequestId, gridInfo, height, robotInfo, scale, width])
+  }, [centerRobotRequestId, gridInfo, hasLivePose, height, robotInfo, scale, width])
 
   useEffect(() => {
     if (!gridInfo || !centerPointRequest || !width || !height)
@@ -499,13 +498,13 @@ const Monitor: React.FC = () => {
       return
     }
 
-    if (!relocalizationLaserOffset.current && robotInfo && laserPose)
+    if (!relocalizationLaserOffset.current && robotInfo && hasLivePose && laserPose)
       relocalizationLaserOffset.current = getRelativePose(robotInfo.pose, laserPose)
-  }, [cancelRelocalization, currentOp, laserPose, relocalizationPose, robotInfo])
+  }, [cancelRelocalization, currentOp, hasLivePose, laserPose, relocalizationPose, robotInfo])
 
   const displayedRobotPose = currentOp === 'relocalize' && relocalizationPose
     ? relocalizationPose
-    : robotInfo?.pose
+    : hasLivePose ? robotInfo?.pose : null
   const displayedLaserPose = currentOp === 'relocalize' && relocalizationPose && relocalizationLaserOffset.current
     ? composePose(relocalizationPose, relocalizationLaserOffset.current)
     : laserPose
@@ -1015,12 +1014,6 @@ const Monitor: React.FC = () => {
           onMouseUp={handleSelectionBoxEnd}
           onClick={handleLayerClick}>
           <GridMap />
-          {(gridInfo && isPointCloudVisible && pointCloud)
-            && <PointCloud
-              cloud={pointCloud}
-              robotPose={displayedRobotPose ?? null}
-              pointSize={pointCloudPointSize} />
-          }
           {(gridInfo && displayedRobotPose && currentOp !== 'relocalize')
             && <Robot
               pose={displayedRobotPose} />
@@ -1030,11 +1023,27 @@ const Monitor: React.FC = () => {
               pose={relocalizationPose}
               onPoseChange={updateRelocalizationPose} />
           }
-          {(gridInfo && isScanVisible && displayedLaserPose && laserScan)
-            && <LaserScan
-              pose={displayedLaserPose}
-              scan={laserScan}
-              pointSize={scanPointSize} />
+          {(gridInfo && isScanVisible)
+            && selectedLidarScanTopics.map((topic) => {
+              const scan = laserScans[topic]
+              if (!scan)
+                return null
+
+              const scanPose = scan.transformApplied && displayedRobotPose
+                ? displayedRobotPose
+                : displayedLaserPose
+              if (!scanPose)
+                return null
+
+              return (
+                <LaserScan
+                  key={topic}
+                  pose={scanPose}
+                  scan={scan}
+                  pointSize={scanPointSize}
+                  color={getLidarScanColor(topic)} />
+              )
+            })
           }
           {draftPath && (
             <Line

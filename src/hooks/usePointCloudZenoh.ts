@@ -1,12 +1,7 @@
 import { useEffect } from 'react'
 import apiServer from '@/service/apiServer'
 import { useGridStore, useParamsStore } from '@/store'
-
-const POINT_CLOUD_TOPICS = [
-  'depth/points/filtered',
-  'depth/points',
-  'yolo/detections_pointcloud',
-]
+import { defaultPointCloudTopics } from '@/store/params'
 
 function isZenohPointCloudMessage(message: ZenohPointCloudMessage): message is ZenohPointCloudPayloadMessage {
   return message.type === 'pointcloud'
@@ -16,12 +11,14 @@ export function usePointCloudZenoh() {
   const isPointCloudVisible = useGridStore(state => state.isPointCloudVisible)
   const updatePointCloud = useGridStore(state => state.updatePointCloud)
   const nestControllerIp = useParamsStore(state => state.nestControllerIp)
+  const pointCloudTopics = useParamsStore(state => state.pointCloudTopics)
 
   useEffect(() => {
     if (!window.zcDesktop?.isDesktop || !nestControllerIp || !isPointCloudVisible)
       return
 
     let disposed = false
+    const topics = pointCloudTopics.length > 0 ? pointCloudTopics : defaultPointCloudTopics
 
     const removeListener = window.zcDesktop.onZenohPointCloud((message) => {
       if (disposed)
@@ -45,7 +42,8 @@ export function usePointCloudZenoh() {
         await window.zcDesktop?.startZenohPointCloud({
           host: nestControllerIp,
           namespace,
-          topics: POINT_CLOUD_TOPICS,
+          topics,
+          targetFrames: ['base_footprint'],
           maxPoints: 3500,
           minIntervalMs: 250,
         })
@@ -64,5 +62,5 @@ export function usePointCloudZenoh() {
         console.warn('Failed to stop Zenoh pointcloud bridge', error)
       })
     }
-  }, [isPointCloudVisible, nestControllerIp, updatePointCloud])
+  }, [isPointCloudVisible, nestControllerIp, pointCloudTopics, updatePointCloud])
 }

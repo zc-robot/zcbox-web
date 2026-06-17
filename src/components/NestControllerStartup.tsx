@@ -2,35 +2,10 @@ import { useMemo, useState } from 'react'
 import Input from './Input'
 import { useLocales } from '@/hooks'
 import { useParamsStore } from '@/store'
+import { isValidIpv4, normalizeNestControllerIp } from '@/util/nestController'
 
 interface NestControllerStartupProps {
   onConnected: () => void
-}
-
-function normalizeIp(value: string) {
-  const trimmed = value.trim()
-
-  if (!trimmed)
-    return ''
-
-  try {
-    return new URL(trimmed).hostname
-  }
-  catch {
-    return trimmed.replace(/^https?:\/\//, '').replace(/\/.*$/, '')
-  }
-}
-
-function isValidIpv4(value: string) {
-  const parts = value.split('.')
-
-  return parts.length === 4 && parts.every((part) => {
-    if (!/^\d+$/.test(part))
-      return false
-
-    const value = Number(part)
-    return value >= 0 && value <= 255 && String(value) === part
-  })
 }
 
 const NestControllerStartup: React.FC<NestControllerStartupProps> = ({ onConnected }) => {
@@ -55,7 +30,7 @@ const NestControllerStartup: React.FC<NestControllerStartupProps> = ({ onConnect
   const [error, setError] = useState('')
 
   const connect = (value: string) => {
-    const normalizedIp = normalizeIp(value)
+    const normalizedIp = normalizeNestControllerIp(value)
 
     if (!isValidIpv4(normalizedIp)) {
       setError(locale('nestControllerInvalidIp'))

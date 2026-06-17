@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-do
 import { Toaster, toast } from 'react-hot-toast'
 import apiServer from '@/service/apiServer'
 import { useGridStore, useParamsStore } from '@/store'
+import { usePointCloudZenoh, useRobotPoseZenoh, useTelemetryZenoh } from '@/hooks'
 
 interface MapContextMenuState {
   id: number
@@ -28,14 +29,26 @@ function normalizeRunningMode(state: { data?: unknown; message?: string }): Runn
 }
 
 const Home: React.FC = () => {
-  const { maps, setMaps, setMapsNew } = useGridStore(state => ({
+  useRobotPoseZenoh()
+  usePointCloudZenoh()
+
+  const { maps, setMaps, setMapsNew, isScanVisible, selectedLidarScanTopics } = useGridStore(state => ({
     maps: state.maps,
     setMaps: state.setMaps,
     setMapsNew: state.setMapsNew,
+    isScanVisible: state.isScanVisible,
+    selectedLidarScanTopics: state.selectedLidarScanTopics,
   }))
 
   const apiDomain = useParamsStore(state => state.apiDomain)
+  const changeNestController = useParamsStore(state => state.changeNestController)
   const location = useLocation()
+  const isMappingRoute = location.pathname === '/mapping'
+  useTelemetryZenoh({
+    includeMap: isMappingRoute,
+    includeScan: isScanVisible,
+    scanTopics: selectedLidarScanTopics,
+  })
   const navigate = useNavigate()
   const [menuState, setMenuState] = useState<MapContextMenuState | null>(null)
 
@@ -192,7 +205,15 @@ const Home: React.FC = () => {
             </button>
           </div>
         )}
-        <Link to="/settings" className="flex flex-(items-center justify-center) text-gray-5 mt-a py-4 decoration-none border-(t-solid 1px gray-3)">
+        <button
+          className="mt-a flex flex-(items-center justify-center) border-(t-solid 1px gray-3) border-x-0 border-b-0 bg-transparent py-3 text-gray-5 hover:bg-gray-2"
+          type="button"
+          title="Change controller"
+          onClick={changeNestController}>
+          <div className="i-material-symbols-swap-horiz-rounded mr-2 text-5" />
+          <div className="text-3">Change controller</div>
+        </button>
+        <Link to="/settings" className="flex flex-(items-center justify-center) text-gray-5 py-4 decoration-none border-(t-solid 1px gray-3)">
           <div className="i-material-symbols-settings-rounded mr-2" />
           <div className="text-4">Settings</div>
         </Link>

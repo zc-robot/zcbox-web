@@ -8,6 +8,7 @@ function isZenohRobotPoseMessage(message: ZenohRobotPoseMessage): message is Zen
 
 export function useRobotPoseZenoh() {
   const updateRobotPose = useGridStore(state => state.updateRobotPose)
+  const updateZenohPoseStatus = useGridStore(state => state.updateZenohPoseStatus)
   const nestControllerIp = useParamsStore(state => state.nestControllerIp)
 
   useEffect(() => {
@@ -21,12 +22,19 @@ export function useRobotPoseZenoh() {
         return
 
       if (isZenohRobotPoseMessage(message)) {
-        updateRobotPose(message.pose)
+        updateRobotPose(message.pose, message.source ?? message.key)
         return
       }
 
-      if (message.type === 'error' || message.type === 'decode-error')
+      if (message.type === 'status') {
+        updateZenohPoseStatus(message.state)
+        return
+      }
+
+      if (message.type === 'error' || message.type === 'decode-error') {
+        updateZenohPoseStatus(message.type)
         console.warn('Zenoh robot pose bridge:', message)
+      }
     })
 
     const start = async () => {
@@ -35,12 +43,14 @@ export function useRobotPoseZenoh() {
         if (disposed)
           return
 
+        updateZenohPoseStatus('starting')
         await window.zcDesktop?.startZenohRobotPose({
           host: nestControllerIp,
           namespace,
         })
       }
       catch (error) {
+        updateZenohPoseStatus('error')
         console.warn('Failed to start Zenoh robot pose bridge', error)
       }
     }
@@ -49,10 +59,11 @@ export function useRobotPoseZenoh() {
 
     return () => {
       disposed = true
+      updateZenohPoseStatus('stopped')
       removeListener()
       window.zcDesktop?.stopZenohRobotPose().catch((error) => {
         console.warn('Failed to stop Zenoh robot pose bridge', error)
       })
     }
-  }, [nestControllerIp, updateRobotPose])
+  }, [nestControllerIp, updateRobotPose, updateZenohPoseStatus])
 }

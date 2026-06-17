@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { round } from 'lodash'
 import { shallow } from 'zustand/shallow'
 import { useGridStore, useOperationStore } from '@/store'
-import { useInterval, useKeyPress, useVelocityCommandMqtt } from '@/hooks'
+import { useInterval, useKeyPress, useVelocityCommandZenoh } from '@/hooks'
 import apiServer from '@/service/apiServer'
 import type { PoseMessage, RobotStatus } from '@/types'
 
@@ -88,7 +88,7 @@ const Panel: React.FC = () => {
     updateAngularVelocity: state.updateAngularVelocity,
   }), shallow)
   const [pressedKey, pressKey] = useState<string>('')
-  const publishVelocityCommand = useVelocityCommandMqtt()
+  const publishVelocityCommand = useVelocityCommandZenoh()
 
   const confirmStatus = async () => {
     await apiServer.confirmStatus()
@@ -235,36 +235,78 @@ const Panel: React.FC = () => {
   )
 }
 
-const Info: React.FC<{ pose: PoseMessage; status: RobotStatus; qulity: number; battery: number; batteryCurrent: number }> = ({ pose, status, qulity, battery, batteryCurrent }) => {
+const Info: React.FC<{
+  pose: PoseMessage | null
+  status: RobotStatus
+  qulity: number
+  battery: number | null
+  batteryCurrent: number | null
+  livePoseSource: string | null
+  liveBatterySource: string | null
+  lastPoseUpdateAt: number | null
+  lastBatteryUpdateAt: number | null
+  zenohPoseStatus: string
+  zenohTelemetryStatus: string
+}> = ({
+  pose,
+  status,
+  qulity,
+  battery,
+  batteryCurrent,
+  livePoseSource,
+  liveBatterySource,
+  lastPoseUpdateAt,
+  lastBatteryUpdateAt,
+  zenohPoseStatus,
+  zenohTelemetryStatus,
+}) => {
+  const formatPoseValue = (value?: number) => value == null ? '--' : formatDisplayValue(value)
+  const formatMetricValue = (value: number | null, suffix: string) => value == null ? '--' : `${formatDisplayValue(value)}${suffix}`
+  const formatLiveUpdate = (updatedAt: number | null, source: string | null, fallbackStatus: string) => {
+    if (!updatedAt)
+      return fallbackStatus || '--'
+
+    const time = new Date(updatedAt).toLocaleTimeString()
+    return source ? `${source} ${time}` : time
+  }
+
   return (
     <div className="p-2 flex flex-col border-(t-solid 1px gray-300)">
       <div className="flex text-sm text-dark font-bold pl-1">状态:
         <span className="text-dark font-200">{status}</span>
       </div>
       <div className="flex text-sm text-dark font-bold pl-1 pt-1">电量:
-        <span className="text-dark font-200">{formatDisplayValue(battery)}%</span>
+        <span className="text-dark font-200">{formatMetricValue(battery, '%')}</span>
         <span className="pl-3">电流:
-          <span className="text-dark font-200">{formatDisplayValue(batteryCurrent)}A</span>
+          <span className="text-dark font-200">{formatMetricValue(batteryCurrent, 'A')}</span>
         </span>
+      </div>
+      <div className="flex flex-col text-sm text-dark font-bold pl-1 pt-1">
+        <div>Zenoh 位姿:
+          <span className="text-dark font-200">{formatLiveUpdate(lastPoseUpdateAt, livePoseSource, zenohPoseStatus)}</span>
+        </div>
+        <div>Zenoh 电量:
+          <span className="text-dark font-200">{formatLiveUpdate(lastBatteryUpdateAt, liveBatterySource, zenohTelemetryStatus)}</span>
+        </div>
       </div>
       <div className="flex text-sm text-dark font-bold pl-1 pt-1">质量:
         <span className="text-dark font-200">{qulity}</span>
       </div>
       <div className="flex text-sm pt-2">
         <div className="pl-2 font-bold">X:
-          <span className="text-dark font-200">{formatDisplayValue(pose.position.x)}</span>
+          <span className="text-dark font-200">{formatPoseValue(pose?.position.x)}</span>
         </div>
         <div className="pl-2 font-bold">Y:
-          <span className="text-dark font-200">{formatDisplayValue(pose.position.y)}</span>
+          <span className="text-dark font-200">{formatPoseValue(pose?.position.y)}</span>
         </div>
         <div className="pl-2 font-bold">Z:
-          <span className="text-dark font-200">{formatDisplayValue(pose.position.z)}</span>
+          <span className="text-dark font-200">{formatPoseValue(pose?.position.z)}</span>
         </div>
       </div>
       <div className="flex flex-col text-sm">
         <div className="pl-2 pt-1 font-bold">Yaw:
           <br/>
-          <span className="text-dark font-200">{formatDisplayValue(pose.pyr.yaw)}</span>
+          <span className="text-dark font-200">{formatPoseValue(pose?.pyr.yaw)}</span>
         </div>
       </div>
     </div>
@@ -273,15 +315,48 @@ const Info: React.FC<{ pose: PoseMessage; status: RobotStatus; qulity: number; b
 
 const ControllerDeck: React.FC = () => {
   const [isDeckDisplay, displayDeck] = useState(false)
-  const { robotInfo, relocalizationPose } = useGridStore(state => ({
+  const {
+    hasLivePose,
+    hasLiveBattery,
+    robotInfo,
+    relocalizationPose,
+    livePoseSource,
+    liveBatterySource,
+    lastPoseUpdateAt,
+    lastBatteryUpdateAt,
+    zenohPoseStatus,
+    zenohTelemetryStatus,
+  } = useGridStore(state => ({
+    hasLivePose: state.hasLivePose,
+    hasLiveBattery: state.hasLiveBattery,
     robotInfo: state.robotInfo,
     relocalizationPose: state.relocalizationPose,
+    livePoseSource: state.livePoseSource,
+    liveBatterySource: state.liveBatterySource,
+    lastPoseUpdateAt: state.lastPoseUpdateAt,
+    lastBatteryUpdateAt: state.lastBatteryUpdateAt,
+    zenohPoseStatus: state.zenohPoseStatus,
+    zenohTelemetryStatus: state.zenohTelemetryStatus,
   }))
   const currentOp = useOperationStore(state => state.current)
 
   return (
     <div className="flex='grow-0 shrink-0 basis-a'">
-      {robotInfo && <Info pose={robotInfo.pose} status={robotInfo.fsm} qulity={robotInfo.localization_quality} battery={robotInfo.battery} batteryCurrent={robotInfo.batteryCurrent}/>}
+      {(robotInfo || window.zcDesktop?.isDesktop) && (
+        <Info
+          pose={hasLivePose ? robotInfo?.pose ?? null : null}
+          status={robotInfo?.fsm ?? 'idle'}
+          qulity={robotInfo?.localization_quality ?? 0}
+          battery={hasLiveBattery ? robotInfo?.battery ?? null : null}
+          batteryCurrent={hasLiveBattery ? robotInfo?.batteryCurrent ?? null : null}
+          livePoseSource={livePoseSource}
+          liveBatterySource={liveBatterySource}
+          lastPoseUpdateAt={lastPoseUpdateAt}
+          lastBatteryUpdateAt={lastBatteryUpdateAt}
+          zenohPoseStatus={zenohPoseStatus}
+          zenohTelemetryStatus={zenohTelemetryStatus}
+        />
+      )}
       {currentOp === 'relocalize' && relocalizationPose && (
         <div className="p-2 flex flex-col border-(t-solid 1px gray-300) text-sm">
           <div className="flex items-center font-bold pl-1">

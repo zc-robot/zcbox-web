@@ -1,5 +1,6 @@
 import type { StateCreator } from 'zustand'
 import type { GridInfoMessage, LaserScanMessage, MapData, MapListItem, PointCloudMessage, PointMessage, PoseMessage, RobotInfoMessage, RobotStatus } from '@/types'
+import { DEFAULT_LIDAR_SCAN_TOPIC, DEFAULT_LIDAR_SCAN_TOPICS, resolveLidarScanTopic } from '@/constants/lidar'
 
 const defaultScanPointSize = 0.08
 const defaultPointCloudPointSize = 0.05
@@ -20,9 +21,18 @@ export interface GridSlice {
   robotInfo: RobotInfoMessage | null
   laserPose: PoseMessage | null
   laserScan: LaserScanMessage | null
+  laserScans: Record<string, LaserScanMessage>
+  selectedLidarScanTopics: string[]
   pointCloud: PointCloudMessage | null
-  hasMqttPose: boolean
-  hasMqttBattery: boolean
+  pointClouds: PointCloudMessage[]
+  hasLivePose: boolean
+  hasLiveBattery: boolean
+  livePoseSource: string | null
+  liveBatterySource: string | null
+  lastPoseUpdateAt: number | null
+  lastBatteryUpdateAt: number | null
+  zenohPoseStatus: string
+  zenohTelemetryStatus: string
   isScanVisible: boolean
   scanPointSize: number
   isPointCloudVisible: boolean
@@ -39,10 +49,13 @@ export interface GridSlice {
   setRobotInfo: (robot: RobotInfoMessage) => void
   updateRobotFsm: (fsm: RobotStatus) => void
   updateLocalizationQuality: (quality: number) => void
-  updateRobotPose: (pose: PoseMessage) => void
-  updateRobotBattery: (battery: number, batteryCurrent: number) => void
+  updateRobotPose: (pose: PoseMessage, source?: string) => void
+  updateRobotBattery: (battery: number, batteryCurrent: number, source?: string) => void
+  updateZenohPoseStatus: (status: string) => void
+  updateZenohTelemetryStatus: (status: string) => void
   updateLaserPose: (pose: PoseMessage) => void
-  updateLaserScan: (scan: LaserScanMessage) => void
+  updateLaserScan: (scan: LaserScanMessage, sourceTopic?: string) => void
+  setSelectedLidarScanTopics: (topics: string[]) => void
   updatePointCloud: (cloud: PointCloudMessage) => void
   setScanVisibility: (visible: boolean) => void
   updateScanPointSize: (delta: number) => void
@@ -93,6 +106,10 @@ function createDefaultRobotInfo(pose?: PoseMessage): RobotInfoMessage {
   }
 }
 
+function getPointCloudTopic(pointCloud: PointCloudMessage) {
+  return pointCloud.topic || pointCloud.key || pointCloud.frameId
+}
+
 export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
   scale: 2,
   maps: [],
@@ -103,9 +120,18 @@ export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
   robotInfo: null,
   laserPose: null,
   laserScan: null,
+  laserScans: {},
+  selectedLidarScanTopics: [DEFAULT_LIDAR_SCAN_TOPIC],
   pointCloud: null,
-  hasMqttPose: false,
-  hasMqttBattery: false,
+  pointClouds: [],
+  hasLivePose: false,
+  hasLiveBattery: false,
+  livePoseSource: null,
+  liveBatterySource: null,
+  lastPoseUpdateAt: null,
+  lastBatteryUpdateAt: null,
+  zenohPoseStatus: 'idle',
+  zenohTelemetryStatus: 'idle',
   isScanVisible: false,
   scanPointSize: defaultScanPointSize,
   isPointCloudVisible: false,
@@ -132,9 +158,9 @@ export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
       robotInfo: state.robotInfo
         ? {
             ...robot,
-            pose: state.hasMqttPose ? state.robotInfo.pose : robot.pose,
-            battery: state.hasMqttBattery ? state.robotInfo.battery : robot.battery,
-            batteryCurrent: state.hasMqttBattery ? state.robotInfo.batteryCurrent : (robot.batteryCurrent ?? 0),
+            pose: state.hasLivePose ? state.robotInfo.pose : robot.pose,
+            battery: state.hasLiveBattery ? state.robotInfo.battery : robot.battery,
+            batteryCurrent: state.hasLiveBattery ? state.robotInfo.batteryCurrent : (robot.batteryCurrent ?? 0),
           }
         : {
             ...createDefaultRobotInfo(),
@@ -163,17 +189,21 @@ export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
           },
     }))
   },
-  updateRobotPose: (pose) => {
+  updateRobotPose: (pose, source) => {
     set(state => ({
-      hasMqttPose: true,
+      hasLivePose: true,
+      livePoseSource: source ?? state.livePoseSource,
+      lastPoseUpdateAt: Date.now(),
       robotInfo: state.robotInfo
         ? { ...state.robotInfo, pose }
         : createDefaultRobotInfo(pose),
     }))
   },
-  updateRobotBattery: (battery, batteryCurrent) => {
+  updateRobotBattery: (battery, batteryCurrent, source) => {
     set(state => ({
-      hasMqttBattery: true,
+      hasLiveBattery: true,
+      liveBatterySource: source ?? state.liveBatterySource,
+      lastBatteryUpdateAt: Date.now(),
       robotInfo: state.robotInfo
         ? { ...state.robotInfo, battery, batteryCurrent }
         : {
@@ -183,14 +213,55 @@ export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
           },
     }))
   },
+  updateZenohPoseStatus: (status) => {
+    set({ zenohPoseStatus: status })
+  },
+  updateZenohTelemetryStatus: (status) => {
+    set({ zenohTelemetryStatus: status })
+  },
   updateLaserPose: (pose) => {
     set({ laserPose: pose })
   },
-  updateLaserScan: (scan) => {
-    set({ laserScan: scan })
+  updateLaserScan: (scan, sourceTopic) => {
+    const topic = resolveLidarScanTopic(scan.topic ?? sourceTopic ?? scan.key)
+    const nextScan = {
+      ...scan,
+      key: scan.key ?? sourceTopic,
+      topic,
+    }
+
+    set(state => ({
+      laserScan: nextScan,
+      laserScans: {
+        ...state.laserScans,
+        [topic]: nextScan,
+      },
+    }))
+  },
+  setSelectedLidarScanTopics: (topics) => {
+    const selected = DEFAULT_LIDAR_SCAN_TOPICS.filter(topic => topics.includes(topic))
+    const nextTopics = selected.length > 0 ? selected : [DEFAULT_LIDAR_SCAN_TOPIC]
+
+    set(state => ({
+      selectedLidarScanTopics: nextTopics,
+      laserScans: Object.fromEntries(
+        Object.entries(state.laserScans).filter(([topic]) => nextTopics.includes(topic)),
+      ),
+    }))
   },
   updatePointCloud: (pointCloud) => {
-    set({ pointCloud })
+    set((state) => {
+      const topic = getPointCloudTopic(pointCloud)
+      const pointClouds = [
+        ...state.pointClouds.filter(cloud => getPointCloudTopic(cloud) !== topic),
+        pointCloud,
+      ].slice(-8)
+
+      return {
+        pointCloud,
+        pointClouds,
+      }
+    })
   },
   setScanVisibility: (visible) => {
     if (visible) {
@@ -202,6 +273,7 @@ export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
       isScanVisible: false,
       laserPose: null,
       laserScan: null,
+      laserScans: {},
     })
   },
   updateScanPointSize: (delta) => {
@@ -218,6 +290,7 @@ export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
     set({
       isPointCloudVisible: false,
       pointCloud: null,
+      pointClouds: [],
     })
   },
   updatePointCloudPointSize: (delta) => {
@@ -260,9 +333,18 @@ export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
       robotInfo: null,
       laserPose: null,
       laserScan: null,
+      laserScans: {},
+      selectedLidarScanTopics: [DEFAULT_LIDAR_SCAN_TOPIC],
       pointCloud: null,
-      hasMqttPose: false,
-      hasMqttBattery: false,
+      pointClouds: [],
+      hasLivePose: false,
+      hasLiveBattery: false,
+      livePoseSource: null,
+      liveBatterySource: null,
+      lastPoseUpdateAt: null,
+      lastBatteryUpdateAt: null,
+      zenohPoseStatus: 'idle',
+      zenohTelemetryStatus: 'idle',
       isScanVisible: false,
       scanPointSize: defaultScanPointSize,
       isPointCloudVisible: false,

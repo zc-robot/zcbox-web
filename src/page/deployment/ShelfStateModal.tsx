@@ -15,6 +15,23 @@ function formatLiftEnabled(value: boolean) {
   return value ? '启动' : '关闭'
 }
 
+function formatCoilValue(value: boolean | null | undefined, loading: boolean) {
+  if (typeof value === 'boolean')
+    return value ? 'ON' : 'OFF'
+
+  return loading ? '读取中...' : '未读取'
+}
+
+function formatReadSource(source: ShelfState['source']) {
+  if (source === 'desktop-modbus')
+    return '桌面直连 Modbus TCP :502'
+
+  if (source === 'http')
+    return '控制器 HTTP API'
+
+  return '未读取'
+}
+
 const ShelfStateModal: React.FC<ShelfStateModalProps> = ({ onClose }) => {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -22,6 +39,9 @@ const ShelfStateModal: React.FC<ShelfStateModalProps> = ({ onClose }) => {
   const [stock, setStock] = useState('0')
   const [liftEnabled, setLiftEnabled] = useState(false)
   const [liftTargetHeight, setLiftTargetHeight] = useState('0')
+  const [coil804, setCoil804] = useState<boolean | null>(null)
+  const [coil805, setCoil805] = useState<boolean | null>(null)
+  const [savingControlCoil, setSavingControlCoil] = useState<number | null>(null)
   const [state, setState] = useState<ShelfState | null>(null)
 
   const loadShelfState = async () => {
@@ -38,12 +58,43 @@ const ShelfStateModal: React.FC<ShelfStateModalProps> = ({ onClose }) => {
       setStock(`${response.data.stock}`)
       setLiftEnabled(response.data.lift_enabled)
       setLiftTargetHeight(`${response.data.lift_target_height}`)
+      setCoil804(typeof response.data.coil_804 === 'boolean' ? response.data.coil_804 : null)
+      setCoil805(typeof response.data.coil_805 === 'boolean' ? response.data.coil_805 : null)
     }
     catch (error) {
       toast.error(`读取货架状态失败 ${error}`)
     }
     finally {
       setLoading(false)
+    }
+  }
+
+  const handleControlCoil = async (address: 804 | 805, value: boolean) => {
+    setSavingControlCoil(address)
+    try {
+      const response = await apiServer.updateModbusCoil(address, value)
+
+      if (response.code !== 0 || !response.data) {
+        toast.error(response.message || `写入线圈 ${address} 失败`)
+        return
+      }
+
+      if (address === 804) {
+        setCoil804(response.data.value)
+        setState(current => current ? { ...current, coil_804: response.data.value } : current)
+      }
+      else {
+        setCoil805(response.data.value)
+        setState(current => current ? { ...current, coil_805: response.data.value } : current)
+      }
+
+      toast.success(`线圈 ${address} 已更新`)
+    }
+    catch (error) {
+      toast.error(`写入线圈 ${address} 失败 ${error}`)
+    }
+    finally {
+      setSavingControlCoil(null)
     }
   }
 
@@ -100,6 +151,7 @@ const ShelfStateModal: React.FC<ShelfStateModalProps> = ({ onClose }) => {
           <div>
             <div className="text-5 font-bold">机器人 Modbus 状态</div>
             <div className="text-xs text-gray-500">Modbus TCP :502</div>
+            <div className="text-xs text-gray-500">读取来源: {formatReadSource(state?.source)}</div>
           </div>
           <div
             className="i-material-symbols-close-rounded ml-a text-5 cursor-pointer text-gray-500 hover:text-gray-900"
@@ -114,6 +166,9 @@ const ShelfStateModal: React.FC<ShelfStateModalProps> = ({ onClose }) => {
           <div className="mt-1">线圈 7: {state ? formatLiftEnabled(state.lift_enabled) : loading ? '读取中...' : '未读取'}</div>
           <div className="mt-1">实际高度 HR 51: {state ? state.lift_real_height : loading ? '读取中...' : '未读取'}</div>
           <div className="mt-1">目标高度 HR 52: {state ? state.lift_target_height : loading ? '读取中...' : '未读取'}</div>
+          <div className="mt-3 font-bold text-gray-700">控制线圈</div>
+          <div className="mt-1">线圈 804: {formatCoilValue(coil804, loading)}</div>
+          <div className="mt-1">线圈 805: {formatCoilValue(coil805, loading)}</div>
         </div>
 
         <label className="mt-4 flex items-center justify-between gap-4 text-sm">
@@ -166,6 +221,51 @@ const ShelfStateModal: React.FC<ShelfStateModalProps> = ({ onClose }) => {
               value={liftTargetHeight}
               disabled={loading || saving}
               onChange={event => setLiftTargetHeight(event.target.value)} />
+          </label>
+        </div>
+
+        <div className="mt-5 border-t-(solid 1px gray-200) pt-4">
+          <div className="mb-3 text-sm font-bold text-gray-700">控制线圈</div>
+          <label className="flex items-center justify-between gap-4 text-sm">
+            <span className="font-bold text-gray-700">线圈 804</span>
+            <div className="flex gap-2">
+              <select
+                className="w-22 rounded-md border-(solid 1px gray-300) bg-gray-50 px-2 py-1"
+                value={coil804 === true ? 'true' : 'false'}
+                disabled={loading || saving || savingControlCoil !== null}
+                onChange={event => setCoil804(event.target.value === 'true')}>
+                <option value="true">ON</option>
+                <option value="false">OFF</option>
+              </select>
+              <button
+                type="button"
+                className="rounded-md border-(solid 1px gray-300) px-3 py-1 text-gray-600 hover:bg-gray-100 disabled:opacity-50"
+                disabled={loading || saving || savingControlCoil !== null || coil804 === null}
+                onClick={() => handleControlCoil(804, coil804 === true)}>
+                {savingControlCoil === 804 ? '写入中...' : '写入'}
+              </button>
+            </div>
+          </label>
+
+          <label className="mt-3 flex items-center justify-between gap-4 text-sm">
+            <span className="font-bold text-gray-700">线圈 805</span>
+            <div className="flex gap-2">
+              <select
+                className="w-22 rounded-md border-(solid 1px gray-300) bg-gray-50 px-2 py-1"
+                value={coil805 === true ? 'true' : 'false'}
+                disabled={loading || saving || savingControlCoil !== null}
+                onChange={event => setCoil805(event.target.value === 'true')}>
+                <option value="true">ON</option>
+                <option value="false">OFF</option>
+              </select>
+              <button
+                type="button"
+                className="rounded-md border-(solid 1px gray-300) px-3 py-1 text-gray-600 hover:bg-gray-100 disabled:opacity-50"
+                disabled={loading || saving || savingControlCoil !== null || coil805 === null}
+                onClick={() => handleControlCoil(805, coil805 === true)}>
+                {savingControlCoil === 805 ? '写入中...' : '写入'}
+              </button>
+            </div>
           </label>
         </div>
 
