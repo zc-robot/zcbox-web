@@ -249,3 +249,123 @@ test('deployment activation and Fleet Disconnected block task dispatch without d
   assert.equal(disconnected.taskReadiness.message, 'Fleet disconnected')
   assert.equal(disconnected.manualControlAvailable, true)
 })
+
+test('Robot Detail shows selected Robot Activity from Unit Task events only for that robot', () => {
+  const received = nextFleetViewRuntime(emptyFleetViewRuntimeState, {
+    type: 'fleet-state-received',
+    data: fleetData([
+      robot(),
+      robot({
+        robot: 'forklift_2',
+        name: 'forklift_2',
+        ip: '10.148.165.9',
+        zenohNamespace: 'forklift_2',
+      }),
+    ]),
+    receivedAt: 1000,
+  }, { now: 1000 }).state
+
+  const selected = nextFleetViewRuntime(received, {
+    type: 'select-robot',
+    robotId: 'forklift_1',
+  }, { now: 1000 }).state
+
+  const withOtherRobotActivity = nextFleetViewRuntime(selected, {
+    type: 'unit-task-activity-received',
+    robotId: 'forklift_2',
+    unitTaskId: 'go-to-storage',
+    status: 'started',
+    occurredAt: 1100,
+  }, { now: 1100 }).state
+
+  const withSelectedActivity = nextFleetViewRuntime(withOtherRobotActivity, {
+    type: 'unit-task-activity-received',
+    robotId: 'forklift_1',
+    unitTaskId: 'go-to-loading-zone',
+    status: 'finished',
+    occurredAt: 1200,
+  }, { now: 1200 }).state
+
+  assert.deepEqual(withSelectedActivity.selectedRobotDetail?.activity, [{
+    id: 'unit-task:forklift_1:go-to-loading-zone:finished:1200',
+    robotId: 'forklift_1',
+    kind: 'unit-task',
+    title: 'Unit task finished',
+    detail: 'go-to-loading-zone',
+    occurredAt: 1200,
+    severity: 'normal',
+  }])
+})
+
+test('Robot Activity accepts operator events and ignores raw transport logs', () => {
+  const selected = nextFleetViewRuntime(nextFleetViewRuntime(emptyFleetViewRuntimeState, {
+    type: 'fleet-state-received',
+    data: fleetData([robot()]),
+    receivedAt: 1000,
+  }, { now: 1000 }).state, {
+    type: 'select-robot',
+    robotId: 'forklift_1',
+  }, { now: 1000 }).state
+
+  const withTask = nextFleetViewRuntime(selected, {
+    type: 'task-activity-received',
+    robotId: 'forklift_1',
+    taskId: 'task-42',
+    status: 'active',
+    occurredAt: 1100,
+  }, { now: 1100 }).state
+
+  const withManualControl = nextFleetViewRuntime(withTask, {
+    type: 'manual-control-activity-received',
+    robotId: 'forklift_1',
+    commandName: 'Velocity command sent',
+    occurredAt: 1200,
+  }, { now: 1200 }).state
+
+  const withDeployment = nextFleetViewRuntime(withManualControl, {
+    type: 'deployment-activity-received',
+    robotId: 'forklift_1',
+    levelName: 'L2',
+    occurredAt: 1300,
+  }, { now: 1300 }).state
+
+  const withPeripheral = nextFleetViewRuntime(withDeployment, {
+    type: 'peripheral-activity-received',
+    robotId: 'forklift_1',
+    label: 'Fork height',
+    value: 'raised',
+    occurredAt: 1400,
+  }, { now: 1400 }).state
+
+  const withHardware = nextFleetViewRuntime(withPeripheral, {
+    type: 'hardware-diagnostics-activity-received',
+    robotId: 'forklift_1',
+    diagnosticName: 'CAN can1',
+    level: 'fault',
+    message: 'CAN interface missing',
+    occurredAt: 1500,
+  }, { now: 1500 }).state
+
+  const afterRawLog = nextFleetViewRuntime(withHardware, {
+    type: 'raw-transport-log-received',
+    message: 'zenoh namespace /debug/topic failed',
+    occurredAt: 1600,
+  }, { now: 1600 }).state
+
+  assert.deepEqual(afterRawLog.selectedRobotDetail?.activity.map(entry => entry.kind), [
+    'task',
+    'manual-control',
+    'deployment',
+    'peripheral',
+    'hardware',
+  ])
+  assert.deepEqual(afterRawLog.selectedRobotDetail?.activity.map(entry => entry.title), [
+    'Task active',
+    'Manual control',
+    'Level changed',
+    'Peripheral state changed',
+    'Hardware fault',
+  ])
+  assert.equal(afterRawLog.selectedRobotDetail?.activity[4]?.severity, 'fault')
+  assert.equal(afterRawLog.selectedRobotDetail?.activity.some(entry => /zenoh|namespace|topic|debug/i.test(`${entry.title} ${entry.detail}`)), false)
+})
