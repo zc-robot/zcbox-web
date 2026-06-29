@@ -7,6 +7,62 @@ export type FleetRobotNetworkState = 'live' | 'poor-network' | 'disconnected' | 
 export type FleetRobotOverallHealth = 'normal' | 'warning' | 'fault' | 'unknown'
 export type FleetRobotActivityKind = 'task' | 'unit-task' | 'manual-control' | 'deployment' | 'peripheral' | 'hardware'
 export type FleetRobotActivitySeverity = 'normal' | 'warning' | 'fault'
+export type FleetPeripheralGroupId = 'power' | 'motion' | 'fork-lift' | 'shelf-pallet' | 'io'
+export type FleetDigitalObservedState = 'unknown' | 'on' | 'off'
+export type FleetDigitalOutputCommandStatus = 'idle' | 'pending' | 'sent' | 'failed'
+
+export interface FleetPeripheralGroup {
+  id: FleetPeripheralGroupId
+  title: string
+}
+
+export interface FleetDigitalInputValue {
+  id: string
+  label: string
+  index: number
+  value: boolean
+  observedState: Exclude<FleetDigitalObservedState, 'unknown'>
+  readOnly: true
+}
+
+export interface FleetDigitalOutputValue {
+  id: string
+  label: string
+  index: number
+  value: boolean | null
+  observedState: FleetDigitalObservedState
+}
+
+export interface FleetDigitalOutputServiceResponse {
+  success: boolean
+  message: string
+}
+
+export interface FleetDigitalOutputControlState {
+  id: string
+  label: string
+  groupId: FleetPeripheralGroupId
+  outputId: string
+  disabled: boolean
+  observedValue: boolean | null
+  observedState: FleetDigitalObservedState
+  commandStatus: FleetDigitalOutputCommandStatus
+  serviceResponse: FleetDigitalOutputServiceResponse | null
+}
+
+export interface FleetRobotPeripheralIoState {
+  inputs: FleetDigitalInputValue[]
+  outputs: FleetDigitalOutputValue[]
+  controls: FleetDigitalOutputControlState[]
+  arbitraryAddressEntryAvailable: false
+}
+
+export interface FleetRobotPeripheralState {
+  robotId: string
+  groups: FleetPeripheralGroup[]
+  io: FleetRobotPeripheralIoState
+  updatedAt: number | null
+}
 
 export interface FleetRobotPose {
   x: number
@@ -52,6 +108,7 @@ export interface FleetRobotActivityEntry {
 export interface FleetViewRuntimeRobotDetail extends FleetViewRuntimeRobot {
   isLastKnown: boolean
   activity: FleetRobotActivityEntry[]
+  peripheral: FleetRobotPeripheralState
 }
 
 export interface FleetManualControlPanelState {
@@ -97,6 +154,7 @@ export interface FleetViewRuntimeState {
   selectedRobotId: string
   selectedRobotDetail: FleetViewRuntimeRobotDetail | null
   robotActivity: FleetRobotActivityEntry[]
+  robotPeripheralState: Record<string, FleetRobotPeripheralState>
   manualControlPanel: FleetManualControlPanelState
   dashboardMap: FleetViewDashboardMapState
   lastFleetStateReceivedAt: number | null
@@ -110,6 +168,7 @@ export interface FleetViewRuntimeState {
 export type FleetViewRuntimeEffect =
   | { type: 'center-dashboard-on-robot'; robotId: string }
   | { type: 'send-velocity-command'; robotId: string; commandPath: string; command: TwistCommand }
+  | { type: 'send-digital-output-command'; robotId: string; servicePath: string; controlId: string; address: number; value: boolean; requestId: string }
   | { type: 'show-toast'; tone: 'info' | 'warning' | 'error'; message: string }
 
 export interface FleetViewRuntimeResult {
@@ -130,6 +189,10 @@ export type FleetViewRuntimeEvent =
   | { type: 'manual-control-robot-selected'; robotId: string }
   | { type: 'velocity-control-command-requested'; command: TwistCommand; occurredAt: number }
   | { type: 'velocity-control-released'; occurredAt: number }
+  | { type: 'digital-input-state-received'; robotId: string; values: boolean[]; receivedAt: number }
+  | { type: 'digital-output-state-received'; robotId: string; values: boolean[]; receivedAt: number }
+  | { type: 'digital-output-command-requested'; robotId: string; controlId: string; value: boolean; occurredAt: number }
+  | { type: 'digital-output-command-response-received'; robotId: string; controlId: string; requestId: string; success: boolean; message: string; occurredAt: number }
   | { type: 'deployment-activity-received'; robotId: string; levelName: string; occurredAt: number }
   | { type: 'peripheral-activity-received'; robotId: string; label: string; value: string; occurredAt: number }
   | { type: 'hardware-diagnostics-activity-received'; robotId: string; diagnosticName: string; level: FleetRobotActivitySeverity; message: string; occurredAt: number }
@@ -166,6 +229,7 @@ export const emptyFleetViewRuntimeState: FleetViewRuntimeState = {
   selectedRobotId: '',
   selectedRobotDetail: null,
   robotActivity: [],
+  robotPeripheralState: {},
   manualControlPanel: {
     placement: 'fleet-sidebar',
     availableInPages: ['dashboard', 'robots', 'tasks', 'storage', 'sites'],
@@ -189,12 +253,192 @@ export const emptyFleetViewRuntimeState: FleetViewRuntimeState = {
   manualControlAvailable: false,
 }
 
+const peripheralGroups: FleetPeripheralGroup[] = [
+  { id: 'power', title: 'Power' },
+  { id: 'motion', title: 'Motion' },
+  { id: 'fork-lift', title: 'Fork/Lift' },
+  { id: 'shelf-pallet', title: 'Shelf/Pallet' },
+  { id: 'io', title: 'I/O' },
+]
+
+interface PredefinedDigitalOutputControl {
+  id: string
+  label: string
+  groupId: FleetPeripheralGroupId
+  outputIndex: number
+  address: number
+}
+
+interface DigitalOutputCommandFeedback {
+  commandStatus: FleetDigitalOutputCommandStatus
+  serviceResponse: FleetDigitalOutputServiceResponse | null
+}
+
+const predefinedDigitalOutputControls: PredefinedDigitalOutputControl[] = [
+  { id: 'fork-extend', label: 'Fork extend', groupId: 'fork-lift', outputIndex: 0, address: 805 },
+  { id: 'fork-retract', label: 'Fork retract', groupId: 'fork-lift', outputIndex: 1, address: 806 },
+  { id: 'fork-power', label: 'Fork power', groupId: 'power', outputIndex: 2, address: 807 },
+]
+
 function robotId(robot: FleetRobotDataMessage) {
   return robot.name || robot.robot || robot.ip
 }
 
 function normalizeCommandNamespace(value: string) {
   return value.trim().replace(/^\/+/, '').replace(/\/+$/, '')
+}
+
+function digitalId(prefix: 'I' | 'O', index: number) {
+  return `${prefix}${index + 1}`
+}
+
+function digitalObservedState(value: boolean | null): FleetDigitalObservedState {
+  if (value == null)
+    return 'unknown'
+
+  return value ? 'on' : 'off'
+}
+
+function buildDigitalInputs(values: boolean[] | undefined): FleetDigitalInputValue[] {
+  return (values ?? []).map((value, index) => ({
+    id: digitalId('I', index),
+    label: digitalId('I', index),
+    index: index + 1,
+    value,
+    observedState: value ? 'on' : 'off',
+    readOnly: true,
+  }))
+}
+
+function buildDigitalOutputs(values: Array<boolean | null> | undefined): FleetDigitalOutputValue[] {
+  const minimumOutputCount = predefinedDigitalOutputControls.reduce(
+    (highestIndex, control) => Math.max(highestIndex, control.outputIndex + 1),
+    0,
+  )
+  const outputCount = Math.max(values?.length ?? 0, minimumOutputCount)
+
+  return Array.from({ length: outputCount }, (_, index) => {
+    const value = values && index < values.length ? values[index] : null
+    return {
+      id: digitalId('O', index),
+      label: digitalId('O', index),
+      index: index + 1,
+      value,
+      observedState: digitalObservedState(value),
+    }
+  })
+}
+
+function digitalOutputCommandFeedback(
+  commandStatus: FleetDigitalOutputCommandStatus = 'idle',
+  serviceResponse: FleetDigitalOutputServiceResponse | null = null,
+): DigitalOutputCommandFeedback {
+  return {
+    commandStatus,
+    serviceResponse,
+  }
+}
+
+function commandFeedbackByControl(peripheral?: FleetRobotPeripheralState): Record<string, DigitalOutputCommandFeedback> {
+  return Object.fromEntries((peripheral?.io.controls ?? []).map(control => [
+    control.id,
+    digitalOutputCommandFeedback(control.commandStatus, control.serviceResponse),
+  ]))
+}
+
+function inputValuesFromPeripheral(peripheral?: FleetRobotPeripheralState) {
+  return peripheral?.io.inputs.map(input => input.value)
+}
+
+function outputValuesFromPeripheral(peripheral?: FleetRobotPeripheralState): Array<boolean | null> | undefined {
+  return peripheral?.io.outputs.map(output => output.value)
+}
+
+function buildDigitalOutputControls(
+  outputs: FleetDigitalOutputValue[],
+  feedbackByControl: Record<string, DigitalOutputCommandFeedback>,
+): FleetDigitalOutputControlState[] {
+  return predefinedDigitalOutputControls.map((control) => {
+    const output = outputs[control.outputIndex]
+    const observedState = output?.observedState ?? 'unknown'
+    const feedback = feedbackByControl[control.id] ?? digitalOutputCommandFeedback()
+
+    return {
+      id: control.id,
+      label: control.label,
+      groupId: control.groupId,
+      outputId: digitalId('O', control.outputIndex),
+      disabled: observedState === 'unknown',
+      observedValue: output?.value ?? null,
+      observedState,
+      commandStatus: feedback.commandStatus,
+      serviceResponse: feedback.serviceResponse,
+    }
+  })
+}
+
+function buildPeripheralState(
+  robotIdValue: string,
+  options: {
+    inputValues?: boolean[]
+    outputValues?: Array<boolean | null>
+    feedbackByControl?: Record<string, DigitalOutputCommandFeedback>
+    updatedAt?: number | null
+  } = {},
+): FleetRobotPeripheralState {
+  const outputs = buildDigitalOutputs(options.outputValues)
+  return {
+    robotId: robotIdValue,
+    groups: peripheralGroups,
+    io: {
+      inputs: buildDigitalInputs(options.inputValues),
+      outputs,
+      controls: buildDigitalOutputControls(outputs, options.feedbackByControl ?? {}),
+      arbitraryAddressEntryAvailable: false,
+    },
+    updatedAt: options.updatedAt ?? null,
+  }
+}
+
+function peripheralForRobot(state: FleetViewRuntimeState, robotIdValue: string) {
+  return state.robotPeripheralState[robotIdValue] ?? buildPeripheralState(robotIdValue)
+}
+
+function rebuildPeripheralState(
+  current: FleetRobotPeripheralState,
+  patch: {
+    inputValues?: boolean[]
+    outputValues?: Array<boolean | null>
+    feedbackByControl?: Record<string, DigitalOutputCommandFeedback>
+    updatedAt?: number | null
+  },
+) {
+  return buildPeripheralState(current.robotId, {
+    inputValues: patch.inputValues ?? inputValuesFromPeripheral(current),
+    outputValues: patch.outputValues ?? outputValuesFromPeripheral(current),
+    feedbackByControl: patch.feedbackByControl ?? commandFeedbackByControl(current),
+    updatedAt: patch.updatedAt ?? current.updatedAt,
+  })
+}
+
+function withRobotPeripheralState(
+  state: FleetViewRuntimeState,
+  robotIdValue: string,
+  peripheral: FleetRobotPeripheralState,
+): FleetViewRuntimeState {
+  return {
+    ...state,
+    robotPeripheralState: {
+      ...state.robotPeripheralState,
+      [robotIdValue]: peripheral,
+    },
+    selectedRobotDetail: state.selectedRobotDetail?.id === robotIdValue
+      ? {
+          ...state.selectedRobotDetail,
+          peripheral,
+        }
+      : state.selectedRobotDetail,
+  }
 }
 
 function robotOverallHealth(robot: FleetRobotDataMessage): FleetRobotOverallHealth {
@@ -242,11 +486,13 @@ function toRobotDetail(
   robot: FleetViewRuntimeRobot,
   isLastKnown: boolean,
   activity: FleetRobotActivityEntry[],
+  peripheral: FleetRobotPeripheralState,
 ): FleetViewRuntimeRobotDetail {
   return {
     ...robot,
     isLastKnown,
     activity,
+    peripheral,
   }
 }
 
@@ -254,6 +500,7 @@ function markLastKnown(
   detail: FleetViewRuntimeRobotDetail,
   now: number,
   activity: FleetRobotActivityEntry[],
+  peripheral: FleetRobotPeripheralState,
 ): FleetViewRuntimeRobotDetail {
   return {
     ...detail,
@@ -261,6 +508,7 @@ function markLastKnown(
     networkState: 'last-known',
     lastUpdateAgeMs: Math.max(0, now - detail.lastSeenAt),
     activity,
+    peripheral,
   }
 }
 
@@ -312,10 +560,16 @@ function selectedDetailFromRobots(
 
   const selectedRobot = robots.find(robot => robot.id === state.selectedRobotId)
   if (selectedRobot)
-    return toRobotDetail(selectedRobot, false, robotActivity(state, selectedRobot.id))
+    return toRobotDetail(selectedRobot, false, robotActivity(state, selectedRobot.id), peripheralForRobot(state, selectedRobot.id))
 
-  if (state.selectedRobotDetail?.id === state.selectedRobotId)
-    return markLastKnown(state.selectedRobotDetail, now, robotActivity(state, state.selectedRobotId))
+  if (state.selectedRobotDetail?.id === state.selectedRobotId) {
+    return markLastKnown(
+      state.selectedRobotDetail,
+      now,
+      robotActivity(state, state.selectedRobotId),
+      peripheralForRobot(state, state.selectedRobotId),
+    )
+  }
 
   return null
 }
@@ -378,11 +632,12 @@ function selectRobot(
 ): FleetViewRuntimeState {
   const selectedRobot = state.robots.find(robot => robot.id === robotIdValue)
   const selectedRobotDetail = selectedRobot
-    ? toRobotDetail(selectedRobot, false, robotActivity(state, robotIdValue))
+    ? toRobotDetail(selectedRobot, false, robotActivity(state, robotIdValue), peripheralForRobot(state, robotIdValue))
     : state.selectedRobotDetail?.id === robotIdValue
       ? {
           ...state.selectedRobotDetail,
           activity: robotActivity(state, robotIdValue),
+          peripheral: peripheralForRobot(state, robotIdValue),
         }
       : null
 
@@ -393,6 +648,17 @@ function selectRobot(
     manualControlPanel: manualControlPanelFor(selectedRobotDetail),
     manualControlAvailable: manualControlAvailableFor(selectedRobotDetail),
   }
+}
+
+function detailForRobotCommand(state: FleetViewRuntimeState, robotIdValue: string) {
+  if (state.selectedRobotDetail?.id === robotIdValue)
+    return state.selectedRobotDetail
+
+  const robot = state.robots.find(candidate => candidate.id === robotIdValue)
+  if (!robot)
+    return null
+
+  return toRobotDetail(robot, false, robotActivity(state, robotIdValue), peripheralForRobot(state, robotIdValue))
 }
 
 function activityTitle(kind: FleetRobotActivityKind, statusOrLevel: string) {
@@ -492,6 +758,53 @@ function velocityCommandEffects(
   }
 
   return effects
+}
+
+function predefinedDigitalOutputControl(controlId: string) {
+  return predefinedDigitalOutputControls.find(control => control.id === controlId) ?? null
+}
+
+function digitalOutputCommandRequestId(robotIdValue: string, controlId: string, occurredAt: number) {
+  return `digital-output:${robotIdValue}:${controlId}:${occurredAt}`
+}
+
+function digitalOutputServicePath(detail: FleetViewRuntimeRobotDetail) {
+  return detail.commandPath.replace(/\/cmd_vel_collision$/, '/dido/write_coil')
+}
+
+function digitalOutputCommandEffect(
+  detail: FleetViewRuntimeRobotDetail,
+  control: PredefinedDigitalOutputControl,
+  value: boolean,
+  requestId: string,
+): FleetViewRuntimeEffect {
+  return {
+    type: 'send-digital-output-command',
+    robotId: detail.id,
+    servicePath: digitalOutputServicePath(detail),
+    controlId: control.id,
+    address: control.address,
+    value,
+    requestId,
+  }
+}
+
+function withDigitalOutputActivity(
+  state: FleetViewRuntimeState,
+  robotIdValue: string,
+  controlLabel: string,
+  status: 'requested' | 'accepted' | 'failed',
+  occurredAt: number,
+) {
+  return withActivity(state, normalActivityEntry(
+    `digital-output:${robotIdValue}:${controlLabel}:${status}:${occurredAt}`,
+    robotIdValue,
+    'peripheral',
+    'Digital output command',
+    `${controlLabel} ${status}`,
+    occurredAt,
+    status === 'failed' ? 'warning' : 'normal',
+  ))
 }
 
 export function nextFleetViewRuntime(
@@ -666,6 +979,98 @@ export function nextFleetViewRuntime(
         manualControlAvailable: true,
       },
       effects: velocityCommandEffects(detail, zeroVelocityCommand(), false),
+    }
+  }
+
+  if (event.type === 'digital-input-state-received') {
+    const currentPeripheral = peripheralForRobot(state, event.robotId)
+    return {
+      state: withRobotPeripheralState(state, event.robotId, rebuildPeripheralState(currentPeripheral, {
+        inputValues: event.values,
+        updatedAt: event.receivedAt,
+      })),
+      effects: [],
+    }
+  }
+
+  if (event.type === 'digital-output-state-received') {
+    const currentPeripheral = peripheralForRobot(state, event.robotId)
+    return {
+      state: withRobotPeripheralState(state, event.robotId, rebuildPeripheralState(currentPeripheral, {
+        outputValues: event.values,
+        updatedAt: event.receivedAt,
+      })),
+      effects: [],
+    }
+  }
+
+  if (event.type === 'digital-output-command-requested') {
+    const detail = detailForRobotCommand(state, event.robotId)
+    const control = predefinedDigitalOutputControl(event.controlId)
+    if (!detail?.commandPathAvailable || !control) {
+      return {
+        state,
+        effects: [],
+      }
+    }
+
+    const currentPeripheral = peripheralForRobot(state, event.robotId)
+    const currentControl = currentPeripheral.io.controls.find(candidate => candidate.id === event.controlId)
+    if (!currentControl || currentControl.disabled) {
+      return {
+        state,
+        effects: [],
+      }
+    }
+
+    const feedbackByControl = commandFeedbackByControl(currentPeripheral)
+    feedbackByControl[event.controlId] = digitalOutputCommandFeedback('pending')
+    const nextPeripheral = rebuildPeripheralState(currentPeripheral, { feedbackByControl })
+    const requestId = digitalOutputCommandRequestId(event.robotId, event.controlId, event.occurredAt)
+    const nextState = withDigitalOutputActivity(
+      withRobotPeripheralState(state, event.robotId, nextPeripheral),
+      event.robotId,
+      control.label,
+      'requested',
+      event.occurredAt,
+    )
+
+    return {
+      state: nextState,
+      effects: [digitalOutputCommandEffect(detail, control, event.value, requestId)],
+    }
+  }
+
+  if (event.type === 'digital-output-command-response-received') {
+    const control = predefinedDigitalOutputControl(event.controlId)
+    if (!control) {
+      return {
+        state,
+        effects: [],
+      }
+    }
+
+    const currentPeripheral = peripheralForRobot(state, event.robotId)
+    const feedbackByControl = commandFeedbackByControl(currentPeripheral)
+    feedbackByControl[event.controlId] = digitalOutputCommandFeedback(
+      event.success ? 'sent' : 'failed',
+      {
+        success: event.success,
+        message: event.message,
+      },
+    )
+    const nextPeripheral = rebuildPeripheralState(currentPeripheral, { feedbackByControl })
+    const nextState = withDigitalOutputActivity(
+      withRobotPeripheralState(state, event.robotId, nextPeripheral),
+      event.robotId,
+      control.label,
+      event.success ? 'accepted' : 'failed',
+      event.occurredAt,
+    )
+
+    return {
+      state: nextState,
+      effects: [],
     }
   }
 

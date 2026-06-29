@@ -488,3 +488,135 @@ test('Velocity Control stays available when the selected robot has a hardware fa
   assert.equal(selected.manualControlPanel.available, true)
   assert.equal(selected.manualControlPanel.commandPath, 'forklift_1/cmd_vel_collision')
 })
+
+test('Digital Output command response does not change the observed O value before an output update arrives', () => {
+  const selected = nextFleetViewRuntime(nextFleetViewRuntime(emptyFleetViewRuntimeState, {
+    type: 'fleet-state-received',
+    data: fleetData([robot()]),
+    receivedAt: 1000,
+  }, { now: 1000 }).state, {
+    type: 'select-robot',
+    robotId: 'forklift_1',
+  }, { now: 1000 }).state
+
+  const observedOff = nextFleetViewRuntime(selected, {
+    type: 'digital-output-state-received',
+    robotId: 'forklift_1',
+    values: [false],
+    receivedAt: 1100,
+  }, { now: 1100 }).state
+
+  assert.equal(observedOff.selectedRobotDetail?.peripheral.io.outputs[0]?.label, 'O1')
+  assert.equal(observedOff.selectedRobotDetail?.peripheral.io.outputs[0]?.value, false)
+  assert.equal(observedOff.selectedRobotDetail?.peripheral.io.controls[0]?.disabled, false)
+
+  const requested = nextFleetViewRuntime(observedOff, {
+    type: 'digital-output-command-requested',
+    robotId: 'forklift_1',
+    controlId: 'fork-extend',
+    value: true,
+    occurredAt: 1200,
+  }, { now: 1200 })
+
+  assert.deepEqual(requested.effects, [{
+    type: 'send-digital-output-command',
+    robotId: 'forklift_1',
+    servicePath: 'forklift_1/dido/write_coil',
+    controlId: 'fork-extend',
+    address: 805,
+    value: true,
+    requestId: 'digital-output:forklift_1:fork-extend:1200',
+  }])
+  assert.equal(requested.state.selectedRobotDetail?.peripheral.io.outputs[0]?.value, false)
+  assert.equal(requested.state.selectedRobotDetail?.peripheral.io.controls[0]?.commandStatus, 'pending')
+
+  const responded = nextFleetViewRuntime(requested.state, {
+    type: 'digital-output-command-response-received',
+    robotId: 'forklift_1',
+    controlId: 'fork-extend',
+    requestId: 'digital-output:forklift_1:fork-extend:1200',
+    success: true,
+    message: 'success',
+    occurredAt: 1250,
+  }, { now: 1250 }).state
+
+  assert.equal(responded.selectedRobotDetail?.peripheral.io.outputs[0]?.value, false)
+  assert.equal(responded.selectedRobotDetail?.peripheral.io.controls[0]?.commandStatus, 'sent')
+  assert.deepEqual(responded.selectedRobotDetail?.peripheral.io.controls[0]?.serviceResponse, {
+    success: true,
+    message: 'success',
+  })
+
+  const observedOn = nextFleetViewRuntime(responded, {
+    type: 'digital-output-state-received',
+    robotId: 'forklift_1',
+    values: [true],
+    receivedAt: 1300,
+  }, { now: 1300 }).state
+
+  assert.equal(observedOn.selectedRobotDetail?.peripheral.io.outputs[0]?.value, true)
+  assert.equal(observedOn.selectedRobotDetail?.peripheral.io.controls[0]?.observedState, 'on')
+  assert.equal(observedOn.selectedRobotDetail?.activity.slice(-1)[0]?.detail, 'Fork extend accepted')
+})
+
+test('Peripheral State shows grouped read-only I values and disabled Unknown predefined O controls', () => {
+  const selected = nextFleetViewRuntime(nextFleetViewRuntime(emptyFleetViewRuntimeState, {
+    type: 'fleet-state-received',
+    data: fleetData([robot()]),
+    receivedAt: 1000,
+  }, { now: 1000 }).state, {
+    type: 'select-robot',
+    robotId: 'forklift_1',
+  }, { now: 1000 }).state
+
+  assert.deepEqual(selected.selectedRobotDetail?.peripheral.groups.map(group => group.id), [
+    'power',
+    'motion',
+    'fork-lift',
+    'shelf-pallet',
+    'io',
+  ])
+  assert.equal(selected.selectedRobotDetail?.peripheral.io.arbitraryAddressEntryAvailable, false)
+  assert.deepEqual(selected.selectedRobotDetail?.peripheral.io.outputs.map(output => ({
+    label: output.label,
+    value: output.value,
+    observedState: output.observedState,
+  })), [
+    { label: 'O1', value: null, observedState: 'unknown' },
+    { label: 'O2', value: null, observedState: 'unknown' },
+    { label: 'O3', value: null, observedState: 'unknown' },
+  ])
+  assert.deepEqual(selected.selectedRobotDetail?.peripheral.io.controls.map(control => ({
+    id: control.id,
+    disabled: control.disabled,
+    observedState: control.observedState,
+  })), [
+    { id: 'fork-extend', disabled: true, observedState: 'unknown' },
+    { id: 'fork-retract', disabled: true, observedState: 'unknown' },
+    { id: 'fork-power', disabled: true, observedState: 'unknown' },
+  ])
+
+  const ignoredCommand = nextFleetViewRuntime(selected, {
+    type: 'digital-output-command-requested',
+    robotId: 'forklift_1',
+    controlId: 'fork-extend',
+    value: true,
+    occurredAt: 1050,
+  }, { now: 1050 })
+
+  assert.deepEqual(ignoredCommand.effects, [])
+  assert.equal(ignoredCommand.state.selectedRobotDetail?.peripheral.io.controls[0]?.commandStatus, 'idle')
+
+  const withInputs = nextFleetViewRuntime(selected, {
+    type: 'digital-input-state-received',
+    robotId: 'forklift_1',
+    values: [true, false, true],
+    receivedAt: 1100,
+  }, { now: 1100 }).state
+
+  assert.deepEqual(withInputs.selectedRobotDetail?.peripheral.io.inputs, [
+    { id: 'I1', label: 'I1', index: 1, value: true, observedState: 'on', readOnly: true },
+    { id: 'I2', label: 'I2', index: 2, value: false, observedState: 'off', readOnly: true },
+    { id: 'I3', label: 'I3', index: 3, value: true, observedState: 'on', readOnly: true },
+  ])
+})
