@@ -1,4 +1,4 @@
-import type { FleetDataMessage, FleetRobotDataMessage } from '../../types.js'
+import type { FleetDataMessage, FleetRobotDataMessage, TwistCommand } from '../../types.js'
 
 export const FLEET_STATE_STALE_MS = 3000
 export const FLEET_DISCONNECTED_MS = 10000
@@ -18,6 +18,7 @@ export interface FleetViewRuntimeRobot {
   id: string
   name: string
   ip: string
+  commandPath: string
   levelName: string
   pose: FleetRobotPose | null
   batteryPercent: number | null
@@ -53,6 +54,16 @@ export interface FleetViewRuntimeRobotDetail extends FleetViewRuntimeRobot {
   activity: FleetRobotActivityEntry[]
 }
 
+export interface FleetManualControlPanelState {
+  placement: 'fleet-sidebar'
+  availableInPages: Array<'dashboard' | 'robots' | 'tasks' | 'storage' | 'sites'>
+  selectedRobotId: string
+  commandPath: string
+  available: boolean
+  networkState: FleetRobotNetworkState | 'unknown'
+  warning: string
+}
+
 export interface FleetTaskReadiness {
   canDispatch: boolean
   message: string
@@ -86,6 +97,7 @@ export interface FleetViewRuntimeState {
   selectedRobotId: string
   selectedRobotDetail: FleetViewRuntimeRobotDetail | null
   robotActivity: FleetRobotActivityEntry[]
+  manualControlPanel: FleetManualControlPanelState
   dashboardMap: FleetViewDashboardMapState
   lastFleetStateReceivedAt: number | null
   deploymentActivationInProgress: boolean
@@ -97,6 +109,8 @@ export interface FleetViewRuntimeState {
 
 export type FleetViewRuntimeEffect =
   | { type: 'center-dashboard-on-robot'; robotId: string }
+  | { type: 'send-velocity-command'; robotId: string; commandPath: string; command: TwistCommand }
+  | { type: 'show-toast'; tone: 'info' | 'warning' | 'error'; message: string }
 
 export interface FleetViewRuntimeResult {
   state: FleetViewRuntimeState
@@ -113,6 +127,9 @@ export type FleetViewRuntimeEvent =
   | { type: 'task-activity-received'; robotId: string; taskId: string; status: string; occurredAt: number }
   | { type: 'unit-task-activity-received'; robotId: string; unitTaskId: string; status: string; occurredAt: number }
   | { type: 'manual-control-activity-received'; robotId: string; commandName: string; occurredAt: number }
+  | { type: 'manual-control-robot-selected'; robotId: string }
+  | { type: 'velocity-control-command-requested'; command: TwistCommand; occurredAt: number }
+  | { type: 'velocity-control-released'; occurredAt: number }
   | { type: 'deployment-activity-received'; robotId: string; levelName: string; occurredAt: number }
   | { type: 'peripheral-activity-received'; robotId: string; label: string; value: string; occurredAt: number }
   | { type: 'hardware-diagnostics-activity-received'; robotId: string; diagnosticName: string; level: FleetRobotActivitySeverity; message: string; occurredAt: number }
@@ -149,6 +166,15 @@ export const emptyFleetViewRuntimeState: FleetViewRuntimeState = {
   selectedRobotId: '',
   selectedRobotDetail: null,
   robotActivity: [],
+  manualControlPanel: {
+    placement: 'fleet-sidebar',
+    availableInPages: ['dashboard', 'robots', 'tasks', 'storage', 'sites'],
+    selectedRobotId: '',
+    commandPath: '',
+    available: false,
+    networkState: 'unknown',
+    warning: '',
+  },
   dashboardMap: {
     panX: 0,
     panY: 0,
@@ -165,6 +191,10 @@ export const emptyFleetViewRuntimeState: FleetViewRuntimeState = {
 
 function robotId(robot: FleetRobotDataMessage) {
   return robot.name || robot.robot || robot.ip
+}
+
+function normalizeCommandNamespace(value: string) {
+  return value.trim().replace(/^\/+/, '').replace(/\/+$/, '')
 }
 
 function robotOverallHealth(robot: FleetRobotDataMessage): FleetRobotOverallHealth {
@@ -185,6 +215,9 @@ function toRuntimeRobot(robot: FleetRobotDataMessage, receivedAt: number): Fleet
     id: robotId(robot),
     name: robot.name || robot.robot || '--',
     ip: robot.ip || '',
+    commandPath: normalizeCommandNamespace(robot.zenohNamespace)
+      ? `${normalizeCommandNamespace(robot.zenohNamespace)}/cmd_vel_collision`
+      : '',
     levelName: robot.location.levelName || robot.location.map || robot.map || '',
     pose: robot.location.hasPose
       ? { x: robot.location.x, y: robot.location.y, yaw: robot.location.yaw }
@@ -194,7 +227,7 @@ function toRuntimeRobot(robot: FleetRobotDataMessage, receivedAt: number): Fleet
     currentUnitTaskId: robot.activityId || '',
     mode: robot.mode || robot.status || '',
     overallHealth: robotOverallHealth(robot),
-    commandPathAvailable: Boolean((robot.zenohNamespace || '').trim()),
+    commandPathAvailable: Boolean(normalizeCommandNamespace(robot.zenohNamespace)),
     networkState: 'live',
     lastUpdateAgeMs: 0,
     lastSeenAt: receivedAt,
@@ -291,6 +324,37 @@ function manualControlAvailableFor(detail: FleetViewRuntimeRobotDetail | null) {
   return Boolean(detail?.commandPathAvailable)
 }
 
+function poorNetworkWarning(networkState: FleetRobotNetworkState | 'unknown') {
+  if (networkState === 'poor-network' || networkState === 'disconnected' || networkState === 'last-known')
+    return 'Poor Network'
+
+  return ''
+}
+
+function manualControlPanelFor(detail: FleetViewRuntimeRobotDetail | null): FleetManualControlPanelState {
+  const networkState = detail?.networkState ?? 'unknown'
+  return {
+    placement: 'fleet-sidebar',
+    availableInPages: ['dashboard', 'robots', 'tasks', 'storage', 'sites'],
+    selectedRobotId: detail?.id ?? '',
+    commandPath: detail?.commandPath ?? '',
+    available: manualControlAvailableFor(detail),
+    networkState,
+    warning: poorNetworkWarning(networkState),
+  }
+}
+
+function zeroVelocityCommand(): Required<TwistCommand> {
+  return {
+    linearX: 0,
+    linearY: 0,
+    linearZ: 0,
+    angularX: 0,
+    angularY: 0,
+    angularZ: 0,
+  }
+}
+
 function buildTaskSequencePreview(
   draft: FleetTaskSequenceDraft,
   taskReadiness: FleetTaskReadiness,
@@ -326,6 +390,7 @@ function selectRobot(
     ...state,
     selectedRobotId: robotIdValue,
     selectedRobotDetail,
+    manualControlPanel: manualControlPanelFor(selectedRobotDetail),
     manualControlAvailable: manualControlAvailableFor(selectedRobotDetail),
   }
 }
@@ -388,6 +453,47 @@ function normalActivityEntry(
   }
 }
 
+function withManualControlActivity(
+  state: FleetViewRuntimeState,
+  detail: FleetViewRuntimeRobotDetail,
+  detailText: string,
+  occurredAt: number,
+  severity: FleetRobotActivitySeverity,
+) {
+  return withActivity(state, normalActivityEntry(
+    `manual-control:${detail.id}:${occurredAt}`,
+    detail.id,
+    'manual-control',
+    activityTitle('manual-control', ''),
+    detailText,
+    occurredAt,
+    severity,
+  ))
+}
+
+function velocityCommandEffects(
+  detail: FleetViewRuntimeRobotDetail,
+  command: TwistCommand,
+  includePoorNetworkToast: boolean,
+): FleetViewRuntimeEffect[] {
+  const effects: FleetViewRuntimeEffect[] = [{
+    type: 'send-velocity-command',
+    robotId: detail.id,
+    commandPath: detail.commandPath,
+    command,
+  }]
+
+  if (includePoorNetworkToast) {
+    effects.push({
+      type: 'show-toast',
+      tone: 'warning',
+      message: 'Command sent - Poor Network',
+    })
+  }
+
+  return effects
+}
+
 export function nextFleetViewRuntime(
   state: FleetViewRuntimeState,
   event: FleetViewRuntimeEvent,
@@ -406,6 +512,7 @@ export function nextFleetViewRuntime(
         robots,
         selectedRobotDetail,
         lastFleetStateReceivedAt: event.receivedAt,
+        manualControlPanel: manualControlPanelFor(selectedRobotDetail),
         manualControlAvailable: manualControlAvailableFor(selectedRobotDetail),
       }, taskReadiness),
       effects: [],
@@ -413,6 +520,13 @@ export function nextFleetViewRuntime(
   }
 
   if (event.type === 'select-robot') {
+    return {
+      state: selectRobot(state, event.robotId),
+      effects: [],
+    }
+  }
+
+  if (event.type === 'manual-control-robot-selected') {
     return {
       state: selectRobot(state, event.robotId),
       effects: [],
@@ -497,6 +611,61 @@ export function nextFleetViewRuntime(
         event.occurredAt,
       )),
       effects: [],
+    }
+  }
+
+  if (event.type === 'velocity-control-command-requested') {
+    const detail = state.selectedRobotDetail
+    if (!detail?.commandPathAvailable) {
+      return {
+        state,
+        effects: [],
+      }
+    }
+
+    const isPoorNetwork = detail.networkState !== 'live'
+    const nextState = withManualControlActivity(
+      state,
+      detail,
+      isPoorNetwork ? 'Velocity command sent while Poor Network' : 'Velocity command sent',
+      event.occurredAt,
+      isPoorNetwork ? 'warning' : 'normal',
+    )
+
+    return {
+      state: {
+        ...nextState,
+        manualControlPanel: manualControlPanelFor(nextState.selectedRobotDetail),
+        manualControlAvailable: true,
+      },
+      effects: velocityCommandEffects(detail, event.command, isPoorNetwork),
+    }
+  }
+
+  if (event.type === 'velocity-control-released') {
+    const detail = state.selectedRobotDetail
+    if (!detail?.commandPathAvailable) {
+      return {
+        state,
+        effects: [],
+      }
+    }
+
+    const nextState = withManualControlActivity(
+      state,
+      detail,
+      'Zero velocity sent',
+      event.occurredAt,
+      detail.networkState === 'live' ? 'normal' : 'warning',
+    )
+
+    return {
+      state: {
+        ...nextState,
+        manualControlPanel: manualControlPanelFor(nextState.selectedRobotDetail),
+        manualControlAvailable: true,
+      },
+      effects: velocityCommandEffects(detail, zeroVelocityCommand(), false),
     }
   }
 
@@ -600,6 +769,7 @@ export function nextFleetViewRuntime(
         ...state,
         robots,
         selectedRobotDetail,
+        manualControlPanel: manualControlPanelFor(selectedRobotDetail),
         manualControlAvailable: manualControlAvailableFor(selectedRobotDetail),
       }, taskReadiness),
       effects: [],

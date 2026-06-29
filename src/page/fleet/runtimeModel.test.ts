@@ -369,3 +369,122 @@ test('Robot Activity accepts operator events and ignores raw transport logs', ()
   assert.equal(afterRawLog.selectedRobotDetail?.activity[4]?.severity, 'fault')
   assert.equal(afterRawLog.selectedRobotDetail?.activity.some(entry => /zenoh|namespace|topic|debug/i.test(`${entry.title} ${entry.detail}`)), false)
 })
+
+test('Velocity Control under Poor Network emits command, toast, and activity without changing robot pose', () => {
+  const received = nextFleetViewRuntime(emptyFleetViewRuntimeState, {
+    type: 'fleet-state-received',
+    data: fleetData([robot({
+      location: { map: 'L1', levelName: 'L1', hasPose: true, x: 1, y: 2, yaw: 0.5 },
+    })]),
+    receivedAt: 1000,
+  }, { now: 1000 }).state
+
+  const selected = nextFleetViewRuntime(received, {
+    type: 'manual-control-robot-selected',
+    robotId: 'forklift_1',
+  }, { now: 1000 }).state
+
+  const stale = nextFleetViewRuntime(selected, {
+    type: 'clock-tick',
+    now: 1000 + FLEET_STATE_STALE_MS + 1,
+  }, { now: 1000 + FLEET_STATE_STALE_MS + 1 }).state
+
+  const commanded = nextFleetViewRuntime(stale, {
+    type: 'velocity-control-command-requested',
+    command: { linearX: 0.35, angularZ: -0.35 },
+    occurredAt: 5000,
+  }, { now: 5000 })
+
+  assert.deepEqual(commanded.effects, [
+    {
+      type: 'send-velocity-command',
+      robotId: 'forklift_1',
+      commandPath: 'forklift_1/cmd_vel_collision',
+      command: { linearX: 0.35, angularZ: -0.35 },
+    },
+    {
+      type: 'show-toast',
+      tone: 'warning',
+      message: 'Command sent - Poor Network',
+    },
+  ])
+  assert.equal(commanded.state.manualControlAvailable, true)
+  assert.equal(commanded.state.manualControlPanel.placement, 'fleet-sidebar')
+  assert.equal(commanded.state.manualControlPanel.networkState, 'poor-network')
+  assert.equal(commanded.state.manualControlPanel.warning, 'Poor Network')
+  assert.equal(commanded.state.selectedRobotDetail?.networkState, 'poor-network')
+  assert.equal(commanded.state.selectedRobotDetail?.pose?.x, 1)
+  assert.equal(commanded.state.selectedRobotDetail?.pose?.y, 2)
+  assert.equal(commanded.state.selectedRobotDetail?.pose?.yaw, 0.5)
+  assert.deepEqual(commanded.state.selectedRobotDetail?.activity.slice(-1), [{
+    id: 'manual-control:forklift_1:5000',
+    robotId: 'forklift_1',
+    kind: 'manual-control',
+    title: 'Manual control',
+    detail: 'Velocity command sent while Poor Network',
+    occurredAt: 5000,
+    severity: 'warning',
+  }])
+})
+
+test('Velocity Control release emits a zero velocity command for the selected robot', () => {
+  const selected = nextFleetViewRuntime(nextFleetViewRuntime(emptyFleetViewRuntimeState, {
+    type: 'fleet-state-received',
+    data: fleetData([robot()]),
+    receivedAt: 1000,
+  }, { now: 1000 }).state, {
+    type: 'manual-control-robot-selected',
+    robotId: 'forklift_1',
+  }, { now: 1000 }).state
+
+  const released = nextFleetViewRuntime(selected, {
+    type: 'velocity-control-released',
+    occurredAt: 1100,
+  }, { now: 1100 })
+
+  assert.deepEqual(released.effects, [{
+    type: 'send-velocity-command',
+    robotId: 'forklift_1',
+    commandPath: 'forklift_1/cmd_vel_collision',
+    command: {
+      linearX: 0,
+      linearY: 0,
+      linearZ: 0,
+      angularX: 0,
+      angularY: 0,
+      angularZ: 0,
+    },
+  }])
+  assert.equal(released.state.manualControlAvailable, true)
+  assert.equal(released.state.selectedRobotDetail?.activity.slice(-1)[0]?.detail, 'Zero velocity sent')
+})
+
+test('Velocity Control stays available when the selected robot has a hardware fault', () => {
+  const received = nextFleetViewRuntime(emptyFleetViewRuntimeState, {
+    type: 'fleet-state-received',
+    data: fleetData([robot({
+      hasDiagnostics: true,
+      diagnostics: {
+        stamp: { sec: 1, nanosec: 0 },
+        status: [{
+          level: 2,
+          name: 'hardware/can/can1',
+          message: 'CAN interface missing',
+          hardwareId: 'hardware',
+          values: [],
+        }],
+      },
+    })]),
+    receivedAt: 1000,
+  }, { now: 1000 }).state
+
+  const selected = nextFleetViewRuntime(received, {
+    type: 'manual-control-robot-selected',
+    robotId: 'forklift_1',
+  }, { now: 1000 }).state
+
+  assert.equal(selected.selectedRobotDetail?.overallHealth, 'fault')
+  assert.equal(selected.manualControlAvailable, true)
+  assert.equal(selected.manualControlPanel.available, true)
+  assert.equal(selected.manualControlPanel.commandPath, 'forklift_1/cmd_vel_collision')
+})
