@@ -1,7 +1,13 @@
-import type { DoorType, GridInfoMessage, NavDoor, NavLift, NavPath, NavPoint, NavProfile } from '@/types'
+import type { DoorType, GridInfoMessage, NavDoor, NavLift, NavPath, NavPoint, NavProfile } from '../types.js'
 
 const DEFAULT_PIXEL_TO_METER = 0.05
 const DEFAULT_MEASUREMENT_PIXEL_LENGTH = 20
+const LIFT_ALIGNMENT_FIDUCIAL_LABELS = [
+  'ALIGN_LIFT_FRONT_LEFT',
+  'ALIGN_LIFT_FRONT_RIGHT',
+  'ALIGN_LIFT_BACK_RIGHT',
+  'ALIGN_LIFT_BACK_LEFT',
+] as const
 
 export interface RmfExportLevelSource {
   levelName: string
@@ -10,13 +16,59 @@ export interface RmfExportLevelSource {
   profile: NavProfile
 }
 
-interface BuildRmfBuildingYamlOptions {
-  buildingName: string
-}
-
-interface PixelPoint {
+export interface RmfLiftRectangle {
   x: number
   y: number
+  rotation: number
+  width: number
+  depth: number
+}
+
+export interface RmfVisualLiftAlignmentLevel extends RmfLiftRectangle {
+  levelName: string
+  liftUid: string
+}
+
+export interface RmfVisualLiftAlignmentOptions {
+  method: 'visual-lift'
+  referenceLevelName: string
+  levels: RmfVisualLiftAlignmentLevel[]
+}
+
+export interface RmfVisualMapAlignmentLevel {
+  levelName: string
+  liftUid: string
+  measurementVertices: [PixelPoint, PixelPoint]
+  fiducials: [PixelPoint, PixelPoint, PixelPoint, PixelPoint]
+}
+
+export interface RmfVisualMapAlignmentOptions {
+  method: 'visual-map'
+  referenceLevelName: string
+  measurementDistance: number
+  levels: RmfVisualMapAlignmentLevel[]
+}
+
+export type RmfAlignmentOptions = RmfVisualLiftAlignmentOptions | RmfVisualMapAlignmentOptions
+
+export interface BuildRmfBuildingYamlOptions {
+  buildingName: string
+  alignment?: RmfAlignmentOptions | null
+}
+
+export interface PixelPoint {
+  x: number
+  y: number
+}
+
+export interface RmfAlignmentFiducial extends PixelPoint {
+  label: string
+}
+
+export interface RmfLevelAlignmentGeometry {
+  measurementVertices: [PixelPoint, PixelPoint]
+  measurementDistance: number
+  fiducials: RmfAlignmentFiducial[]
 }
 
 interface DoorVertexPair {
@@ -55,7 +107,7 @@ function formatYamlString(value: string) {
   return JSON.stringify(value)
 }
 
-function formatInlineValue(value: boolean | number | string | Array<boolean | number | string>) {
+function formatInlineValue(value: boolean | number | string | Array<boolean | number | string>): string {
   if (Array.isArray(value))
     return `[${value.map(item => formatInlineValue(item)).join(', ')}]`
 
@@ -75,7 +127,7 @@ function formatInlineObject(entries: Array<[string, boolean | number | string | 
   return `{${entries.map(([key, value]) => `${key}: ${formatInlineValue(value)}`).join(', ')}}`
 }
 
-function mapToPixel(point: PixelPoint, gridInfo: GridInfoMessage): PixelPoint {
+export function mapToPixel(point: PixelPoint, gridInfo: GridInfoMessage): PixelPoint {
   const topLeftY = -(gridInfo.origin.position.y + gridInfo.height * gridInfo.resolution)
 
   return {
@@ -94,7 +146,7 @@ function getSharedBounds(levels: RmfExportLevelSource[]) {
   return { width, height }
 }
 
-function getSharedMeasurementVertices(levels: RmfExportLevelSource[]) {
+function getSharedMeasurementVertices(levels: RmfExportLevelSource[]): [PixelPoint, PixelPoint] {
   const bounds = getSharedBounds(levels)
   const startX = Math.max(4, Math.min(20, bounds.width - 2))
   const startY = Math.max(4, Math.min(20, bounds.height - 2))
@@ -107,7 +159,7 @@ function getSharedMeasurementVertices(levels: RmfExportLevelSource[]) {
   ]
 }
 
-function getSharedFiducials(levels: RmfExportLevelSource[]) {
+function getSharedFiducials(levels: RmfExportLevelSource[]): RmfAlignmentFiducial[] {
   const bounds = getSharedBounds(levels)
   const marginX = Math.max(4, Math.min(24, bounds.width * 0.1))
   const marginY = Math.max(4, Math.min(24, bounds.height * 0.1))
@@ -125,6 +177,146 @@ function getSharedFiducials(levels: RmfExportLevelSource[]) {
 
 function measurementDistanceInMeters(start: PixelPoint, end: PixelPoint) {
   return Math.hypot(end.x - start.x, end.y - start.y) * DEFAULT_PIXEL_TO_METER
+}
+
+function measurementDistanceInMapMeters(start: PixelPoint, end: PixelPoint) {
+  return Math.hypot(end.x - start.x, end.y - start.y)
+}
+
+function isUsableLiftRectangle(lift: RmfLiftRectangle) {
+  return Number.isFinite(lift.x)
+    && Number.isFinite(lift.y)
+    && Number.isFinite(lift.rotation)
+    && Number.isFinite(lift.width)
+    && Number.isFinite(lift.depth)
+    && lift.width > 0
+    && lift.depth > 0
+}
+
+function isFinitePixelPoint(point: PixelPoint) {
+  return Number.isFinite(point.x) && Number.isFinite(point.y)
+}
+
+export function getLiftRectangleCorners(lift: RmfLiftRectangle): [PixelPoint, PixelPoint, PixelPoint, PixelPoint] {
+  const theta = lift.rotation * Math.PI / 180
+  const cos = Math.cos(theta)
+  const sin = Math.sin(theta)
+  const halfWidth = lift.width / 2
+  const halfDepth = lift.depth / 2
+  const localCorners = [
+    { x: -halfWidth, y: halfDepth },
+    { x: halfWidth, y: halfDepth },
+    { x: halfWidth, y: -halfDepth },
+    { x: -halfWidth, y: -halfDepth },
+  ] as const
+
+  return localCorners.map(point => ({
+    x: lift.x + point.x * cos - point.y * sin,
+    y: lift.y + point.x * sin + point.y * cos,
+  })) as [PixelPoint, PixelPoint, PixelPoint, PixelPoint]
+}
+
+function createDefaultAlignmentGeometry(levels: RmfExportLevelSource[]) {
+  const measurementVertices = getSharedMeasurementVertices(levels)
+  const fiducials = getSharedFiducials(levels)
+  const measurementDistance = measurementDistanceInMeters(measurementVertices[0], measurementVertices[1])
+
+  return new Map(levels.map(level => [
+    level.levelName,
+    {
+      measurementVertices,
+      measurementDistance,
+      fiducials,
+    } satisfies RmfLevelAlignmentGeometry,
+  ]))
+}
+
+export function createVisualLiftAlignmentGeometry(
+  levels: RmfExportLevelSource[],
+  alignment: RmfVisualLiftAlignmentOptions,
+) {
+  const levelSourcesByName = new Map(levels.map(level => [level.levelName, level]))
+  const selectedLevels = alignment.levels.filter(level => levelSourcesByName.has(level.levelName))
+
+  if (selectedLevels.length < 2)
+    return null
+
+  const alignmentGeometry = new Map<string, RmfLevelAlignmentGeometry>()
+
+  for (const selectedLevel of selectedLevels) {
+    if (!isUsableLiftRectangle(selectedLevel))
+      return null
+
+    const source = levelSourcesByName.get(selectedLevel.levelName)
+    if (!source)
+      return null
+
+    const corners = getLiftRectangleCorners(selectedLevel)
+    const fiducials = corners.map((corner, index) => ({
+      ...mapToPixel(corner, source.gridInfo),
+      label: LIFT_ALIGNMENT_FIDUCIAL_LABELS[index],
+    }))
+    const measurementVertices = [
+      mapToPixel(corners[0], source.gridInfo),
+      mapToPixel(corners[1], source.gridInfo),
+    ] satisfies [PixelPoint, PixelPoint]
+
+    alignmentGeometry.set(selectedLevel.levelName, {
+      measurementVertices,
+      measurementDistance: measurementDistanceInMapMeters(corners[0], corners[1]),
+      fiducials,
+    })
+  }
+
+  return alignmentGeometry
+}
+
+export function createVisualMapAlignmentGeometry(
+  levels: RmfExportLevelSource[],
+  alignment: RmfVisualMapAlignmentOptions,
+) {
+  const levelSourcesByName = new Map(levels.map(level => [level.levelName, level]))
+  const selectedLevels = alignment.levels.filter(level => levelSourcesByName.has(level.levelName))
+
+  if (selectedLevels.length < 2 || !Number.isFinite(alignment.measurementDistance) || alignment.measurementDistance <= 0)
+    return null
+
+  const alignmentGeometry = new Map<string, RmfLevelAlignmentGeometry>()
+
+  for (const selectedLevel of selectedLevels) {
+    if (selectedLevel.measurementVertices.length !== 2 || selectedLevel.fiducials.length !== LIFT_ALIGNMENT_FIDUCIAL_LABELS.length)
+      return null
+
+    if (!selectedLevel.measurementVertices.every(isFinitePixelPoint) || !selectedLevel.fiducials.every(isFinitePixelPoint))
+      return null
+
+    alignmentGeometry.set(selectedLevel.levelName, {
+      measurementVertices: selectedLevel.measurementVertices,
+      measurementDistance: alignment.measurementDistance,
+      fiducials: selectedLevel.fiducials.map((fiducial, index) => ({
+        ...fiducial,
+        label: LIFT_ALIGNMENT_FIDUCIAL_LABELS[index],
+      })),
+    })
+  }
+
+  return alignmentGeometry
+}
+
+function createAlignmentGeometry(levels: RmfExportLevelSource[], alignment?: RmfAlignmentOptions | null) {
+  if (alignment?.method === 'visual-lift') {
+    const liftGeometry = createVisualLiftAlignmentGeometry(levels, alignment)
+    if (liftGeometry && liftGeometry.size === levels.length)
+      return liftGeometry
+  }
+
+  if (alignment?.method === 'visual-map') {
+    const mapGeometry = createVisualMapAlignmentGeometry(levels, alignment)
+    if (mapGeometry && mapGeometry.size === levels.length)
+      return mapGeometry
+  }
+
+  return createDefaultAlignmentGeometry(levels)
 }
 
 function getDoorMotionDegrees(doorType: DoorType) {
@@ -223,10 +415,10 @@ function getLiftDoorWidthInMeters(lift: NavLift) {
   return widthInMeters
 }
 
-function buildLevelData(source: RmfExportLevelSource, measurementVertices: PixelPoint[], liftReferences: Map<string, LiftAccumulator>) {
+function buildLevelData(source: RmfExportLevelSource, alignmentGeometry: RmfLevelAlignmentGeometry, liftReferences: Map<string, LiftAccumulator>) {
   const pointIndexMap = new Map<string, number>()
-  const vertexLines = measurementVertices.map(vertex => buildVertexLine(vertex.x, vertex.y))
-  let nextVertexIndex = measurementVertices.length
+  const vertexLines = alignmentGeometry.measurementVertices.map(vertex => buildVertexLine(vertex.x, vertex.y))
+  let nextVertexIndex = alignmentGeometry.measurementVertices.length
 
   source.profile.data.waypoints.forEach((point) => {
     pointIndexMap.set(point.uid, nextVertexIndex)
@@ -265,11 +457,13 @@ function buildLevelData(source: RmfExportLevelSource, measurementVertices: Pixel
   } satisfies LevelBuildData
 }
 
-function buildLevelSection(levelData: LevelBuildData, measurementDistance: number, fiducialLines: string[]) {
+function buildLevelSection(levelData: LevelBuildData, alignmentGeometry: RmfLevelAlignmentGeometry) {
   const lanes = levelData.source.profile.data.paths
     .map(path => buildLaneLine(path, levelData.pointIndexMap))
     .filter((line): line is string => line != null)
   const doors = levelData.doorPairs.map(buildDoorLine)
+  const fiducialLines = alignmentGeometry.fiducials
+    .map(fiducial => `      - [${formatNumber(fiducial.x)}, ${formatNumber(fiducial.y)}, ${fiducial.label}]`)
 
   return [
     `  ${formatYamlString(levelData.source.levelName)}:`,
@@ -285,7 +479,7 @@ function buildLevelSection(levelData: LevelBuildData, measurementDistance: numbe
     '    layers:',
     '      {}',
     '    measurements:',
-    `      - [0, 1, ${formatInlineObject([['distance', [3, measurementDistance]]])}]`,
+    `      - [0, 1, ${formatInlineObject([['distance', [3, alignmentGeometry.measurementDistance]]])}]`,
     '    vertices:',
     ...levelData.vertexLines,
   ]
@@ -368,16 +562,24 @@ export function buildRmfBuildingYaml(levels: RmfExportLevelSource[], options: Bu
   if (levels.length === 0)
     return ''
 
-  const measurementVertices = getSharedMeasurementVertices(levels)
-  const fiducials = getSharedFiducials(levels)
-  const measurementDistance = measurementDistanceInMeters(measurementVertices[0], measurementVertices[1])
-  const fiducialLines = fiducials
-    .map(fiducial => `      - [${formatNumber(fiducial.x)}, ${formatNumber(fiducial.y)}, ${fiducial.label}]`)
+  const alignmentGeometryByLevel = createAlignmentGeometry(levels, options.alignment)
   const liftReferences = buildLiftAccumulators(levels)
 
   const levelSections = levels
-    .map(level => buildLevelData(level, measurementVertices, liftReferences))
-    .flatMap(levelData => buildLevelSection(levelData, measurementDistance, fiducialLines))
+    .map((level) => {
+      const alignmentGeometry = alignmentGeometryByLevel.get(level.levelName)
+      if (!alignmentGeometry)
+        throw new Error(`Missing RMF alignment geometry for level ${level.levelName}`)
+
+      return buildLevelData(level, alignmentGeometry, liftReferences)
+    })
+    .flatMap((levelData) => {
+      const alignmentGeometry = alignmentGeometryByLevel.get(levelData.source.levelName)
+      if (!alignmentGeometry)
+        throw new Error(`Missing RMF alignment geometry for level ${levelData.source.levelName}`)
+
+      return buildLevelSection(levelData, alignmentGeometry)
+    })
   const liftLines = buildLiftLines(liftReferences)
 
   const lines = [

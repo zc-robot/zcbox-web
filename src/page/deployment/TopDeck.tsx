@@ -6,7 +6,7 @@ import ExportRmfModal from './ExportRmfModal'
 import RedistributeWaypointsModal from './RedistributeWaypointsModal'
 import RotateLineWaypointsModal from './RotateLineWaypointsModal'
 import ShelfStateModal from './ShelfStateModal'
-import type { ExportRmfSelection } from './ExportRmfModal'
+import type { ExportRmfAlignment, ExportRmfSelection } from './ExportRmfModal'
 import CameraStreamControls from '@/components/CameraStreamControls'
 import LidarScanControls from '@/components/LidarScanControls'
 import PointCloudControls from '@/components/PointCloudControls'
@@ -607,7 +607,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     }
   }
 
-  const handleExportRmf = async (selections: ExportRmfSelection[], targetHost: string) => {
+  const handleExportRmf = async (selections: ExportRmfSelection[], targetHost: string, alignment: ExportRmfAlignment) => {
     if (selections.length === 0) {
       toast.error('请先选择至少一个地图和部署配置')
       return
@@ -628,6 +628,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
       })),
       {
         buildingName,
+        alignment,
       },
     )
 
