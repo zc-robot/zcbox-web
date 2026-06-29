@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand'
-import type { FootprintParams, JointParams, LanguageCode, PointAction, RobotParams } from '@/types'
+import type { AppMode, FootprintParams, JointParams, LanguageCode, PointAction, RobotParams } from '@/types'
 
 export const defaultPointCloudTopics = [
   '**/depth/points/filtered',
@@ -12,6 +12,7 @@ export interface ParamsSlice {
   apiDomain: string
   wsDomain: string
   isGetDomainAuto: boolean
+  appMode: AppMode | null
   nestControllerIp: string
   nestControllerHistory: string[]
   pointCloudTopics: string[]
@@ -27,6 +28,7 @@ export interface ParamsSlice {
   updateApiDomain: (domain: string) => void
   updateWsDomain: (domain: string) => void
   updateIsGetDomainAuto: (domainAuto: boolean) => void
+  updateAppMode: (mode: AppMode | null) => void
   rememberNestControllerIp: (ip: string) => void
   changeNestController: () => void
   updatePointCloudTopics: (topics: string[]) => void
@@ -42,6 +44,7 @@ export const paramsSlice: StateCreator<ParamsSlice> = set => ({
   apiDomain: '',
   wsDomain: '',
   isGetDomainAuto: true,
+  appMode: null,
   nestControllerIp: '',
   nestControllerHistory: [],
   pointCloudTopics: defaultPointCloudTopics,
@@ -65,6 +68,9 @@ export const paramsSlice: StateCreator<ParamsSlice> = set => ({
   updateIsGetDomainAuto: (domainAuto: boolean) => {
     set({ isGetDomainAuto: domainAuto })
   },
+  updateAppMode: (mode: AppMode | null) => {
+    set({ appMode: mode })
+  },
   rememberNestControllerIp: (ip: string) => {
     const normalizedIp = ip.trim()
 
@@ -86,6 +92,7 @@ export const paramsSlice: StateCreator<ParamsSlice> = set => ({
       apiDomain: '',
       wsDomain: '',
       isGetDomainAuto: false,
+      appMode: null,
       nestControllerIp: '',
     })
   },

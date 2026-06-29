@@ -11,6 +11,13 @@ interface MapContextMenuState {
   left: number
 }
 
+interface MapRenameDialogState {
+  id: number
+  currentName: string
+  draftName: string
+  error: string | null
+}
+
 interface ApiResultLike {
   code?: number
   message?: string
@@ -51,6 +58,8 @@ const Home: React.FC = () => {
   })
   const navigate = useNavigate()
   const [menuState, setMenuState] = useState<MapContextMenuState | null>(null)
+  const [renamingMapId, setRenamingMapId] = useState<number | null>(null)
+  const [renameDialog, setRenameDialog] = useState<MapRenameDialogState | null>(null)
 
   const initMapData = useCallback(async () => {
     const maps = await apiServer.fetchMapList()
@@ -84,6 +93,61 @@ const Home: React.FC = () => {
   useEffect(() => {
     setMenuState(null)
   }, [location.pathname])
+
+  const openRenameMapDialog = useCallback((id: number) => {
+    setMenuState(null)
+
+    const map = maps.find(item => item.id === id)
+    const currentName = map?.name ?? ''
+    setRenameDialog({
+      id,
+      currentName,
+      draftName: currentName,
+      error: null,
+    })
+  }, [maps])
+
+  const handleRenameMap = useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!renameDialog)
+      return
+
+    const normalizedName = renameDialog.draftName.trim()
+    if (!normalizedName) {
+      setRenameDialog(current => current ? { ...current, error: '地图名称不能为空' } : current)
+      return
+    }
+    if (normalizedName === renameDialog.currentName) {
+      setRenameDialog(null)
+      return
+    }
+    if (!/^[A-Za-z0-9_-]+$/.test(normalizedName)) {
+      setRenameDialog(current => current ? { ...current, error: '只能包含字母、数字、_、-，不能包含空格、/ 或 ..' } : current)
+      return
+    }
+
+    const loadingToast = toast.loading('正在重命名地图...')
+    setRenamingMapId(renameDialog.id)
+    try {
+      const resp = await apiServer.renameMapName(renameDialog.id, normalizedName)
+      toast.dismiss(loadingToast)
+      if (resp.code !== 0) {
+        setRenameDialog(current => current ? { ...current, error: resp.message || '重命名失败' } : current)
+        return
+      }
+
+      await initMapData()
+      setRenameDialog(null)
+      toast.success('地图已重命名')
+    }
+    catch (error) {
+      toast.dismiss(loadingToast)
+      setRenameDialog(current => current ? { ...current, error: `重命名失败 ${error}` } : current)
+    }
+    finally {
+      setRenamingMapId(null)
+    }
+  }, [initMapData, renameDialog])
 
   const handleDeleteMap = useCallback(async (id: number) => {
     setMenuState(null)
@@ -199,10 +263,63 @@ const Home: React.FC = () => {
             style={{ left: `${menuState.left}px`, top: `${menuState.top}px` }}
             onClick={event => event.stopPropagation()}>
             <button
+              className="w-full border-none bg-transparent px-3 py-1 text-left text-sm text-gray-700 hover:bg-gray-2 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={renamingMapId === menuState.id}
+              onClick={() => openRenameMapDialog(menuState.id)}>
+              重命名地图
+            </button>
+            <button
               className="w-full border-none bg-transparent px-3 py-1 text-left text-sm text-red-600 hover:bg-gray-2"
               onClick={() => handleDeleteMap(menuState.id)}>
               删除地图
             </button>
+          </div>
+        )}
+        {renameDialog && (
+          <div
+            className="fixed inset-0 z-110 flex items-center justify-center bg-black/30 px-4"
+            onClick={() => {
+              if (renamingMapId == null)
+                setRenameDialog(null)
+            }}>
+            <form
+              className="w-full max-w-90 rounded-lg border-(solid 1px gray-3) bg-white p-4 shadow-xl"
+              onClick={event => event.stopPropagation()}
+              onSubmit={handleRenameMap}>
+              <div className="text-base font-700 text-gray-8">重命名地图</div>
+              <label className="mt-3 block text-sm text-gray-6">
+                <span>新地图名称</span>
+                <input
+                  className="mt-1 w-full rounded border-(solid 1px gray-3) px-3 py-2 text-sm outline-none focus:border-blue-500"
+                  autoFocus
+                  disabled={renamingMapId === renameDialog.id}
+                  placeholder="office_b"
+                  value={renameDialog.draftName}
+                  onChange={event => setRenameDialog(current => current
+                    ? { ...current, draftName: event.target.value, error: null }
+                    : current,
+                  )}
+                />
+              </label>
+              {renameDialog.error && (
+                <div className="mt-2 rounded bg-red-50 px-3 py-2 text-sm text-red-600">{renameDialog.error}</div>
+              )}
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  className="rounded border-(solid 1px gray-3) bg-white px-3 py-1.5 text-sm text-gray-7 hover:bg-gray-1 disabled:cursor-not-allowed disabled:opacity-50"
+                  type="button"
+                  disabled={renamingMapId === renameDialog.id}
+                  onClick={() => setRenameDialog(null)}>
+                  取消
+                </button>
+                <button
+                  className="rounded border-(solid 1px blue-600) bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  type="submit"
+                  disabled={renamingMapId === renameDialog.id}>
+                  {renamingMapId === renameDialog.id ? '重命名中...' : '确认'}
+                </button>
+              </div>
+            </form>
           </div>
         )}
         <button

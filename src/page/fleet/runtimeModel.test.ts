@@ -370,6 +370,98 @@ test('Robot Activity accepts operator events and ignores raw transport logs', ()
   assert.equal(afterRawLog.selectedRobotDetail?.activity.some(entry => /zenoh|namespace|topic|debug/i.test(`${entry.title} ${entry.detail}`)), false)
 })
 
+test('Robot Detail Hardware Diagnostics defaults to abnormal friendly names and can show normal items', () => {
+  const selected = nextFleetViewRuntime(nextFleetViewRuntime(emptyFleetViewRuntimeState, {
+    type: 'fleet-state-received',
+    data: fleetData([robot()]),
+    receivedAt: 1000,
+  }, { now: 1000 }).state, {
+    type: 'select-robot',
+    robotId: 'forklift_1',
+  }, { now: 1000 }).state
+
+  const withDiagnostics = nextFleetViewRuntime(selected, {
+    type: 'hardware-diagnostics-received',
+    robotId: 'forklift_1',
+    receivedAt: 1100,
+    diagnostics: {
+      stamp: { sec: 1, nanosec: 0 },
+      status: [
+        {
+          level: 0,
+          name: 'cpu',
+          message: 'CPU health normal',
+          hardwareId: 'system',
+          values: [{ key: 'cpu_temp_celsius', value: '53.6' }],
+        },
+        {
+          level: 1,
+          name: 'scan1',
+          message: 'No data received',
+          hardwareId: 'sensor',
+          values: [],
+        },
+        {
+          level: 0,
+          name: 'imu/data_raw',
+          message: 'Sensor data active',
+          hardwareId: 'sensor',
+          values: [],
+        },
+        {
+          level: 2,
+          name: 'hardware/can/can1',
+          message: 'CAN interface missing',
+          hardwareId: 'hardware',
+          values: [{ key: 'interface', value: 'can1' }],
+        },
+      ],
+    },
+  }, { now: 1100 }).state
+
+  assert.equal(withDiagnostics.selectedRobotDetail?.hardwareDiagnostics.showNormal, false)
+  assert.equal(withDiagnostics.selectedRobotDetail?.hardwareDiagnostics.summary.state, 'fault')
+  assert.deepEqual(withDiagnostics.selectedRobotDetail?.hardwareDiagnostics.groups.map(group => ({
+    title: group.title,
+    items: group.items.map(item => ({ label: item.label, state: item.state, message: item.message })),
+  })), [
+    {
+      title: 'Sensors',
+      items: [{ label: 'Lidar 1', state: 'warning', message: 'No data received' }],
+    },
+    {
+      title: 'Interfaces',
+      items: [{ label: 'CAN can1', state: 'fault', message: 'CAN interface missing' }],
+    },
+  ])
+
+  const showNormal = nextFleetViewRuntime(withDiagnostics, {
+    type: 'hardware-diagnostics-show-normal-changed',
+    robotId: 'forklift_1',
+    showNormal: true,
+  }, { now: 1100 }).state
+
+  assert.deepEqual(showNormal.selectedRobotDetail?.hardwareDiagnostics.groups.map(group => ({
+    title: group.title,
+    labels: group.items.map(item => item.label),
+  })), [
+    { title: 'Compute', labels: ['CPU'] },
+    { title: 'Sensors', labels: ['Lidar 1', 'IMU'] },
+    { title: 'Interfaces', labels: ['CAN can1'] },
+  ])
+
+  const stale = nextFleetViewRuntime(showNormal, {
+    type: 'clock-tick',
+    now: 6101,
+  }, { now: 6101 }).state
+  const staleItems = stale.selectedRobotDetail?.hardwareDiagnostics.groups.flatMap(group => group.items) ?? []
+
+  assert.equal(stale.selectedRobotDetail?.hardwareDiagnostics.summary.state, 'stale')
+  assert.equal(staleItems.every(item => item.state === 'stale'), true)
+  assert.deepEqual(staleItems.map(item => item.label), ['CPU', 'Lidar 1', 'IMU', 'CAN can1'])
+  assert.equal(stale.manualControlAvailable, true)
+})
+
 test('Velocity Control under Poor Network emits command, toast, and activity without changing robot pose', () => {
   const received = nextFleetViewRuntime(emptyFleetViewRuntimeState, {
     type: 'fleet-state-received',
@@ -502,13 +594,15 @@ test('Digital Output command response does not change the observed O value befor
   const observedOff = nextFleetViewRuntime(selected, {
     type: 'digital-output-state-received',
     robotId: 'forklift_1',
-    values: [false],
+    values: [false, false, false, false, false, false, false, false],
     receivedAt: 1100,
   }, { now: 1100 }).state
 
-  assert.equal(observedOff.selectedRobotDetail?.peripheral.io.outputs[0]?.label, 'O1')
-  assert.equal(observedOff.selectedRobotDetail?.peripheral.io.outputs[0]?.value, false)
+  assert.equal(observedOff.selectedRobotDetail?.peripheral.io.outputs[0]?.label, 'O0')
+  assert.equal(observedOff.selectedRobotDetail?.peripheral.io.outputs[5]?.label, 'O5')
+  assert.equal(observedOff.selectedRobotDetail?.peripheral.io.outputs[5]?.value, false)
   assert.equal(observedOff.selectedRobotDetail?.peripheral.io.controls[0]?.disabled, false)
+  assert.equal(observedOff.selectedRobotDetail?.peripheral.io.controls[0]?.outputId, 'O5')
 
   const requested = nextFleetViewRuntime(observedOff, {
     type: 'digital-output-command-requested',
@@ -527,7 +621,7 @@ test('Digital Output command response does not change the observed O value befor
     value: true,
     requestId: 'digital-output:forklift_1:fork-extend:1200',
   }])
-  assert.equal(requested.state.selectedRobotDetail?.peripheral.io.outputs[0]?.value, false)
+  assert.equal(requested.state.selectedRobotDetail?.peripheral.io.outputs[5]?.value, false)
   assert.equal(requested.state.selectedRobotDetail?.peripheral.io.controls[0]?.commandStatus, 'pending')
 
   const responded = nextFleetViewRuntime(requested.state, {
@@ -540,7 +634,7 @@ test('Digital Output command response does not change the observed O value befor
     occurredAt: 1250,
   }, { now: 1250 }).state
 
-  assert.equal(responded.selectedRobotDetail?.peripheral.io.outputs[0]?.value, false)
+  assert.equal(responded.selectedRobotDetail?.peripheral.io.outputs[5]?.value, false)
   assert.equal(responded.selectedRobotDetail?.peripheral.io.controls[0]?.commandStatus, 'sent')
   assert.deepEqual(responded.selectedRobotDetail?.peripheral.io.controls[0]?.serviceResponse, {
     success: true,
@@ -550,11 +644,11 @@ test('Digital Output command response does not change the observed O value befor
   const observedOn = nextFleetViewRuntime(responded, {
     type: 'digital-output-state-received',
     robotId: 'forklift_1',
-    values: [true],
+    values: [false, false, false, false, false, true, false, false],
     receivedAt: 1300,
   }, { now: 1300 }).state
 
-  assert.equal(observedOn.selectedRobotDetail?.peripheral.io.outputs[0]?.value, true)
+  assert.equal(observedOn.selectedRobotDetail?.peripheral.io.outputs[5]?.value, true)
   assert.equal(observedOn.selectedRobotDetail?.peripheral.io.controls[0]?.observedState, 'on')
   assert.equal(observedOn.selectedRobotDetail?.activity.slice(-1)[0]?.detail, 'Fork extend accepted')
 })
@@ -582,18 +676,24 @@ test('Peripheral State shows grouped read-only I values and disabled Unknown pre
     value: output.value,
     observedState: output.observedState,
   })), [
+    { label: 'O0', value: null, observedState: 'unknown' },
     { label: 'O1', value: null, observedState: 'unknown' },
     { label: 'O2', value: null, observedState: 'unknown' },
     { label: 'O3', value: null, observedState: 'unknown' },
+    { label: 'O4', value: null, observedState: 'unknown' },
+    { label: 'O5', value: null, observedState: 'unknown' },
+    { label: 'O6', value: null, observedState: 'unknown' },
+    { label: 'O7', value: null, observedState: 'unknown' },
   ])
   assert.deepEqual(selected.selectedRobotDetail?.peripheral.io.controls.map(control => ({
     id: control.id,
+    outputId: control.outputId,
     disabled: control.disabled,
     observedState: control.observedState,
   })), [
-    { id: 'fork-extend', disabled: true, observedState: 'unknown' },
-    { id: 'fork-retract', disabled: true, observedState: 'unknown' },
-    { id: 'fork-power', disabled: true, observedState: 'unknown' },
+    { id: 'fork-extend', outputId: 'O5', disabled: true, observedState: 'unknown' },
+    { id: 'fork-retract', outputId: 'O6', disabled: true, observedState: 'unknown' },
+    { id: 'fork-power', outputId: 'O7', disabled: true, observedState: 'unknown' },
   ])
 
   const ignoredCommand = nextFleetViewRuntime(selected, {
@@ -615,8 +715,8 @@ test('Peripheral State shows grouped read-only I values and disabled Unknown pre
   }, { now: 1100 }).state
 
   assert.deepEqual(withInputs.selectedRobotDetail?.peripheral.io.inputs, [
-    { id: 'I1', label: 'I1', index: 1, value: true, observedState: 'on', readOnly: true },
-    { id: 'I2', label: 'I2', index: 2, value: false, observedState: 'off', readOnly: true },
-    { id: 'I3', label: 'I3', index: 3, value: true, observedState: 'on', readOnly: true },
+    { id: 'I0', label: 'I0', index: 0, value: true, observedState: 'on', readOnly: true },
+    { id: 'I1', label: 'I1', index: 1, value: false, observedState: 'off', readOnly: true },
+    { id: 'I2', label: 'I2', index: 2, value: true, observedState: 'on', readOnly: true },
   ])
 })

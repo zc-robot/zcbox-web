@@ -241,34 +241,15 @@ const Info: React.FC<{
   qulity: number
   battery: number | null
   batteryCurrent: number | null
-  livePoseSource: string | null
-  liveBatterySource: string | null
-  lastPoseUpdateAt: number | null
-  lastBatteryUpdateAt: number | null
-  zenohPoseStatus: string
-  zenohTelemetryStatus: string
 }> = ({
   pose,
   status,
   qulity,
   battery,
   batteryCurrent,
-  livePoseSource,
-  liveBatterySource,
-  lastPoseUpdateAt,
-  lastBatteryUpdateAt,
-  zenohPoseStatus,
-  zenohTelemetryStatus,
 }) => {
   const formatPoseValue = (value?: number) => value == null ? '--' : formatDisplayValue(value)
   const formatMetricValue = (value: number | null, suffix: string) => value == null ? '--' : `${formatDisplayValue(value)}${suffix}`
-  const formatLiveUpdate = (updatedAt: number | null, source: string | null, fallbackStatus: string) => {
-    if (!updatedAt)
-      return fallbackStatus || '--'
-
-    const time = new Date(updatedAt).toLocaleTimeString()
-    return source ? `${source} ${time}` : time
-  }
 
   return (
     <div className="p-2 flex flex-col border-(t-solid 1px gray-300)">
@@ -280,14 +261,6 @@ const Info: React.FC<{
         <span className="pl-3">电流:
           <span className="text-dark font-200">{formatMetricValue(batteryCurrent, 'A')}</span>
         </span>
-      </div>
-      <div className="flex flex-col text-sm text-dark font-bold pl-1 pt-1">
-        <div>Zenoh 位姿:
-          <span className="text-dark font-200">{formatLiveUpdate(lastPoseUpdateAt, livePoseSource, zenohPoseStatus)}</span>
-        </div>
-        <div>Zenoh 电量:
-          <span className="text-dark font-200">{formatLiveUpdate(lastBatteryUpdateAt, liveBatterySource, zenohTelemetryStatus)}</span>
-        </div>
       </div>
       <div className="flex text-sm text-dark font-bold pl-1 pt-1">质量:
         <span className="text-dark font-200">{qulity}</span>
@@ -320,23 +293,11 @@ const ControllerDeck: React.FC = () => {
     hasLiveBattery,
     robotInfo,
     relocalizationPose,
-    livePoseSource,
-    liveBatterySource,
-    lastPoseUpdateAt,
-    lastBatteryUpdateAt,
-    zenohPoseStatus,
-    zenohTelemetryStatus,
   } = useGridStore(state => ({
     hasLivePose: state.hasLivePose,
     hasLiveBattery: state.hasLiveBattery,
     robotInfo: state.robotInfo,
     relocalizationPose: state.relocalizationPose,
-    livePoseSource: state.livePoseSource,
-    liveBatterySource: state.liveBatterySource,
-    lastPoseUpdateAt: state.lastPoseUpdateAt,
-    lastBatteryUpdateAt: state.lastBatteryUpdateAt,
-    zenohPoseStatus: state.zenohPoseStatus,
-    zenohTelemetryStatus: state.zenohTelemetryStatus,
   }))
   const currentOp = useOperationStore(state => state.current)
 
@@ -349,12 +310,6 @@ const ControllerDeck: React.FC = () => {
           qulity={robotInfo?.localization_quality ?? 0}
           battery={hasLiveBattery ? robotInfo?.battery ?? null : null}
           batteryCurrent={hasLiveBattery ? robotInfo?.batteryCurrent ?? null : null}
-          livePoseSource={livePoseSource}
-          liveBatterySource={liveBatterySource}
-          lastPoseUpdateAt={lastPoseUpdateAt}
-          lastBatteryUpdateAt={lastBatteryUpdateAt}
-          zenohPoseStatus={zenohPoseStatus}
-          zenohTelemetryStatus={zenohTelemetryStatus}
         />
       )}
       {currentOp === 'relocalize' && relocalizationPose && (

@@ -3,9 +3,10 @@ import Input from './Input'
 import { useLocales } from '@/hooks'
 import { useParamsStore } from '@/store'
 import { isValidIpv4, normalizeNestControllerIp } from '@/util/nestController'
+import type { AppMode } from '@/types'
 
 interface NestControllerStartupProps {
-  onConnected: () => void
+  onConnected: (mode: AppMode) => void
 }
 
 const NestControllerStartup: React.FC<NestControllerStartupProps> = ({ onConnected }) => {
@@ -13,20 +14,25 @@ const NestControllerStartup: React.FC<NestControllerStartupProps> = ({ onConnect
   const {
     nestControllerIp,
     nestControllerHistory,
+    appMode,
     rememberNestControllerIp,
     updateApiDomain,
     updateWsDomain,
     updateIsGetDomainAuto,
+    updateAppMode,
   } = useParamsStore(state => ({
     nestControllerIp: state.nestControllerIp,
     nestControllerHistory: state.nestControllerHistory,
+    appMode: state.appMode,
     rememberNestControllerIp: state.rememberNestControllerIp,
     updateApiDomain: state.updateApiDomain,
     updateWsDomain: state.updateWsDomain,
     updateIsGetDomainAuto: state.updateIsGetDomainAuto,
+    updateAppMode: state.updateAppMode,
   }))
   const initialIp = useMemo(() => nestControllerIp || nestControllerHistory[0] || '', [nestControllerHistory, nestControllerIp])
   const [ip, setIp] = useState(initialIp)
+  const [mode, setMode] = useState<AppMode>(appMode ?? 'robot')
   const [error, setError] = useState('')
 
   const connect = (value: string) => {
@@ -38,10 +44,11 @@ const NestControllerStartup: React.FC<NestControllerStartupProps> = ({ onConnect
     }
 
     rememberNestControllerIp(normalizedIp)
+    updateAppMode(mode)
     updateApiDomain(`http://${normalizedIp}:5000`)
     updateWsDomain(`ws://${normalizedIp}:1234`)
     updateIsGetDomainAuto(false)
-    onConnected()
+    onConnected(mode)
   }
 
   return (
@@ -59,6 +66,38 @@ const NestControllerStartup: React.FC<NestControllerStartupProps> = ({ onConnect
           <p className="mb-6 mt-2 text-sm text-gray-500">
             {locale('nestControllerSubtitle')}
           </p>
+
+          <div className="mb-6">
+            <div className="mb-2 block text-sm font-600">
+              启动模式
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                className={`border-solid border-1px p-4 text-left hover:bg-blue-50 ${mode === 'robot' ? 'border-blue-700 bg-blue-50' : 'border-gray-300 bg-white'}`}
+                type="button"
+                onClick={() => setMode('robot')}>
+                <div className="flex items-center text-base font-600">
+                  <div className="i-material-symbols-smart-toy-outline-rounded mr-2 text-5" />
+                  Robot
+                </div>
+                <div className="mt-1 text-xs text-gray-500">
+                  地图、建图、部署和单车控制
+                </div>
+              </button>
+              <button
+                className={`border-solid border-1px p-4 text-left hover:bg-emerald-50 ${mode === 'fleet' ? 'border-emerald-700 bg-emerald-50' : 'border-gray-300 bg-white'}`}
+                type="button"
+                onClick={() => setMode('fleet')}>
+                <div className="flex items-center text-base font-600">
+                  <div className="i-material-symbols-conversion-path-rounded mr-2 text-5" />
+                  Fleet
+                </div>
+                <div className="mt-1 text-xs text-gray-500">
+                  订阅 fleet_data 查看车队状态
+                </div>
+              </button>
+            </div>
+          </div>
 
           <label className="mb-2 block text-sm font-600" htmlFor="nest-controller-ip">
             {locale('nestControllerIp')}

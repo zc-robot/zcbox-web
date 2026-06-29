@@ -37,6 +37,8 @@ export interface ShelfState {
   lift_enabled: boolean
   coil_804?: boolean
   coil_805?: boolean
+  coil_806?: boolean
+  coil_807?: boolean
   lift_real_height: number
   lift_target_height: number
   coil_address: number
@@ -44,6 +46,8 @@ export interface ShelfState {
   lift_enable_coil_address: number
   coil_804_address?: number
   coil_805_address?: number
+  coil_806_address?: number
+  coil_807_address?: number
   lift_real_height_register_address: number
   lift_target_height_register_address: number
   source?: 'desktop-modbus' | 'http'
@@ -54,6 +58,23 @@ export interface RmfBuildingYamlUploadResponse {
   returncode: number
   stdout?: string
   stderr?: string
+  saved_images?: string[]
+  referenced_images?: string[]
+  missing_images?: string[]
+  [key: string]: unknown
+}
+
+export interface RmfBuildingMapImageUpload {
+  filename: string
+  blob: Blob
+}
+
+export interface FleetReferenceCoordinatesResponse {
+  ok?: boolean
+  code?: number
+  message?: string
+  error?: string
+  data?: unknown
   [key: string]: unknown
 }
 
@@ -125,6 +146,63 @@ export interface CameraStreamResponse {
   state?: string
 }
 
+export interface ComposeMapSite {
+  site: string
+  file_count: number
+  total_bytes: number
+  modified_time: number
+}
+
+export interface ComposeMapFile {
+  path: string
+  type: string
+  size: number
+  modified_time: number
+}
+
+export interface ComposeMapSiteWithFiles extends ComposeMapSite {
+  files: ComposeMapFile[]
+}
+
+export interface FleetConfigResponse {
+  ok: boolean
+  path: string
+  size: number
+  modified_time: number
+  content: string
+  error?: string
+}
+
+export interface FleetConfigWriteResponse {
+  ok: boolean
+  path: string
+  size: number
+  modified_time: number
+  backup_path: string | null
+  dry_run?: boolean
+  current_modified_time?: number
+  error?: string
+}
+
+interface ComposeMapSitesResponse {
+  ok: boolean
+  root: string
+  sites: ComposeMapSite[]
+  error?: string
+}
+
+interface ComposeMapFilesResponse {
+  ok: boolean
+  site: string
+  path: string
+  files: ComposeMapFile[]
+  error?: string
+}
+
+type RawMapListItem = MapListItem & {
+  map_id?: number
+}
+
 class ApiServer {
   private get fallbackRealtimeUrl() {
     try {
@@ -184,6 +262,28 @@ class ApiServer {
 
   private get cameraGatewayBaseUrl() {
     return `http://${this.cameraGatewayHost}:${this.cameraGatewayPort}`
+  }
+
+  private get composeControlHost() {
+    return this.controllerHost
+  }
+
+  private get composeControlPort() {
+    return 4999
+  }
+
+  private get composeControlBaseUrl() {
+    return `http://${this.composeControlHost}:${this.composeControlPort}`
+  }
+
+  private get composeControlToken() {
+    if (typeof window !== 'undefined') {
+      const savedToken = window.localStorage.getItem('zcbox.composeControlToken')?.trim()
+      if (savedToken)
+        return savedToken
+    }
+
+    return import.meta.env.VITE_COMPOSE_CONTROL_TOKEN || '1234567890'
   }
 
   private get controllerHost() {
@@ -267,6 +367,37 @@ class ApiServer {
     return URL.createObjectURL(response)
   }
 
+  private async requestComposeControl<T>(path: string, options: { method?: 'GET' | 'PUT' | 'POST', json?: unknown } = {}) {
+    const requestPath = path.startsWith('/') ? path : `/${path}`
+    const token = this.composeControlToken
+    const method = options.method ?? 'GET'
+    if (window.zcDesktop?.requestComposeControl) {
+      const response = await window.zcDesktop.requestComposeControl<T>({
+        host: this.composeControlHost,
+        port: this.composeControlPort,
+        path: requestPath,
+        method,
+        token,
+        json: options.json,
+      })
+      return response.body
+    }
+
+    const url = new URL(requestPath, this.composeControlBaseUrl)
+    const headers: Record<string, string> = {
+      accept: 'application/json',
+    }
+    if (token)
+      headers.authorization = `Bearer ${token}`
+
+    return ky(url.toString(), {
+      method,
+      timeout: 10000,
+      headers,
+      json: options.json,
+    }).json<T>()
+  }
+
   cameraGatewayUrl = (path: string, cacheBust = false) => {
     const url = new URL(path, this.cameraGatewayBaseUrl)
     if (cacheBust)
@@ -291,9 +422,79 @@ class ApiServer {
     return this.fetchCameraGatewayDataUrl(source.paths.snapshot)
   }
 
-  fetchMapListNew = async () => {
-    const json = await this.client.get('map/getMapList').json<MapListItem[]>()
+  fetchComposeMapSites = async () => {
+    const json = await this.requestComposeControl<ComposeMapSitesResponse>('/api/maps/sites')
+    if (!json.ok)
+      throw new Error(json.error || 'Failed to fetch map sites')
+
+    return json.sites
+  }
+
+  fetchComposeMapFiles = async (site: string) => {
+    const encodedSite = encodeURIComponent(site)
+    const json = await this.requestComposeControl<ComposeMapFilesResponse>(`/api/maps/${encodedSite}/files`)
+    if (!json.ok)
+      throw new Error(json.error || `Failed to fetch map files for ${site}`)
+
+    return json.files
+  }
+
+  fetchComposeMapSitesWithFiles = async () => {
+    const sites = await this.fetchComposeMapSites()
+    return Promise.all(sites.map(async site => ({
+      ...site,
+      files: await this.fetchComposeMapFiles(site.site),
+    } satisfies ComposeMapSiteWithFiles)))
+  }
+
+  fetchFleetConfig = async () => {
+    const json = await this.requestComposeControl<FleetConfigResponse>('/api/fleet-config')
+    if (!json.ok)
+      throw new Error(json.error || 'Failed to fetch rmf.yaml')
+
     return json
+  }
+
+  updateFleetConfig = async (content: string, expectedModifiedTime?: number, dryRun = false) => {
+    const json = await this.requestComposeControl<FleetConfigWriteResponse>('/api/fleet-config', {
+      method: 'PUT',
+      json: {
+        content,
+        expected_modified_time: expectedModifiedTime,
+        backup: true,
+        dry_run: dryRun,
+      },
+    })
+    if (!json.ok)
+      throw new Error(json.error || 'Failed to save rmf.yaml')
+
+    return json
+  }
+
+  updateFleetReferenceCoordinates = async (maps: string[], backup = false) => {
+    const json = await this.requestComposeControl<FleetReferenceCoordinatesResponse>('/api/fleet-config/reference-coordinates', {
+      method: 'PUT',
+      json: {
+        maps,
+        backup,
+      },
+    })
+
+    if (json.ok === false)
+      throw new Error(json.error || json.message || 'Failed to update reference coordinates')
+    if (typeof json.code === 'number' && json.code !== 0)
+      throw new Error(json.message || json.error || 'Failed to update reference coordinates')
+
+    return json
+  }
+
+  fetchMapListNew = async () => {
+    const json = await this.client.get('map/v2/getMapList').json<Resp<RawMapListItem[]> | RawMapListItem[]>()
+    const maps = Array.isArray(json) ? json : json.data
+    return maps.map(map => ({
+      ...map,
+      id: map.id ?? map.map_id,
+    })) as MapListItem[]
   }
 
   fetchMapList = async () => {
@@ -378,6 +579,22 @@ class ApiServer {
         map_id: mapId,
       },
     }).json<Resp<unknown>>()
+    return json
+  }
+
+  renameMapName = async (mapId: number, newName: string) => {
+    const maps = await this.fetchMapListNew()
+    const targetMap = maps.find(map => map.id === mapId)
+    if (!targetMap)
+      throw new Error(`map ${mapId} not found`)
+
+    const json = await this.client.get('map/changeMapName', {
+      searchParams: {
+        map_id: targetMap.id,
+        new_name: newName,
+      },
+    }).json<Resp<{ map_id: number, new_name: string }>>()
+
     return json
   }
 
@@ -527,6 +744,45 @@ class ApiServer {
     }
   }
 
+  updateModbusCoilSequence = async (steps: Array<{ address: number; value: boolean }>) => {
+    if (!window.zcDesktop?.writeModbusCoilSequence) {
+      return {
+        code: 1,
+        message: 'Modbus 线圈动作仅支持桌面应用',
+        data: null,
+      }
+    }
+
+    const response = await window.zcDesktop.writeModbusCoilSequence({
+      host: this.controllerHost,
+      port: 502,
+      steps,
+    })
+
+    return {
+      code: response.ok ? 0 : 1,
+      message: response.ok ? 'success' : '写入线圈动作失败',
+      data: response.state,
+    }
+  }
+
+  publishActuatorReset = async () => {
+    if (!window.zcDesktop?.publishZenohActuatorReset) {
+      return {
+        code: 1,
+        message: '/actuators/reset 仅支持桌面应用',
+        data: null,
+      }
+    }
+
+    const response = await window.zcDesktop.publishZenohActuatorReset()
+    return {
+      code: response.ok ? 0 : 1,
+      message: response.ok ? 'success' : 'Zenoh 未连接，无法发布 /actuators/reset',
+      data: null,
+    }
+  }
+
   private buildRmfBuildingYamlUploadUrl(targetHost: string) {
     const trimmedHost = targetHost.trim()
     if (!trimmedHost)
@@ -541,13 +797,15 @@ class ApiServer {
     return url.toString()
   }
 
-  uploadRmfBuildingYaml = async (targetHost: string, content: string) => {
+  uploadRmfBuildingYaml = async (targetHost: string, content: string, mapImages: RmfBuildingMapImageUpload[] = []) => {
     const formData = new FormData()
     formData.append(
       'file',
       new Blob([content], { type: 'application/x-yaml;charset=utf-8' }),
       'map.building.yaml',
     )
+    for (const image of mapImages)
+      formData.append('maps', image.blob, image.filename)
 
     const json = await ky.post(this.buildRmfBuildingYamlUploadUrl(targetHost), {
       body: formData,

@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react'
 import { RouterProvider, createHashRouter } from 'react-router-dom'
 import Deployment from './deployment'
+import FleetView from './fleet'
 import Home from './home'
 import NotFound from './404'
 import Settings from './settings'
@@ -10,6 +11,7 @@ import NestControllerStartup from '@/components/NestControllerStartup'
 import { useParamsStore } from '@/store'
 import apiServer from '@/service/apiServer'
 import { isValidIpv4, normalizeNestControllerIp } from '@/util/nestController'
+import type { AppMode } from '@/types'
 
 const router = createHashRouter([
   {
@@ -49,9 +51,13 @@ const App: React.FC = () => {
   const updateIsGetDomainAuto = useParamsStore(state => state.updateIsGetDomainAuto)
   const nestControllerIp = useParamsStore(state => state.nestControllerIp)
   const apiDomain = useParamsStore(state => state.apiDomain)
+  const appMode = useParamsStore(state => state.appMode)
 
   useEffect(() => {
     if (isControllerReady)
+      return
+
+    if (!appMode)
       return
 
     const normalizedIp = normalizeNestControllerIp(nestControllerIp)
@@ -62,19 +68,22 @@ const App: React.FC = () => {
     updateWsDomain(`ws://${normalizedIp}:1234`)
     updateIsGetDomainAuto(false)
     setIsControllerReady(true)
-  }, [isControllerReady, nestControllerIp, updateApiDomain, updateIsGetDomainAuto, updateWsDomain])
+  }, [appMode, isControllerReady, nestControllerIp, updateApiDomain, updateIsGetDomainAuto, updateWsDomain])
 
   useEffect(() => {
     if (!isControllerReady)
       return
 
     const normalizedIp = normalizeNestControllerIp(nestControllerIp)
-    if (!isValidIpv4(normalizedIp))
+    if (!appMode || !isValidIpv4(normalizedIp))
       setIsControllerReady(false)
-  }, [isControllerReady, nestControllerIp])
+  }, [appMode, isControllerReady, nestControllerIp])
 
   useEffect(() => {
     if (!isControllerReady)
+      return
+
+    if (appMode !== 'robot')
       return
 
     if (isGetDomainAuto) {
@@ -90,10 +99,13 @@ const App: React.FC = () => {
       updateApiDomain(apiDomain)
       updateWsDomain(wsDomain)
     }
-  }, [isControllerReady, isGetDomainAuto, updateApiDomain, updateWsDomain])
+  }, [appMode, isControllerReady, isGetDomainAuto, updateApiDomain, updateWsDomain])
 
   useEffect(() => {
     if (!isControllerReady)
+      return
+
+    if (appMode !== 'robot')
       return
 
     const fetchParams = async () => {
@@ -108,10 +120,13 @@ const App: React.FC = () => {
     // 只有当apiDomain不为空时才获取参数
     if (apiDomain)
       fetchParams()
-  }, [apiDomain, isControllerReady, updatePointActions, updateRobotParams])
+  }, [apiDomain, appMode, isControllerReady, updatePointActions, updateRobotParams])
 
-  if (!isControllerReady)
-    return <NestControllerStartup onConnected={() => setIsControllerReady(true)} />
+  if (!isControllerReady || !appMode)
+    return <NestControllerStartup onConnected={(_mode: AppMode) => setIsControllerReady(true)} />
+
+  if (appMode === 'fleet')
+    return <FleetView />
 
   return (
     <RouterProvider router={router} />

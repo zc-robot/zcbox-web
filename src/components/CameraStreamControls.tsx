@@ -12,6 +12,37 @@ function formatFrame(source: CameraSource | null) {
   return `${frame.width}x${frame.height}${fps}`
 }
 
+function getFrameSize(source: CameraSource | null) {
+  const frame = source?.latest_frame
+  if (!frame || frame.width <= 0 || frame.height <= 0)
+    return null
+
+  return {
+    width: frame.width,
+    height: frame.height,
+  }
+}
+
+function getMediaFitClass(source: CameraSource | null) {
+  const frameSize = getFrameSize(source)
+  if (!frameSize)
+    return 'h-full w-full object-contain'
+
+  return frameSize.width < frameSize.height
+    ? 'h-full w-auto max-w-full object-contain'
+    : 'h-auto w-full max-h-full object-contain'
+}
+
+function getFrameStyle(source: CameraSource | null) {
+  const frameSize = getFrameSize(source)
+  if (!frameSize)
+    return undefined
+
+  return {
+    aspectRatio: `${frameSize.width} / ${frameSize.height}`,
+  }
+}
+
 function isDepthSource(source: CameraSource | null) {
   if (!source)
     return false
@@ -139,7 +170,7 @@ function loadImage(src: string) {
   })
 }
 
-const ColorizedDepthPreview: FC<{ active: boolean; source: CameraSource }> = ({ active, source }) => {
+const ColorizedDepthPreview: FC<{ active: boolean; source: CameraSource; mediaClassName: string }> = ({ active, source, mediaClassName }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [hasFrame, setHasFrame] = useState(false)
   const [error, setError] = useState('')
@@ -193,7 +224,8 @@ const ColorizedDepthPreview: FC<{ active: boolean; source: CameraSource }> = ({ 
     <>
       <canvas
         ref={canvasRef}
-        className="h-full w-full object-contain" />
+        className={`block ${mediaClassName}`}
+        style={getFrameStyle(source)} />
       {!hasFrame && (
         <div className="absolute inset-0 flex items-center justify-center text-gray-400">
           {error || '加载彩色深度...'}
@@ -224,6 +256,8 @@ const CameraStreamModal: FC<{ onClose: () => void }> = ({ onClose }) => {
   const isBusy = isLoadingSources || isStarting || isStopping
   const selectedSourceIsDepth = isDepthSource(selectedSource)
   const shouldColorizeDepth = selectedSourceIsDepth && isDepthColorEnabled
+  const mediaClassName = `block ${getMediaFitClass(selectedSource)}`
+  const mediaStyle = getFrameStyle(selectedSource)
 
   const loadSources = useCallback(async () => {
     setLoadingSources(true)
@@ -339,14 +373,16 @@ const CameraStreamModal: FC<{ onClose: () => void }> = ({ onClose }) => {
       return (
         <ColorizedDepthPreview
           active={isStreaming}
-          source={selectedSource} />
+          source={selectedSource}
+          mediaClassName={mediaClassName} />
       )
     }
 
     if (previewUrl) {
       return (
         <img
-          className="h-full w-full object-contain"
+          className={mediaClassName}
+          style={mediaStyle}
           alt="camera preview"
           src={previewUrl} />
       )
@@ -355,7 +391,8 @@ const CameraStreamModal: FC<{ onClose: () => void }> = ({ onClose }) => {
     if (snapshotUrl) {
       return (
         <img
-          className="h-full w-full object-contain opacity-85"
+          className={`${mediaClassName} opacity-85`}
+          style={mediaStyle}
           alt="camera snapshot"
           src={snapshotUrl} />
       )
@@ -478,8 +515,8 @@ const CameraStreamModal: FC<{ onClose: () => void }> = ({ onClose }) => {
             )}
           </aside>
 
-          <section className="min-w-0 flex-1 min-h-28rem bg-gray-950 p-4">
-            <div className="relative h-full min-h-26rem overflow-hidden rounded bg-black">
+          <section className="min-w-0 flex-1 bg-gray-950 p-4">
+            <div className="relative h-[min(70vh,44rem)] min-h-26rem overflow-hidden rounded bg-black flex items-center justify-center">
               {previewContent}
               {isStreaming && (
                 <div className="absolute left-3 top-3 flex items-center gap-2 rounded bg-black/60 px-2 py-1 text-xs text-white">

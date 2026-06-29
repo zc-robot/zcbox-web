@@ -212,7 +212,7 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
             onClick={handleClose} />
         </div>
         <div className="mt-3 rounded-lg bg-gray-100 p-3 text-sm text-gray-600">
-          level 名称使用地图名称，可以同时勾选多个地图并合并上传。
+          level 名称使用地图名称，可以同时勾选多个地图并合并上传；对应地图图片会以 PNG 一起上传，并同步更新 fleet 参考坐标。
         </div>
         <div className="mt-3 rounded-xl border-(solid 1px gray-200) p-3">
           <label className="block text-sm font-bold mb-2">上传目标 IP / Host</label>

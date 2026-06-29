@@ -1,7 +1,8 @@
-import type { FleetDataMessage, FleetRobotDataMessage, TwistCommand } from '../../types.js'
+import type { FleetDataMessage, FleetDiagnosticStateMessage, FleetDiagnosticStatusMessage, FleetRobotDataMessage, TwistCommand } from '../../types.js'
 
 export const FLEET_STATE_STALE_MS = 3000
 export const FLEET_DISCONNECTED_MS = 10000
+export const HARDWARE_DIAGNOSTICS_STALE_MS = 5000
 
 export type FleetRobotNetworkState = 'live' | 'poor-network' | 'disconnected' | 'last-known'
 export type FleetRobotOverallHealth = 'normal' | 'warning' | 'fault' | 'unknown'
@@ -10,6 +11,8 @@ export type FleetRobotActivitySeverity = 'normal' | 'warning' | 'fault'
 export type FleetPeripheralGroupId = 'power' | 'motion' | 'fork-lift' | 'shelf-pallet' | 'io'
 export type FleetDigitalObservedState = 'unknown' | 'on' | 'off'
 export type FleetDigitalOutputCommandStatus = 'idle' | 'pending' | 'sent' | 'failed'
+export type FleetHardwareDiagnosticState = 'normal' | 'warning' | 'fault' | 'unknown' | 'stale'
+export type FleetHardwareDiagnosticGroupId = 'compute' | 'sensors' | 'interfaces' | 'power' | 'motion' | 'other' | 'unknown'
 
 export interface FleetPeripheralGroup {
   id: FleetPeripheralGroupId
@@ -64,6 +67,48 @@ export interface FleetRobotPeripheralState {
   updatedAt: number | null
 }
 
+export interface FleetHardwareDiagnosticValue {
+  label: string
+  value: string
+}
+
+export interface FleetHardwareDiagnosticItem {
+  id: string
+  label: string
+  rawName: string
+  groupId: FleetHardwareDiagnosticGroupId
+  state: FleetHardwareDiagnosticState
+  message: string
+  hardwareId: string
+  values: FleetHardwareDiagnosticValue[]
+}
+
+export interface FleetHardwareDiagnosticGroup {
+  id: FleetHardwareDiagnosticGroupId
+  title: string
+  items: FleetHardwareDiagnosticItem[]
+}
+
+export interface FleetHardwareDiagnosticSummary {
+  state: FleetHardwareDiagnosticState
+  totalCount: number
+  abnormalCount: number
+  updatedAt: number | null
+}
+
+export interface FleetRobotHardwareDiagnosticsState {
+  showNormal: boolean
+  summary: FleetHardwareDiagnosticSummary
+  groups: FleetHardwareDiagnosticGroup[]
+  updatedAt: number | null
+}
+
+interface FleetRobotHardwareDiagnosticsRecord {
+  diagnostics: FleetDiagnosticStateMessage | null
+  receivedAt: number | null
+  showNormal: boolean
+}
+
 export interface FleetRobotPose {
   x: number
   y: number
@@ -109,6 +154,7 @@ export interface FleetViewRuntimeRobotDetail extends FleetViewRuntimeRobot {
   isLastKnown: boolean
   activity: FleetRobotActivityEntry[]
   peripheral: FleetRobotPeripheralState
+  hardwareDiagnostics: FleetRobotHardwareDiagnosticsState
 }
 
 export interface FleetManualControlPanelState {
@@ -155,6 +201,7 @@ export interface FleetViewRuntimeState {
   selectedRobotDetail: FleetViewRuntimeRobotDetail | null
   robotActivity: FleetRobotActivityEntry[]
   robotPeripheralState: Record<string, FleetRobotPeripheralState>
+  robotHardwareDiagnostics: Record<string, FleetRobotHardwareDiagnosticsRecord>
   manualControlPanel: FleetManualControlPanelState
   dashboardMap: FleetViewDashboardMapState
   lastFleetStateReceivedAt: number | null
@@ -193,6 +240,8 @@ export type FleetViewRuntimeEvent =
   | { type: 'digital-output-state-received'; robotId: string; values: boolean[]; receivedAt: number }
   | { type: 'digital-output-command-requested'; robotId: string; controlId: string; value: boolean; occurredAt: number }
   | { type: 'digital-output-command-response-received'; robotId: string; controlId: string; requestId: string; success: boolean; message: string; occurredAt: number }
+  | { type: 'hardware-diagnostics-received'; robotId: string; diagnostics: FleetDiagnosticStateMessage; receivedAt: number }
+  | { type: 'hardware-diagnostics-show-normal-changed'; robotId: string; showNormal: boolean }
   | { type: 'deployment-activity-received'; robotId: string; levelName: string; occurredAt: number }
   | { type: 'peripheral-activity-received'; robotId: string; label: string; value: string; occurredAt: number }
   | { type: 'hardware-diagnostics-activity-received'; robotId: string; diagnosticName: string; level: FleetRobotActivitySeverity; message: string; occurredAt: number }
@@ -230,6 +279,7 @@ export const emptyFleetViewRuntimeState: FleetViewRuntimeState = {
   selectedRobotDetail: null,
   robotActivity: [],
   robotPeripheralState: {},
+  robotHardwareDiagnostics: {},
   manualControlPanel: {
     placement: 'fleet-sidebar',
     availableInPages: ['dashboard', 'robots', 'tasks', 'storage', 'sites'],
@@ -274,10 +324,16 @@ interface DigitalOutputCommandFeedback {
   serviceResponse: FleetDigitalOutputServiceResponse | null
 }
 
+const DIGITAL_OUTPUT_ADDRESS_BASE = 800
+
+function digitalOutputIndexForAddress(address: number) {
+  return address - DIGITAL_OUTPUT_ADDRESS_BASE
+}
+
 const predefinedDigitalOutputControls: PredefinedDigitalOutputControl[] = [
-  { id: 'fork-extend', label: 'Fork extend', groupId: 'fork-lift', outputIndex: 0, address: 805 },
-  { id: 'fork-retract', label: 'Fork retract', groupId: 'fork-lift', outputIndex: 1, address: 806 },
-  { id: 'fork-power', label: 'Fork power', groupId: 'power', outputIndex: 2, address: 807 },
+  { id: 'fork-extend', label: 'Fork extend', groupId: 'fork-lift', outputIndex: digitalOutputIndexForAddress(805), address: 805 },
+  { id: 'fork-retract', label: 'Fork retract', groupId: 'fork-lift', outputIndex: digitalOutputIndexForAddress(806), address: 806 },
+  { id: 'fork-power', label: 'Fork power', groupId: 'power', outputIndex: digitalOutputIndexForAddress(807), address: 807 },
 ]
 
 function robotId(robot: FleetRobotDataMessage) {
@@ -289,7 +345,7 @@ function normalizeCommandNamespace(value: string) {
 }
 
 function digitalId(prefix: 'I' | 'O', index: number) {
-  return `${prefix}${index + 1}`
+  return `${prefix}${index}`
 }
 
 function digitalObservedState(value: boolean | null): FleetDigitalObservedState {
@@ -303,7 +359,7 @@ function buildDigitalInputs(values: boolean[] | undefined): FleetDigitalInputVal
   return (values ?? []).map((value, index) => ({
     id: digitalId('I', index),
     label: digitalId('I', index),
-    index: index + 1,
+    index,
     value,
     observedState: value ? 'on' : 'off',
     readOnly: true,
@@ -322,7 +378,7 @@ function buildDigitalOutputs(values: Array<boolean | null> | undefined): FleetDi
     return {
       id: digitalId('O', index),
       label: digitalId('O', index),
-      index: index + 1,
+      index,
       value,
       observedState: digitalObservedState(value),
     }
@@ -441,6 +497,278 @@ function withRobotPeripheralState(
   }
 }
 
+const hardwareDiagnosticGroupOrder: FleetHardwareDiagnosticGroupId[] = [
+  'compute',
+  'sensors',
+  'interfaces',
+  'power',
+  'motion',
+  'other',
+  'unknown',
+]
+
+const hardwareDiagnosticGroupTitles: Record<FleetHardwareDiagnosticGroupId, string> = {
+  compute: 'Compute',
+  sensors: 'Sensors',
+  interfaces: 'Interfaces',
+  power: 'Power',
+  motion: 'Motion',
+  other: 'Other',
+  unknown: 'Hardware',
+}
+
+function normalizeDiagnosticName(value: string) {
+  return value.trim().replace(/^\/+/, '').replace(/\/+$/, '')
+}
+
+function titleCaseWords(value: string) {
+  return value
+    .split(/[\s_/.-]+/)
+    .filter(Boolean)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
+
+function friendlyDiagnosticLabel(status: FleetDiagnosticStatusMessage) {
+  const name = normalizeDiagnosticName(status.name)
+  const lowerName = name.toLowerCase()
+
+  if (lowerName === 'cpu')
+    return 'CPU'
+  if (lowerName === 'memory')
+    return 'Memory'
+  if (lowerName === 'swap')
+    return 'Swap'
+
+  const scanMatch = lowerName.match(/^scan(\d*)$/)
+  if (scanMatch)
+    return scanMatch[1] ? `Lidar ${scanMatch[1]}` : 'Lidar'
+
+  const lidarMatch = lowerName.match(/^lidar[_/-]?(\d*)$/)
+  if (lidarMatch)
+    return lidarMatch[1] ? `Lidar ${lidarMatch[1]}` : 'Lidar'
+
+  if (lowerName.includes('imu'))
+    return 'IMU'
+
+  const cameraMatch = lowerName.match(/^camera_(\d+)\/(color|depth)\//)
+  if (cameraMatch)
+    return `Camera ${cameraMatch[1]} ${cameraMatch[2] === 'color' ? 'Color' : 'Depth'}`
+
+  const ethernetMatch = lowerName.match(/^hardware\/ethernet\/(.+)$/)
+  if (ethernetMatch)
+    return `Ethernet ${ethernetMatch[1]}`
+
+  const canMatch = lowerName.match(/^hardware\/can\/(.+)$/)
+  if (canMatch)
+    return `CAN ${canMatch[1]}`
+
+  const uartMatch = lowerName.match(/^hardware\/uart\/(.+)$/)
+  if (uartMatch)
+    return `UART ${uartMatch[1]}`
+
+  if (name)
+    return titleCaseWords(name)
+
+  return 'Hardware diagnostics'
+}
+
+function hardwareDiagnosticGroupId(status: FleetDiagnosticStatusMessage): FleetHardwareDiagnosticGroupId {
+  const name = normalizeDiagnosticName(status.name).toLowerCase()
+  const hardwareId = status.hardwareId.toLowerCase()
+
+  if (['cpu', 'memory', 'swap'].includes(name) || hardwareId === 'system')
+    return 'compute'
+  if (name.includes('battery') || hardwareId === 'power')
+    return 'power'
+  if (name.includes('motor') || name.includes('wheel') || name.includes('lift') || hardwareId === 'motion')
+    return 'motion'
+  if (
+    hardwareId === 'sensor'
+    || (name.startsWith('scan') && /^scan\d*$/.test(name))
+    || name.startsWith('lidar')
+    || name.includes('imu')
+    || name.includes('camera')
+  )
+    return 'sensors'
+  if (
+    hardwareId === 'hardware'
+    || name.startsWith('hardware/ethernet/')
+    || name.startsWith('hardware/can/')
+    || name.startsWith('hardware/uart/')
+  )
+    return 'interfaces'
+
+  return 'other'
+}
+
+function hardwareDiagnosticState(level: number): FleetHardwareDiagnosticState {
+  if (level >= 2)
+    return 'fault'
+  if (level === 1)
+    return 'warning'
+  if (level === 0)
+    return 'normal'
+
+  return 'unknown'
+}
+
+function hardwareDiagnosticValueLabel(key: string) {
+  return titleCaseWords(key.replace(/_percent$/i, '').replace(/_celsius$/i, ''))
+}
+
+function hardwareSummaryState(items: FleetHardwareDiagnosticItem[]): FleetHardwareDiagnosticState {
+  if (items.some(item => item.state === 'fault'))
+    return 'fault'
+  if (items.some(item => item.state === 'warning'))
+    return 'warning'
+  if (items.some(item => item.state === 'stale'))
+    return 'stale'
+  if (items.some(item => item.state === 'unknown'))
+    return 'unknown'
+
+  return 'normal'
+}
+
+function unknownHardwareDiagnostics(showNormal: boolean): FleetRobotHardwareDiagnosticsState {
+  return {
+    showNormal,
+    updatedAt: null,
+    summary: {
+      state: 'unknown',
+      totalCount: 1,
+      abnormalCount: 1,
+      updatedAt: null,
+    },
+    groups: [{
+      id: 'unknown',
+      title: hardwareDiagnosticGroupTitles.unknown,
+      items: [{
+        id: 'hardware-diagnostics',
+        label: 'Hardware diagnostics',
+        rawName: '',
+        groupId: 'unknown',
+        state: 'unknown',
+        message: 'No diagnostics received this session',
+        hardwareId: '',
+        values: [],
+      }],
+    }],
+  }
+}
+
+function buildHardwareDiagnosticsState(
+  record: FleetRobotHardwareDiagnosticsRecord | undefined,
+  now: number,
+): FleetRobotHardwareDiagnosticsState {
+  const showNormal = record?.showNormal ?? false
+  if (!record?.diagnostics || record.receivedAt == null)
+    return unknownHardwareDiagnostics(showNormal)
+
+  const stale = now - record.receivedAt > HARDWARE_DIAGNOSTICS_STALE_MS
+  const allItems = record.diagnostics.status.map((status, index): FleetHardwareDiagnosticItem => {
+    const groupId = hardwareDiagnosticGroupId(status)
+    const state = stale ? 'stale' : hardwareDiagnosticState(status.level)
+    const rawName = normalizeDiagnosticName(status.name)
+    return {
+      id: rawName || `${groupId}-${index}`,
+      label: friendlyDiagnosticLabel(status),
+      rawName,
+      groupId,
+      state,
+      message: stale ? 'Diagnostic data stale' : (status.message || '--'),
+      hardwareId: status.hardwareId,
+      values: status.values.map(value => ({
+        label: hardwareDiagnosticValueLabel(value.key),
+        value: value.value,
+      })),
+    }
+  })
+  const visibleItems = allItems.filter(item => showNormal || item.state !== 'normal')
+  const groups = hardwareDiagnosticGroupOrder
+    .map((groupId) => {
+      const items = visibleItems.filter(item => item.groupId === groupId)
+      return {
+        id: groupId,
+        title: hardwareDiagnosticGroupTitles[groupId],
+        items,
+      }
+    })
+    .filter(group => group.items.length > 0)
+  const abnormalCount = allItems.filter(item => item.state !== 'normal').length
+
+  return {
+    showNormal,
+    groups,
+    updatedAt: record.receivedAt,
+    summary: {
+      state: hardwareSummaryState(allItems),
+      totalCount: allItems.length,
+      abnormalCount,
+      updatedAt: record.receivedAt,
+    },
+  }
+}
+
+export function buildRobotHardwareDiagnosticsView(
+  diagnostics: FleetDiagnosticStateMessage | null | undefined,
+  receivedAt: number | null | undefined,
+  showNormal: boolean,
+  now: number,
+): FleetRobotHardwareDiagnosticsState {
+  return buildHardwareDiagnosticsState({
+    diagnostics: diagnostics ?? null,
+    receivedAt: receivedAt ?? null,
+    showNormal,
+  }, now)
+}
+
+function hardwareDiagnosticsForRobot(state: FleetViewRuntimeState, robotIdValue: string, now: number) {
+  return buildHardwareDiagnosticsState(state.robotHardwareDiagnostics[robotIdValue], now)
+}
+
+function detailOverallHealth(
+  robot: FleetViewRuntimeRobot,
+  hardwareDiagnostics: FleetRobotHardwareDiagnosticsState,
+): FleetRobotOverallHealth {
+  if (hardwareDiagnostics.summary.state === 'fault')
+    return 'fault'
+  if (hardwareDiagnostics.summary.state === 'warning' || hardwareDiagnostics.summary.state === 'stale')
+    return 'warning'
+  if (hardwareDiagnostics.summary.state === 'unknown' && robot.overallHealth === 'normal')
+    return 'unknown'
+
+  return robot.overallHealth
+}
+
+function withRobotHardwareDiagnosticsRecord(
+  state: FleetViewRuntimeState,
+  robotIdValue: string,
+  record: FleetRobotHardwareDiagnosticsRecord,
+  now: number,
+): FleetViewRuntimeState {
+  const nextState = {
+    ...state,
+    robotHardwareDiagnostics: {
+      ...state.robotHardwareDiagnostics,
+      [robotIdValue]: record,
+    },
+  }
+
+  if (nextState.selectedRobotDetail?.id !== robotIdValue)
+    return nextState
+
+  const hardwareDiagnostics = hardwareDiagnosticsForRobot(nextState, robotIdValue, now)
+  return {
+    ...nextState,
+    selectedRobotDetail: {
+      ...nextState.selectedRobotDetail,
+      overallHealth: detailOverallHealth(nextState.selectedRobotDetail, hardwareDiagnostics),
+      hardwareDiagnostics,
+    },
+  }
+}
+
 function robotOverallHealth(robot: FleetRobotDataMessage): FleetRobotOverallHealth {
   if (!robot.hasDiagnostics)
     return 'unknown'
@@ -487,12 +815,15 @@ function toRobotDetail(
   isLastKnown: boolean,
   activity: FleetRobotActivityEntry[],
   peripheral: FleetRobotPeripheralState,
+  hardwareDiagnostics: FleetRobotHardwareDiagnosticsState,
 ): FleetViewRuntimeRobotDetail {
   return {
     ...robot,
+    overallHealth: detailOverallHealth(robot, hardwareDiagnostics),
     isLastKnown,
     activity,
     peripheral,
+    hardwareDiagnostics,
   }
 }
 
@@ -501,14 +832,17 @@ function markLastKnown(
   now: number,
   activity: FleetRobotActivityEntry[],
   peripheral: FleetRobotPeripheralState,
+  hardwareDiagnostics: FleetRobotHardwareDiagnosticsState,
 ): FleetViewRuntimeRobotDetail {
   return {
     ...detail,
+    overallHealth: detailOverallHealth(detail, hardwareDiagnostics),
     isLastKnown: true,
     networkState: 'last-known',
     lastUpdateAgeMs: Math.max(0, now - detail.lastSeenAt),
     activity,
     peripheral,
+    hardwareDiagnostics,
   }
 }
 
@@ -559,8 +893,15 @@ function selectedDetailFromRobots(
     return null
 
   const selectedRobot = robots.find(robot => robot.id === state.selectedRobotId)
-  if (selectedRobot)
-    return toRobotDetail(selectedRobot, false, robotActivity(state, selectedRobot.id), peripheralForRobot(state, selectedRobot.id))
+  if (selectedRobot) {
+    return toRobotDetail(
+      selectedRobot,
+      false,
+      robotActivity(state, selectedRobot.id),
+      peripheralForRobot(state, selectedRobot.id),
+      hardwareDiagnosticsForRobot(state, selectedRobot.id, now),
+    )
+  }
 
   if (state.selectedRobotDetail?.id === state.selectedRobotId) {
     return markLastKnown(
@@ -568,6 +909,7 @@ function selectedDetailFromRobots(
       now,
       robotActivity(state, state.selectedRobotId),
       peripheralForRobot(state, state.selectedRobotId),
+      hardwareDiagnosticsForRobot(state, state.selectedRobotId, now),
     )
   }
 
@@ -629,15 +971,23 @@ function buildTaskSequencePreview(
 function selectRobot(
   state: FleetViewRuntimeState,
   robotIdValue: string,
+  now: number,
 ): FleetViewRuntimeState {
   const selectedRobot = state.robots.find(robot => robot.id === robotIdValue)
   const selectedRobotDetail = selectedRobot
-    ? toRobotDetail(selectedRobot, false, robotActivity(state, robotIdValue), peripheralForRobot(state, robotIdValue))
+    ? toRobotDetail(
+      selectedRobot,
+      false,
+      robotActivity(state, robotIdValue),
+      peripheralForRobot(state, robotIdValue),
+      hardwareDiagnosticsForRobot(state, robotIdValue, now),
+    )
     : state.selectedRobotDetail?.id === robotIdValue
       ? {
           ...state.selectedRobotDetail,
           activity: robotActivity(state, robotIdValue),
           peripheral: peripheralForRobot(state, robotIdValue),
+          hardwareDiagnostics: hardwareDiagnosticsForRobot(state, robotIdValue, now),
         }
       : null
 
@@ -658,7 +1008,13 @@ function detailForRobotCommand(state: FleetViewRuntimeState, robotIdValue: strin
   if (!robot)
     return null
 
-  return toRobotDetail(robot, false, robotActivity(state, robotIdValue), peripheralForRobot(state, robotIdValue))
+  return toRobotDetail(
+    robot,
+    false,
+    robotActivity(state, robotIdValue),
+    peripheralForRobot(state, robotIdValue),
+    hardwareDiagnosticsForRobot(state, robotIdValue, state.lastFleetStateReceivedAt ?? Date.now()),
+  )
 }
 
 function activityTitle(kind: FleetRobotActivityKind, statusOrLevel: string) {
@@ -807,10 +1163,18 @@ function withDigitalOutputActivity(
   ))
 }
 
+function mostImportantHardwareItem(diagnostics: FleetRobotHardwareDiagnosticsState) {
+  return diagnostics.groups
+    .flatMap(group => group.items)
+    .find(item => item.state === 'fault')
+    ?? diagnostics.groups.flatMap(group => group.items).find(item => item.state === 'warning')
+    ?? null
+}
+
 export function nextFleetViewRuntime(
   state: FleetViewRuntimeState,
   event: FleetViewRuntimeEvent,
-  _options: FleetViewRuntimeOptions,
+  options: FleetViewRuntimeOptions,
 ): FleetViewRuntimeResult {
   if (event.type === 'fleet-state-received') {
     const robots = event.data.robots.map(robot => toRuntimeRobot(robot, event.receivedAt))
@@ -834,20 +1198,20 @@ export function nextFleetViewRuntime(
 
   if (event.type === 'select-robot') {
     return {
-      state: selectRobot(state, event.robotId),
+      state: selectRobot(state, event.robotId, options.now),
       effects: [],
     }
   }
 
   if (event.type === 'manual-control-robot-selected') {
     return {
-      state: selectRobot(state, event.robotId),
+      state: selectRobot(state, event.robotId, options.now),
       effects: [],
     }
   }
 
   if (event.type === 'dashboard-robot-clicked') {
-    const selectedState = selectRobot(state, event.robotId)
+    const selectedState = selectRobot(state, event.robotId, options.now)
     return {
       state: {
         ...selectedState,
@@ -1070,6 +1434,48 @@ export function nextFleetViewRuntime(
 
     return {
       state: nextState,
+      effects: [],
+    }
+  }
+
+  if (event.type === 'hardware-diagnostics-received') {
+    const currentRecord = state.robotHardwareDiagnostics[event.robotId]
+    const nextRecord: FleetRobotHardwareDiagnosticsRecord = {
+      diagnostics: event.diagnostics,
+      receivedAt: event.receivedAt,
+      showNormal: currentRecord?.showNormal ?? false,
+    }
+    const nextState = withRobotHardwareDiagnosticsRecord(state, event.robotId, nextRecord, event.receivedAt)
+    const diagnostics = hardwareDiagnosticsForRobot(nextState, event.robotId, event.receivedAt)
+    const importantItem = mostImportantHardwareItem(diagnostics)
+
+    return {
+      state: importantItem
+        ? withActivity(nextState, normalActivityEntry(
+          `hardware:${event.robotId}:${importantItem.id}:${importantItem.state}:${event.receivedAt}`,
+          event.robotId,
+          'hardware',
+          activityTitle('hardware', importantItem.state === 'fault' ? 'fault' : 'warning'),
+          `${importantItem.label}: ${importantItem.message}`,
+          event.receivedAt,
+          importantItem.state === 'fault' ? 'fault' : 'warning',
+        ))
+        : nextState,
+      effects: [],
+    }
+  }
+
+  if (event.type === 'hardware-diagnostics-show-normal-changed') {
+    const currentRecord = state.robotHardwareDiagnostics[event.robotId] ?? {
+      diagnostics: null,
+      receivedAt: null,
+      showNormal: false,
+    }
+    return {
+      state: withRobotHardwareDiagnosticsRecord(state, event.robotId, {
+        ...currentRecord,
+        showNormal: event.showNormal,
+      }, options.now),
       effects: [],
     }
   }

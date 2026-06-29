@@ -12,9 +12,21 @@ let mainWindow = null
 let zenohRobotPoseProcess = null
 let zenohPointCloudProcess = null
 let zenohTelemetryProcess = null
+let zenohMotorStatesProcess = null
+let zenohFleetDataProcess = null
+let zenohBuildingMapProcess = null
+let zenohDidoProcess = null
+let zenohHardwareDiagnosticsProcess = null
+let zenohCommandProcess = null
 let zenohRobotPoseKey = null
 let zenohPointCloudKey = null
 let zenohTelemetryKey = null
+let zenohMotorStatesKey = null
+let zenohFleetDataKey = null
+let zenohBuildingMapKey = null
+let zenohDidoKey = null
+let zenohHardwareDiagnosticsKey = null
+let zenohCommandKey = null
 let modbusTransactionId = 0
 
 const shelfStateModbusAddresses = Object.freeze({
@@ -23,6 +35,8 @@ const shelfStateModbusAddresses = Object.freeze({
   liftEnableCoil: 7,
   controlCoil804: 804,
   controlCoil805: 805,
+  controlCoil806: 806,
+  controlCoil807: 807,
   liftRealHeightRegister: 51,
   liftTargetHeightRegister: 52,
 })
@@ -49,6 +63,41 @@ function normalizeGatewayPath(value) {
   const normalizedPath = requestPath.startsWith('/') ? requestPath : `/${requestPath}`
   if (!normalizedPath.startsWith('/api/v1/sources') && normalizedPath !== '/api/v1/health')
     throw new Error(`Camera gateway path is not allowed: ${normalizedPath}`)
+
+  return normalizedPath
+}
+
+function normalizeComposeControlHost(value) {
+  const host = typeof value === 'string' ? value.trim() : ''
+  if (!host)
+    throw new Error('Compose control request requires host')
+
+  try {
+    const url = new URL(host)
+    return url.hostname
+  }
+  catch {
+    return host.replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/:\d+$/, '')
+  }
+}
+
+function normalizeComposeControlPath(value) {
+  const requestPath = typeof value === 'string' ? value.trim() : ''
+  if (!requestPath)
+    throw new Error('Compose control request requires path')
+
+  const normalizedPath = requestPath.startsWith('/') ? requestPath : `/${requestPath}`
+  const pathname = normalizedPath.split('?')[0]
+  const isAllowed = pathname === '/health'
+    || pathname === '/api/fleet-config'
+    || pathname === '/api/fleet-config/reference-coordinates'
+    || pathname === '/api/maps/sites'
+    || /^\/api\/maps\/[^/]+\/files$/.test(pathname)
+    || /^\/api\/maps\/[^/]+\/download$/.test(pathname)
+    || /^\/api\/maps\/[^/]+\/(?:png|yaml|file)\/.+$/.test(pathname)
+
+  if (!isAllowed)
+    throw new Error(`Compose control path is not allowed: ${normalizedPath}`)
 
   return normalizedPath
 }
@@ -88,6 +137,61 @@ async function requestCameraGateway(options) {
     const message = typeof body === 'object' && body !== null && 'message' in body
       ? body.message
       : `Camera gateway request failed: ${response.status}`
+    throw new Error(message)
+  }
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    body,
+  }
+}
+
+async function requestComposeControl(options) {
+  const host = normalizeComposeControlHost(options?.host)
+  const port = Number.isFinite(options?.port) ? Math.floor(options.port) : 4999
+  const method = typeof options?.method === 'string' ? options.method.toUpperCase() : 'GET'
+  if (!['GET', 'PUT', 'POST'].includes(method))
+    throw new Error(`Compose control method is not allowed: ${method}`)
+
+  const requestPath = normalizeComposeControlPath(options?.path)
+  const token = typeof options?.token === 'string' ? options.token.trim() : ''
+  const url = new URL(requestPath, `http://${host}:${port}`)
+  const headers = {
+    accept: 'application/json',
+  }
+  if (token)
+    headers.authorization = `Bearer ${token}`
+  const hasJsonBody = method !== 'GET' && options?.json !== undefined
+  if (hasJsonBody)
+    headers['content-type'] = 'application/json'
+
+  let response
+  try {
+    response = await net.fetch(url.toString(), {
+      method,
+      headers,
+      body: hasJsonBody ? JSON.stringify(options.json) : undefined,
+    })
+  }
+  catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`Compose control request failed: ${method} ${url.toString()}: ${message}`)
+  }
+
+  const text = await response.text()
+  let body = text
+  if (text) {
+    try {
+      body = JSON.parse(text)
+    }
+    catch {}
+  }
+
+  if (!response.ok) {
+    const message = typeof body === 'object' && body !== null && 'error' in body
+      ? body.error
+      : `Compose control request failed: ${response.status}`
     throw new Error(message)
   }
 
@@ -179,7 +283,7 @@ function normalizeBoolean(value, name) {
 }
 
 function nextModbusTransactionId() {
-  modbusTransactionId = (modbusTransactionId + 1) & 0xffff
+  modbusTransactionId = (modbusTransactionId + 1) & 0xFFFF
   if (modbusTransactionId === 0)
     modbusTransactionId = 1
   return modbusTransactionId
@@ -337,7 +441,7 @@ async function readModbusHoldingRegisters(connection, address, quantity) {
 async function writeModbusSingleCoil(connection, address, value) {
   const payload = Buffer.alloc(4)
   payload.writeUInt16BE(address, 0)
-  payload.writeUInt16BE(value ? 0xff00 : 0x0000, 2)
+  payload.writeUInt16BE(value ? 0xFF00 : 0x0000, 2)
 
   const pdu = await requestModbusPdu({
     ...connection,
@@ -382,7 +486,12 @@ async function readShelfStateModbus(options) {
   const addresses = shelfStateModbusAddresses
   const shelfPresent = (await readModbusCoils(connection, addresses.shelfPresentCoil, 1))[0]
   const liftEnabled = (await readModbusCoils(connection, addresses.liftEnableCoil, 1))[0]
-  const [controlCoil804, controlCoil805] = await readModbusCoils(connection, addresses.controlCoil804, 2)
+  const [
+    controlCoil804,
+    controlCoil805,
+    controlCoil806,
+    controlCoil807,
+  ] = await readModbusCoils(connection, addresses.controlCoil804, 4)
   const [stock, liftRealHeight, liftTargetHeight] = await readModbusHoldingRegisters(connection, addresses.stockRegister, 3)
 
   return {
@@ -393,6 +502,8 @@ async function readShelfStateModbus(options) {
       lift_enabled: liftEnabled,
       coil_804: controlCoil804,
       coil_805: controlCoil805,
+      coil_806: controlCoil806,
+      coil_807: controlCoil807,
       lift_real_height: liftRealHeight,
       lift_target_height: liftTargetHeight,
       coil_address: addresses.shelfPresentCoil,
@@ -400,6 +511,8 @@ async function readShelfStateModbus(options) {
       lift_enable_coil_address: addresses.liftEnableCoil,
       coil_804_address: addresses.controlCoil804,
       coil_805_address: addresses.controlCoil805,
+      coil_806_address: addresses.controlCoil806,
+      coil_807_address: addresses.controlCoil807,
       lift_real_height_register_address: addresses.liftRealHeightRegister,
       lift_target_height_register_address: addresses.liftTargetHeightRegister,
       source: 'desktop-modbus',
@@ -448,6 +561,30 @@ async function writeModbusCoil(options) {
   return readModbusCoil(options)
 }
 
+async function writeModbusCoilSequence(options) {
+  const connection = buildModbusConnection(options)
+  const steps = Array.isArray(options?.steps) ? options.steps : []
+  if (steps.length === 0)
+    throw new Error('Modbus coil sequence requires at least one step')
+
+  const normalizedSteps = steps.map((step, index) => ({
+    address: normalizeModbusCoilAddress(step?.address),
+    value: normalizeBoolean(step?.value, `steps[${index}].value`),
+  }))
+
+  for (const step of normalizedSteps)
+    await writeModbusSingleCoil(connection, step.address, step.value)
+
+  const shelfState = await readShelfStateModbus(options)
+
+  return {
+    ok: true,
+    steps: normalizedSteps,
+    state: shelfState.state,
+    meta: connection,
+  }
+}
+
 function isAllowedNavigation(url) {
   if (!url)
     return false
@@ -489,23 +626,87 @@ function getZenohTelemetryBridgePath() {
   return path.join(process.resourcesPath, 'app.asar.unpacked', 'desktop', 'zenoh-telemetry-bridge.py')
 }
 
-function getBundledZenohPythonPath() {
+function getZenohMotorStateBridgePath() {
   if (!app.isPackaged)
-    return path.join(__dirname, 'vendor', 'zenoh-py-1.7.1')
+    return path.join(__dirname, 'zenoh-motor-state-bridge.py')
 
-  return path.join(process.resourcesPath, 'app.asar.unpacked', 'desktop', 'vendor', 'zenoh-py-1.7.1')
+  return path.join(process.resourcesPath, 'app.asar.unpacked', 'desktop', 'zenoh-motor-state-bridge.py')
 }
 
-function getPythonCommand() {
+function getZenohFleetDataBridgePath() {
+  if (!app.isPackaged)
+    return path.join(__dirname, 'zenoh-fleet-data-bridge.py')
+
+  return path.join(process.resourcesPath, 'app.asar.unpacked', 'desktop', 'zenoh-fleet-data-bridge.py')
+}
+
+function getZenohBuildingMapBridgePath() {
+  if (!app.isPackaged)
+    return path.join(__dirname, 'zenoh-building-map-bridge.py')
+
+  return path.join(process.resourcesPath, 'app.asar.unpacked', 'desktop', 'zenoh-building-map-bridge.py')
+}
+
+function getZenohDidoBridgePath() {
+  if (!app.isPackaged)
+    return path.join(__dirname, 'zenoh-dido-bridge.py')
+
+  return path.join(process.resourcesPath, 'app.asar.unpacked', 'desktop', 'zenoh-dido-bridge.py')
+}
+
+function getZenohHardwareDiagnosticsBridgePath() {
+  if (!app.isPackaged)
+    return path.join(__dirname, 'zenoh-hardware-diagnostics-bridge.py')
+
+  return path.join(process.resourcesPath, 'app.asar.unpacked', 'desktop', 'zenoh-hardware-diagnostics-bridge.py')
+}
+
+function getZenohCommandBridgePath() {
+  if (!app.isPackaged)
+    return path.join(__dirname, 'zenoh-command-bridge.py')
+
+  return path.join(process.resourcesPath, 'app.asar.unpacked', 'desktop', 'zenoh-command-bridge.py')
+}
+
+function getBundledZenohPythonPath() {
+  const vendorPackageName = process.platform === 'win32'
+    ? 'zenoh-py-1.7.1-win-amd64'
+    : 'zenoh-py-1.7.1'
+  const vendorPath = !app.isPackaged
+    ? path.join(__dirname, 'vendor', vendorPackageName)
+    : path.join(process.resourcesPath, 'app.asar.unpacked', 'desktop', 'vendor', vendorPackageName)
+
+  return existsSync(vendorPath) ? vendorPath : ''
+}
+
+function getBundledWindowsPythonPath() {
+  if (process.platform !== 'win32')
+    return ''
+
+  const pythonPath = !app.isPackaged
+    ? path.join(__dirname, 'vendor', 'python-3.12.10-embed-win-amd64', 'python.exe')
+    : path.join(process.resourcesPath, 'app.asar.unpacked', 'desktop', 'vendor', 'python-3.12.10-embed-win-amd64', 'python.exe')
+
+  return existsSync(pythonPath) ? pythonPath : ''
+}
+
+function getPythonInvocation() {
   if (process.env.ZCBOX_ZENOH_PYTHON)
-    return process.env.ZCBOX_ZENOH_PYTHON
+    return { command: process.env.ZCBOX_ZENOH_PYTHON, args: [] }
+
+  const bundledWindowsPython = getBundledWindowsPythonPath()
+  if (bundledWindowsPython)
+    return { command: bundledWindowsPython, args: [] }
+
+  if (process.platform === 'win32')
+    return { command: 'python', args: [] }
 
   for (const candidate of ['/usr/bin/python3', '/opt/homebrew/bin/python3', '/usr/local/bin/python3']) {
     if (existsSync(candidate))
-      return candidate
+      return { command: candidate, args: [] }
   }
 
-  return 'python3'
+  return { command: 'python3', args: [] }
 }
 
 function sendZenohRobotPoseMessage(message) {
@@ -527,6 +728,48 @@ function sendZenohTelemetryMessage(message) {
     return
 
   mainWindow.webContents.send('zenoh-telemetry:message', message)
+}
+
+function sendZenohMotorStatesMessage(message) {
+  if (!mainWindow || mainWindow.isDestroyed())
+    return
+
+  mainWindow.webContents.send('zenoh-motor-states:message', message)
+}
+
+function sendZenohFleetDataMessage(message) {
+  if (!mainWindow || mainWindow.isDestroyed())
+    return
+
+  mainWindow.webContents.send('zenoh-fleet-data:message', message)
+}
+
+function sendZenohBuildingMapMessage(message) {
+  if (!mainWindow || mainWindow.isDestroyed())
+    return
+
+  mainWindow.webContents.send('zenoh-building-map:message', message)
+}
+
+function sendZenohDidoMessage(message) {
+  if (!mainWindow || mainWindow.isDestroyed())
+    return
+
+  mainWindow.webContents.send('zenoh-dido:message', message)
+}
+
+function sendZenohHardwareDiagnosticsMessage(message) {
+  if (!mainWindow || mainWindow.isDestroyed())
+    return
+
+  mainWindow.webContents.send('zenoh-hardware-diagnostics:message', message)
+}
+
+function sendZenohCommandMessage(message) {
+  if (!mainWindow || mainWindow.isDestroyed())
+    return
+
+  mainWindow.webContents.send('zenoh-command:message', message)
 }
 
 function isBridgeRunning(bridgeProcess) {
@@ -566,13 +809,14 @@ function startZenohRobotPoseBridge(options) {
 
   stopZenohRobotPoseBridge()
 
-  const python = getPythonCommand()
+  const python = getPythonInvocation()
   const pythonPath = process.env.ZCBOX_ZENOH_PYTHONPATH || getBundledZenohPythonPath()
   const env = { ...process.env }
   if (pythonPath)
     env.PYTHONPATH = env.PYTHONPATH ? `${pythonPath}${path.delimiter}${env.PYTHONPATH}` : pythonPath
 
-  const bridgeProcess = spawn(python, [
+  const bridgeProcess = spawn(python.command, [
+    ...python.args,
     getZenohRobotPoseBridgePath(),
     '--host',
     host,
@@ -583,6 +827,7 @@ function startZenohRobotPoseBridge(options) {
   ], {
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
   })
   zenohRobotPoseProcess = bridgeProcess
 
@@ -665,7 +910,7 @@ function startZenohPointCloudBridge(options) {
 
   stopZenohPointCloudBridge()
 
-  const python = getPythonCommand()
+  const python = getPythonInvocation()
   const pythonPath = process.env.ZCBOX_ZENOH_PYTHONPATH || getBundledZenohPythonPath()
   const env = { ...process.env }
   if (pythonPath)
@@ -689,9 +934,10 @@ function startZenohPointCloudBridge(options) {
   for (const targetFrame of normalizedTargetFrames)
     args.push('--target-frame', targetFrame)
 
-  const bridgeProcess = spawn(python, args, {
+  const bridgeProcess = spawn(python.command, [...python.args, ...args], {
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
   })
   zenohPointCloudProcess = bridgeProcess
 
@@ -779,7 +1025,7 @@ function startZenohTelemetryBridge(options) {
 
   stopZenohTelemetryBridge()
 
-  const python = getPythonCommand()
+  const python = getPythonInvocation()
   const pythonPath = process.env.ZCBOX_ZENOH_PYTHONPATH || getBundledZenohPythonPath()
   const env = { ...process.env }
   if (pythonPath)
@@ -801,9 +1047,10 @@ function startZenohTelemetryBridge(options) {
   if (includeMap)
     args.push('--include-map')
 
-  const bridgeProcess = spawn(python, args, {
+  const bridgeProcess = spawn(python.command, [...python.args, ...args], {
     env,
     stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
   })
   zenohTelemetryProcess = bridgeProcess
 
@@ -862,10 +1109,663 @@ function publishZenohVelocityCommand(command) {
   return true
 }
 
+function publishZenohActuatorReset() {
+  if (!zenohTelemetryProcess?.stdin?.writable)
+    return false
+
+  zenohTelemetryProcess.stdin.write(`${JSON.stringify({
+    type: 'actuator_reset',
+  })}\n`)
+
+  return true
+}
+
+function stopZenohMotorStatesBridge() {
+  if (!zenohMotorStatesProcess)
+    return
+
+  zenohMotorStatesProcess.kill()
+  zenohMotorStatesProcess = null
+  zenohMotorStatesKey = null
+}
+
+function startZenohMotorStatesBridge(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const namespace = typeof options?.namespace === 'string' ? options.namespace.trim() : ''
+  const topics = Array.isArray(options?.topics) ? options.topics.filter(topic => typeof topic === 'string' && topic.trim()) : []
+
+  if (!host || !namespace)
+    throw new Error('Zenoh motor states requires host and namespace')
+
+  const normalizedTopics = topics.map(topic => topic.trim()).filter(Boolean)
+  const bridgeKey = JSON.stringify({ host, namespace, topics: normalizedTopics })
+  if (zenohMotorStatesKey === bridgeKey && isBridgeRunning(zenohMotorStatesProcess)) {
+    sendZenohMotorStatesMessage({
+      type: 'status',
+      state: 'subscribed',
+      reused: true,
+      keys: normalizedTopics,
+    })
+    return
+  }
+
+  stopZenohMotorStatesBridge()
+
+  const python = getPythonInvocation()
+  const pythonPath = process.env.ZCBOX_ZENOH_PYTHONPATH || getBundledZenohPythonPath()
+  const env = { ...process.env }
+  if (pythonPath)
+    env.PYTHONPATH = env.PYTHONPATH ? `${pythonPath}${path.delimiter}${env.PYTHONPATH}` : pythonPath
+
+  const args = [
+    getZenohMotorStateBridgePath(),
+    '--host',
+    host,
+    '--namespace',
+    namespace,
+    '--parent-pid',
+    String(process.pid),
+  ]
+  for (const topic of normalizedTopics)
+    args.push('--topic', topic)
+
+  const bridgeProcess = spawn(python.command, [...python.args, ...args], {
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  })
+  zenohMotorStatesProcess = bridgeProcess
+
+  let stdoutBuffer = ''
+
+  bridgeProcess.stdout.on('data', (chunk) => {
+    stdoutBuffer += chunk.toString()
+    const lines = stdoutBuffer.split('\n')
+    stdoutBuffer = lines.pop() ?? ''
+
+    for (const line of lines) {
+      if (!line.trim())
+        continue
+
+      try {
+        sendZenohMotorStatesMessage(JSON.parse(line))
+      }
+      catch {
+        sendZenohMotorStatesMessage({ type: 'log', message: line })
+      }
+    }
+  })
+
+  bridgeProcess.stderr.on('data', (chunk) => {
+    sendZenohMotorStatesMessage({ type: 'error', message: chunk.toString() })
+  })
+
+  bridgeProcess.on('error', (error) => {
+    sendZenohMotorStatesMessage({ type: 'error', message: error.message })
+    if (zenohMotorStatesProcess === bridgeProcess) {
+      zenohMotorStatesProcess = null
+      zenohMotorStatesKey = null
+    }
+  })
+
+  bridgeProcess.on('exit', (code, signal) => {
+    sendZenohMotorStatesMessage({ type: 'status', state: 'stopped', code, signal })
+    if (zenohMotorStatesProcess === bridgeProcess) {
+      zenohMotorStatesProcess = null
+      zenohMotorStatesKey = null
+    }
+  })
+
+  zenohMotorStatesKey = bridgeKey
+}
+
+function stopZenohFleetDataBridge() {
+  if (!zenohFleetDataProcess)
+    return
+
+  zenohFleetDataProcess.kill()
+  zenohFleetDataProcess = null
+  zenohFleetDataKey = null
+}
+
+function startZenohFleetDataBridge(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const namespace = typeof options?.namespace === 'string' ? options.namespace.trim() : ''
+  const topics = Array.isArray(options?.topics) ? options.topics.filter(topic => typeof topic === 'string' && topic.trim()) : []
+
+  if (!host)
+    throw new Error('Zenoh fleet data requires host')
+
+  const normalizedTopics = topics.map(topic => topic.trim()).filter(Boolean)
+  const bridgeKey = JSON.stringify({ host, namespace, topics: normalizedTopics })
+  if (zenohFleetDataKey === bridgeKey && isBridgeRunning(zenohFleetDataProcess)) {
+    sendZenohFleetDataMessage({
+      type: 'status',
+      state: 'subscribed',
+      reused: true,
+      keys: normalizedTopics,
+    })
+    return
+  }
+
+  stopZenohFleetDataBridge()
+
+  const python = getPythonInvocation()
+  const pythonPath = process.env.ZCBOX_ZENOH_PYTHONPATH || getBundledZenohPythonPath()
+  const env = { ...process.env }
+  if (pythonPath)
+    env.PYTHONPATH = env.PYTHONPATH ? `${pythonPath}${path.delimiter}${env.PYTHONPATH}` : pythonPath
+
+  const args = [
+    getZenohFleetDataBridgePath(),
+    '--host',
+    host,
+    '--parent-pid',
+    String(process.pid),
+  ]
+  if (namespace)
+    args.push('--namespace', namespace)
+  for (const topic of normalizedTopics)
+    args.push('--topic', topic)
+
+  const bridgeProcess = spawn(python.command, [...python.args, ...args], {
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  })
+  zenohFleetDataProcess = bridgeProcess
+
+  let stdoutBuffer = ''
+
+  bridgeProcess.stdout.on('data', (chunk) => {
+    stdoutBuffer += chunk.toString()
+    const lines = stdoutBuffer.split('\n')
+    stdoutBuffer = lines.pop() ?? ''
+
+    for (const line of lines) {
+      if (!line.trim())
+        continue
+
+      try {
+        sendZenohFleetDataMessage(JSON.parse(line))
+      }
+      catch {
+        sendZenohFleetDataMessage({ type: 'log', message: line })
+      }
+    }
+  })
+
+  bridgeProcess.stderr.on('data', (chunk) => {
+    sendZenohFleetDataMessage({ type: 'error', message: chunk.toString() })
+  })
+
+  bridgeProcess.on('error', (error) => {
+    sendZenohFleetDataMessage({ type: 'error', message: error.message })
+    if (zenohFleetDataProcess === bridgeProcess) {
+      zenohFleetDataProcess = null
+      zenohFleetDataKey = null
+    }
+  })
+
+  bridgeProcess.on('exit', (code, signal) => {
+    sendZenohFleetDataMessage({ type: 'status', state: 'stopped', code, signal })
+    if (zenohFleetDataProcess === bridgeProcess) {
+      zenohFleetDataProcess = null
+      zenohFleetDataKey = null
+    }
+  })
+
+  zenohFleetDataKey = bridgeKey
+}
+
+function stopZenohBuildingMapBridge() {
+  if (!zenohBuildingMapProcess)
+    return
+
+  zenohBuildingMapProcess.kill()
+  zenohBuildingMapProcess = null
+  zenohBuildingMapKey = null
+}
+
+function startZenohBuildingMapBridge(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const namespace = typeof options?.namespace === 'string' ? options.namespace.trim() : ''
+  const topics = Array.isArray(options?.topics) ? options.topics.filter(topic => typeof topic === 'string' && topic.trim()) : []
+
+  if (!host)
+    throw new Error('Zenoh building map requires host')
+
+  const normalizedTopics = topics.map(topic => topic.trim()).filter(Boolean)
+  const bridgeKey = JSON.stringify({ host, namespace, topics: normalizedTopics })
+  if (zenohBuildingMapKey === bridgeKey && isBridgeRunning(zenohBuildingMapProcess)) {
+    sendZenohBuildingMapMessage({
+      type: 'status',
+      state: 'subscribed',
+      reused: true,
+      keys: normalizedTopics,
+    })
+    return
+  }
+
+  stopZenohBuildingMapBridge()
+
+  const python = getPythonInvocation()
+  const pythonPath = process.env.ZCBOX_ZENOH_PYTHONPATH || getBundledZenohPythonPath()
+  const env = { ...process.env }
+  if (pythonPath)
+    env.PYTHONPATH = env.PYTHONPATH ? `${pythonPath}${path.delimiter}${env.PYTHONPATH}` : pythonPath
+
+  const args = [
+    getZenohBuildingMapBridgePath(),
+    '--host',
+    host,
+    '--parent-pid',
+    String(process.pid),
+  ]
+  if (namespace)
+    args.push('--namespace', namespace)
+  for (const topic of normalizedTopics)
+    args.push('--topic', topic)
+
+  const bridgeProcess = spawn(python.command, [...python.args, ...args], {
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  })
+  zenohBuildingMapProcess = bridgeProcess
+
+  let stdoutBuffer = ''
+
+  bridgeProcess.stdout.on('data', (chunk) => {
+    stdoutBuffer += chunk.toString()
+    const lines = stdoutBuffer.split('\n')
+    stdoutBuffer = lines.pop() ?? ''
+
+    for (const line of lines) {
+      if (!line.trim())
+        continue
+
+      try {
+        sendZenohBuildingMapMessage(JSON.parse(line))
+      }
+      catch {
+        sendZenohBuildingMapMessage({ type: 'log', message: line })
+      }
+    }
+  })
+
+  bridgeProcess.stderr.on('data', (chunk) => {
+    sendZenohBuildingMapMessage({ type: 'error', message: chunk.toString() })
+  })
+
+  bridgeProcess.on('error', (error) => {
+    sendZenohBuildingMapMessage({ type: 'error', message: error.message })
+    if (zenohBuildingMapProcess === bridgeProcess) {
+      zenohBuildingMapProcess = null
+      zenohBuildingMapKey = null
+    }
+  })
+
+  bridgeProcess.on('exit', (code, signal) => {
+    sendZenohBuildingMapMessage({ type: 'status', state: 'stopped', code, signal })
+    if (zenohBuildingMapProcess === bridgeProcess) {
+      zenohBuildingMapProcess = null
+      zenohBuildingMapKey = null
+    }
+  })
+
+  zenohBuildingMapKey = bridgeKey
+}
+
+function stopZenohDidoBridge() {
+  if (!zenohDidoProcess)
+    return
+
+  zenohDidoProcess.kill()
+  zenohDidoProcess = null
+  zenohDidoKey = null
+}
+
+function startZenohDidoBridge(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const topics = Array.isArray(options?.topics) ? options.topics.filter(topic => typeof topic === 'string' && topic.trim()) : []
+  const normalizedTopics = Array.from(new Set(topics.map(topic => topic.trim().replace(/^\/+/, '').replace(/\/+$/, '')).filter(Boolean)))
+
+  if (!host)
+    throw new Error('Zenoh DIDO requires host')
+  if (normalizedTopics.length === 0)
+    throw new Error('Zenoh DIDO requires at least one topic')
+
+  const bridgeKey = JSON.stringify({ host, topics: normalizedTopics })
+  if (zenohDidoKey === bridgeKey && isBridgeRunning(zenohDidoProcess)) {
+    sendZenohDidoMessage({
+      type: 'status',
+      state: 'subscribed',
+      reused: true,
+      keys: normalizedTopics,
+    })
+    return
+  }
+
+  stopZenohDidoBridge()
+
+  const python = getPythonInvocation()
+  const pythonPath = process.env.ZCBOX_ZENOH_PYTHONPATH || getBundledZenohPythonPath()
+  const env = { ...process.env }
+  if (pythonPath)
+    env.PYTHONPATH = env.PYTHONPATH ? `${pythonPath}${path.delimiter}${env.PYTHONPATH}` : pythonPath
+
+  const args = [
+    getZenohDidoBridgePath(),
+    '--host',
+    host,
+    '--parent-pid',
+    String(process.pid),
+  ]
+  for (const topic of normalizedTopics)
+    args.push('--topic', topic)
+
+  const bridgeProcess = spawn(python.command, [...python.args, ...args], {
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  })
+  zenohDidoProcess = bridgeProcess
+
+  let stdoutBuffer = ''
+
+  bridgeProcess.stdout.on('data', (chunk) => {
+    stdoutBuffer += chunk.toString()
+    const lines = stdoutBuffer.split('\n')
+    stdoutBuffer = lines.pop() ?? ''
+
+    for (const line of lines) {
+      if (!line.trim())
+        continue
+
+      try {
+        sendZenohDidoMessage(JSON.parse(line))
+      }
+      catch {
+        sendZenohDidoMessage({ type: 'log', message: line })
+      }
+    }
+  })
+
+  bridgeProcess.stderr.on('data', (chunk) => {
+    sendZenohDidoMessage({ type: 'error', message: chunk.toString() })
+  })
+
+  bridgeProcess.on('error', (error) => {
+    sendZenohDidoMessage({ type: 'error', message: error.message })
+    if (zenohDidoProcess === bridgeProcess) {
+      zenohDidoProcess = null
+      zenohDidoKey = null
+    }
+  })
+
+  bridgeProcess.on('exit', (code, signal) => {
+    sendZenohDidoMessage({ type: 'status', state: 'stopped', code, signal })
+    if (zenohDidoProcess === bridgeProcess) {
+      zenohDidoProcess = null
+      zenohDidoKey = null
+    }
+  })
+
+  zenohDidoKey = bridgeKey
+}
+
+function stopZenohHardwareDiagnosticsBridge() {
+  if (!zenohHardwareDiagnosticsProcess)
+    return
+
+  zenohHardwareDiagnosticsProcess.kill()
+  zenohHardwareDiagnosticsProcess = null
+  zenohHardwareDiagnosticsKey = null
+}
+
+function startZenohHardwareDiagnosticsBridge(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const topics = Array.isArray(options?.topics) ? options.topics.filter(topic => typeof topic === 'string' && topic.trim()) : []
+  const normalizedTopics = Array.from(new Set(topics.map(topic => topic.trim().replace(/^\/+/, '').replace(/\/+$/, '')).filter(Boolean)))
+
+  if (!host)
+    throw new Error('Zenoh hardware diagnostics requires host')
+  if (normalizedTopics.length === 0)
+    throw new Error('Zenoh hardware diagnostics requires at least one topic')
+
+  const bridgeKey = JSON.stringify({ host, topics: normalizedTopics })
+  if (zenohHardwareDiagnosticsKey === bridgeKey && isBridgeRunning(zenohHardwareDiagnosticsProcess)) {
+    sendZenohHardwareDiagnosticsMessage({
+      type: 'status',
+      state: 'subscribed',
+      reused: true,
+      keys: normalizedTopics,
+    })
+    return
+  }
+
+  stopZenohHardwareDiagnosticsBridge()
+
+  const python = getPythonInvocation()
+  const pythonPath = process.env.ZCBOX_ZENOH_PYTHONPATH || getBundledZenohPythonPath()
+  const env = { ...process.env }
+  if (pythonPath)
+    env.PYTHONPATH = env.PYTHONPATH ? `${pythonPath}${path.delimiter}${env.PYTHONPATH}` : pythonPath
+
+  const args = [
+    getZenohHardwareDiagnosticsBridgePath(),
+    '--host',
+    host,
+    '--parent-pid',
+    String(process.pid),
+  ]
+  for (const topic of normalizedTopics)
+    args.push('--topic', topic)
+
+  const bridgeProcess = spawn(python.command, [...python.args, ...args], {
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  })
+  zenohHardwareDiagnosticsProcess = bridgeProcess
+
+  let stdoutBuffer = ''
+
+  bridgeProcess.stdout.on('data', (chunk) => {
+    stdoutBuffer += chunk.toString()
+    const lines = stdoutBuffer.split('\n')
+    stdoutBuffer = lines.pop() ?? ''
+
+    for (const line of lines) {
+      if (!line.trim())
+        continue
+
+      try {
+        sendZenohHardwareDiagnosticsMessage(JSON.parse(line))
+      }
+      catch {
+        sendZenohHardwareDiagnosticsMessage({ type: 'log', message: line })
+      }
+    }
+  })
+
+  bridgeProcess.stderr.on('data', (chunk) => {
+    sendZenohHardwareDiagnosticsMessage({ type: 'error', message: chunk.toString() })
+  })
+
+  bridgeProcess.on('error', (error) => {
+    sendZenohHardwareDiagnosticsMessage({ type: 'error', message: error.message })
+    if (zenohHardwareDiagnosticsProcess === bridgeProcess) {
+      zenohHardwareDiagnosticsProcess = null
+      zenohHardwareDiagnosticsKey = null
+    }
+  })
+
+  bridgeProcess.on('exit', (code, signal) => {
+    sendZenohHardwareDiagnosticsMessage({ type: 'status', state: 'stopped', code, signal })
+    if (zenohHardwareDiagnosticsProcess === bridgeProcess) {
+      zenohHardwareDiagnosticsProcess = null
+      zenohHardwareDiagnosticsKey = null
+    }
+  })
+
+  zenohHardwareDiagnosticsKey = bridgeKey
+}
+
+function stopZenohCommandBridge() {
+  if (!zenohCommandProcess)
+    return
+
+  if (zenohCommandProcess.stdin?.writable) {
+    try {
+      zenohCommandProcess.stdin.write(`${JSON.stringify({ type: 'stop' })}\n`)
+    }
+    catch {}
+  }
+
+  zenohCommandProcess.kill()
+  zenohCommandProcess = null
+  zenohCommandKey = null
+}
+
+function startZenohCommandBridge(host) {
+  const normalizedHost = typeof host === 'string' ? host.trim() : ''
+  if (!normalizedHost)
+    throw new Error('Zenoh command publisher requires host')
+
+  if (zenohCommandKey === normalizedHost && isBridgeRunning(zenohCommandProcess))
+    return
+
+  stopZenohCommandBridge()
+
+  const python = getPythonInvocation()
+  const pythonPath = process.env.ZCBOX_ZENOH_PYTHONPATH || getBundledZenohPythonPath()
+  const env = { ...process.env }
+  if (pythonPath)
+    env.PYTHONPATH = env.PYTHONPATH ? `${pythonPath}${path.delimiter}${env.PYTHONPATH}` : pythonPath
+
+  const args = [
+    getZenohCommandBridgePath(),
+    '--host',
+    normalizedHost,
+    '--parent-pid',
+    String(process.pid),
+  ]
+
+  const bridgeProcess = spawn(python.command, [...python.args, ...args], {
+    env,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
+  })
+  zenohCommandProcess = bridgeProcess
+  zenohCommandKey = normalizedHost
+
+  let stdoutBuffer = ''
+
+  bridgeProcess.stdout.on('data', (chunk) => {
+    stdoutBuffer += chunk.toString()
+    const lines = stdoutBuffer.split('\n')
+    stdoutBuffer = lines.pop() ?? ''
+
+    for (const line of lines) {
+      if (!line.trim())
+        continue
+
+      try {
+        sendZenohCommandMessage(JSON.parse(line))
+      }
+      catch {
+        sendZenohCommandMessage({ type: 'log', message: line })
+      }
+    }
+  })
+
+  bridgeProcess.stderr.on('data', (chunk) => {
+    sendZenohCommandMessage({ type: 'error', message: chunk.toString() })
+  })
+
+  bridgeProcess.on('error', (error) => {
+    sendZenohCommandMessage({ type: 'error', message: error.message })
+    if (zenohCommandProcess === bridgeProcess) {
+      zenohCommandProcess = null
+      zenohCommandKey = null
+    }
+  })
+
+  bridgeProcess.on('exit', (code, signal) => {
+    sendZenohCommandMessage({ type: 'status', state: 'stopped', code, signal })
+    if (zenohCommandProcess === bridgeProcess) {
+      zenohCommandProcess = null
+      zenohCommandKey = null
+    }
+  })
+}
+
+function publishZenohFleetVelocityCommand(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const topic = typeof options?.topic === 'string' ? options.topic.trim().replace(/^\/+/, '').replace(/\/+$/, '') : ''
+
+  if (!host || !topic)
+    throw new Error('Fleet velocity command requires host and topic')
+
+  startZenohCommandBridge(host)
+
+  if (!zenohCommandProcess?.stdin?.writable)
+    return false
+
+  zenohCommandProcess.stdin.write(`${JSON.stringify({
+    type: 'twist',
+    key: topic,
+    command: options?.command ?? {},
+  })}\n`)
+
+  return true
+}
+
+function publishZenohFleetDigitalOutputCommand(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const servicePath = typeof options?.servicePath === 'string'
+    ? options.servicePath.trim().replace(/^\/+/, '').replace(/\/+$/, '')
+    : ''
+  const address = Number.isFinite(options?.address) ? Math.floor(options.address) : -1
+  const value = options?.value === true
+  const requestId = typeof options?.requestId === 'string' ? options.requestId.trim() : ''
+
+  if (!host || !servicePath)
+    throw new Error('Digital output command requires host and service path')
+  if (address < 0 || address > 0xFFFF)
+    throw new Error('Digital output command requires uint16 address')
+  if (!requestId)
+    throw new Error('Digital output command requires request id')
+
+  startZenohCommandBridge(host)
+
+  if (!zenohCommandProcess?.stdin?.writable)
+    return false
+
+  zenohCommandProcess.stdin.write(`${JSON.stringify({
+    type: 'write_coil',
+    key: servicePath,
+    address,
+    value,
+    requestId,
+    controlId: typeof options?.controlId === 'string' ? options.controlId : undefined,
+  })}\n`)
+
+  return true
+}
+
 function stopAllZenohBridges() {
   stopZenohRobotPoseBridge()
   stopZenohPointCloudBridge()
   stopZenohTelemetryBridge()
+  stopZenohMotorStatesBridge()
+  stopZenohFleetDataBridge()
+  stopZenohBuildingMapBridge()
+  stopZenohDidoBridge()
+  stopZenohHardwareDiagnosticsBridge()
+  stopZenohCommandBridge()
 }
 
 async function createWindow() {
@@ -941,12 +1841,83 @@ ipcMain.handle('zenoh-telemetry:publish-cmd-vel', (_event, command) => {
   return { ok: publishZenohVelocityCommand(command) }
 })
 
+ipcMain.handle('zenoh-telemetry:publish-actuator-reset', () => {
+  return { ok: publishZenohActuatorReset() }
+})
+
+ipcMain.handle('zenoh-motor-states:start', (_event, options) => {
+  startZenohMotorStatesBridge(options)
+  return { ok: true }
+})
+
+ipcMain.handle('zenoh-motor-states:stop', () => {
+  stopZenohMotorStatesBridge()
+  return { ok: true }
+})
+
+ipcMain.handle('zenoh-fleet-data:start', (_event, options) => {
+  startZenohFleetDataBridge(options)
+  return { ok: true }
+})
+
+ipcMain.handle('zenoh-fleet-data:stop', () => {
+  stopZenohFleetDataBridge()
+  return { ok: true }
+})
+
+ipcMain.handle('zenoh-building-map:start', (_event, options) => {
+  startZenohBuildingMapBridge(options)
+  return { ok: true }
+})
+
+ipcMain.handle('zenoh-building-map:stop', () => {
+  stopZenohBuildingMapBridge()
+  return { ok: true }
+})
+
+ipcMain.handle('zenoh-dido:start', (_event, options) => {
+  startZenohDidoBridge(options)
+  return { ok: true }
+})
+
+ipcMain.handle('zenoh-dido:stop', () => {
+  stopZenohDidoBridge()
+  return { ok: true }
+})
+
+ipcMain.handle('zenoh-hardware-diagnostics:start', (_event, options) => {
+  startZenohHardwareDiagnosticsBridge(options)
+  return { ok: true }
+})
+
+ipcMain.handle('zenoh-hardware-diagnostics:stop', () => {
+  stopZenohHardwareDiagnosticsBridge()
+  return { ok: true }
+})
+
+ipcMain.handle('zenoh-command:publish-twist', (_event, options) => {
+  return { ok: publishZenohFleetVelocityCommand(options) }
+})
+
+ipcMain.handle('zenoh-command:write-coil', (_event, options) => {
+  return { ok: publishZenohFleetDigitalOutputCommand(options) }
+})
+
+ipcMain.handle('zenoh-command:stop', () => {
+  stopZenohCommandBridge()
+  return { ok: true }
+})
+
 ipcMain.handle('camera-gateway:request', (_event, options) => {
   return requestCameraGateway(options)
 })
 
 ipcMain.handle('camera-gateway:fetch-binary', (_event, options) => {
   return fetchCameraGatewayBinary(options)
+})
+
+ipcMain.handle('compose-control:request', (_event, options) => {
+  return requestComposeControl(options)
 })
 
 ipcMain.handle('modbus:shelf-state:read', (_event, options) => {
@@ -963,6 +1934,10 @@ ipcMain.handle('modbus:coil:read', (_event, options) => {
 
 ipcMain.handle('modbus:coil:write', (_event, options) => {
   return writeModbusCoil(options)
+})
+
+ipcMain.handle('modbus:coil-sequence:write', (_event, options) => {
+  return writeModbusCoilSequence(options)
 })
 
 const gotLock = app.requestSingleInstanceLock()

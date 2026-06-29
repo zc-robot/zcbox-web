@@ -94,7 +94,91 @@ export function composePose(base: PoseMessage, offset: PoseMessage) {
   )
 }
 
-export function parsePgm(data: Uint8Array): { width: number; height: number; data: number[] } {
+export interface ParsedMapRaster {
+  width: number
+  height: number
+  data: number[]
+  format: 'pgm' | 'png'
+}
+
+const pngSignature = [137, 80, 78, 71, 13, 10, 26, 10]
+
+function isPng(data: Uint8Array) {
+  return data.length >= pngSignature.length
+    && pngSignature.every((byte, index) => data[index] === byte)
+}
+
+function isPgm(data: Uint8Array) {
+  return data.length >= 2
+    && data[0] === 80
+    && (data[1] === 50 || data[1] === 53)
+}
+
+function grayscaleToOccupancy(pixelValue: number, maxValue = 255) {
+  const grayscale = maxValue === 255
+    ? pixelValue
+    : Math.round(pixelValue * 255 / maxValue)
+
+  if (grayscale <= 0)
+    return 100
+
+  if (grayscale >= 250)
+    return 0
+
+  return -1
+}
+
+function rgbaToGrayscale(data: Uint8ClampedArray, index: number) {
+  const red = data[index]
+  const green = data[index + 1]
+  const blue = data[index + 2]
+
+  return Math.round(0.299 * red + 0.587 * green + 0.114 * blue)
+}
+
+async function parsePng(data: Uint8Array): Promise<ParsedMapRaster> {
+  const bitmap = await createImageBitmap(new Blob([data], { type: 'image/png' }))
+
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = bitmap.width
+    canvas.height = bitmap.height
+
+    const context = canvas.getContext('2d', { willReadFrequently: true })
+    if (!context)
+      throw new Error('无法创建 PNG 地图解析画布')
+
+    context.drawImage(bitmap, 0, 0)
+
+    const width = bitmap.width
+    const height = bitmap.height
+    const pixels = context.getImageData(0, 0, width, height).data
+    const result = new Int32Array(width * height)
+
+    for (let sourceY = 0; sourceY < height; sourceY++) {
+      const targetRowStart = (height - 1 - sourceY) * width
+      const sourceRowStart = sourceY * width * 4
+      for (let x = 0; x < width; x++) {
+        const pixelIndex = sourceRowStart + x * 4
+        result[targetRowStart + x] = pixels[pixelIndex + 3] <= 0
+          ? -1
+          : grayscaleToOccupancy(rgbaToGrayscale(pixels, pixelIndex))
+      }
+    }
+
+    return {
+      width,
+      height,
+      data: Array.from(result),
+      format: 'png',
+    }
+  }
+  finally {
+    bitmap.close()
+  }
+}
+
+export function parsePgm(data: Uint8Array): ParsedMapRaster {
   let position = 0
 
   // Read magic number (P2 or P5)
@@ -103,6 +187,7 @@ export function parsePgm(data: Uint8Array): { width: number; height: number; dat
     magicNumber += String.fromCharCode(data[position++])
 
   position++
+  magicNumber = magicNumber.trim()
   if (magicNumber !== 'P2' && magicNumber !== 'P5')
     throw new Error('Unsupported PGM format, only P2 and P5 are supported.')
 
@@ -144,12 +229,7 @@ export function parsePgm(data: Uint8Array): { width: number; height: number; dat
       for (let x = 0; x < width; x++) {
         const pixelValue = readNumber()
         const index = y * width + x
-        if (pixelValue === 0)
-          result[index] = 0 // occupied
-        else if (pixelValue === 255 || (maxValue === 255 && pixelValue > 200))
-          result[index] = 100 // free
-        else
-          result[index] = -1 // unknown
+        result[index] = grayscaleToOccupancy(pixelValue, maxValue)
       }
     }
   }
@@ -160,17 +240,117 @@ export function parsePgm(data: Uint8Array): { width: number; height: number; dat
       for (let x = 0; x < width; x++) {
         const pixelValue = data[position++]
         const index = rowStart + x
-        if (pixelValue === 0)
-          result[index] = 100 // occupied
-        else if (pixelValue >= 250)
-          result[index] = 0 // free
-        else
-          result[index] = -1 // unknown
+        result[index] = grayscaleToOccupancy(pixelValue, maxValue)
       }
     }
   }
 
-  return { width, height, data: Array.from(result) } // Convert to regular array if needed
+  return { width, height, data: Array.from(result), format: 'pgm' } // Convert to regular array if needed
+}
+
+export async function parseMapRaster(data: Uint8Array): Promise<ParsedMapRaster> {
+  if (isPgm(data))
+    return parsePgm(data)
+
+  if (isPng(data))
+    return parsePng(data)
+
+  throw new Error('Unsupported map image format, only PGM and PNG are supported.')
+}
+
+function parsePgmPixels(data: Uint8Array) {
+  let position = 0
+
+  let magicNumber = ''
+  while (position < data.length && data[position] !== 10)
+    magicNumber += String.fromCharCode(data[position++])
+
+  position++
+  magicNumber = magicNumber.trim()
+  if (magicNumber !== 'P2' && magicNumber !== 'P5')
+    throw new Error('Unsupported PGM format, only P2 and P5 are supported.')
+
+  const readNumber = (): number => {
+    let numStr = ''
+    while (position < data.length) {
+      const char = data[position]
+      if (char === 35) {
+        while (position < data.length && data[position] !== 10) position++
+        position++
+      }
+      else if (char <= 32) {
+        position++
+      }
+      else {
+        break
+      }
+    }
+    while (position < data.length && data[position] > 32 && data[position] <= 126)
+      numStr += String.fromCharCode(data[position++])
+
+    return Number.parseInt(numStr, 10)
+  }
+
+  const width = readNumber()
+  const height = readNumber()
+  const maxValue = readNumber()
+  const pixels = new Uint8ClampedArray(width * height * 4)
+  const writePixel = (index: number, pixelValue: number) => {
+    const grayscale = maxValue === 255
+      ? pixelValue
+      : Math.round(pixelValue * 255 / maxValue)
+    const target = index * 4
+    pixels[target] = grayscale
+    pixels[target + 1] = grayscale
+    pixels[target + 2] = grayscale
+    pixels[target + 3] = 255
+  }
+
+  if (magicNumber === 'P2') {
+    for (let index = 0; index < width * height; index++)
+      writePixel(index, readNumber())
+  }
+  else {
+    const bytesPerSample = maxValue > 255 ? 2 : 1
+    for (let index = 0; index < width * height; index++) {
+      const pixelValue = bytesPerSample === 1
+        ? data[position++]
+        : (data[position++] << 8) + data[position++]
+      writePixel(index, pixelValue)
+    }
+  }
+
+  return { width, height, pixels }
+}
+
+function canvasToPngBlob(canvas: HTMLCanvasElement) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob)
+        resolve(blob)
+      else
+        reject(new Error('无法创建 PNG 地图文件'))
+    }, 'image/png')
+  })
+}
+
+export async function convertMapRasterToPngBlob(data: Uint8Array) {
+  if (isPng(data))
+    return new Blob([data], { type: 'image/png' })
+
+  if (!isPgm(data))
+    throw new Error('Unsupported map image format, only PGM and PNG are supported.')
+
+  const { width, height, pixels } = parsePgmPixels(data)
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const context = canvas.getContext('2d')
+  if (!context)
+    throw new Error('无法创建 PNG 地图转换画布')
+
+  context.putImageData(new ImageData(pixels, width, height), 0, 0)
+  return canvasToPngBlob(canvas)
 }
 
 // Worker instance

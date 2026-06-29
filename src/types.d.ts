@@ -1,5 +1,7 @@
 export type LanguageCode = "en" | "zh-CN"
 
+export type AppMode = 'robot' | 'fleet'
+
 export type Operation =
   | 'move'
   | 'select'
@@ -93,6 +95,267 @@ export interface TwistCommand {
   angularX?: number,
   angularY?: number,
   angularZ?: number,
+}
+
+export interface MotorStateMessage {
+  id: number,
+  voltage: number,
+  name: string,
+  speed: number,
+  position: number,
+  temperature: number,
+  payload: number,
+  isEnabled: boolean,
+  isPowered: boolean,
+  isFaulted: boolean,
+  isConnected: boolean,
+  errorCode: number,
+  errorMessage: string,
+}
+
+export interface MotorStatesMessage {
+  key?: string,
+  header: {
+    stamp: {
+      sec: number,
+      nanosec: number,
+    },
+    frameId: string,
+  },
+  motorStates: MotorStateMessage[],
+}
+
+export interface UInt8MultiArrayDimensionMessage {
+  label: string,
+  size: number,
+  stride: number,
+}
+
+export interface UInt8MultiArrayBitMessage {
+  index: number,
+  byteIndex: number,
+  bitIndex: number,
+  value: boolean,
+}
+
+export interface UInt8MultiArrayMessage {
+  key?: string,
+  namespace?: string,
+  channel?: 'di' | 'do' | 'unknown',
+  layout: {
+    dim: UInt8MultiArrayDimensionMessage[],
+    dataOffset: number,
+  },
+  data: number[],
+  bits: UInt8MultiArrayBitMessage[],
+}
+
+export interface FleetTimeMessage {
+  sec: number,
+  nanosec: number,
+}
+
+export interface FleetHeaderMessage {
+  stamp: FleetTimeMessage,
+  frameId: string,
+}
+
+export interface FleetLocationMessage {
+  map: string,
+  levelName: string,
+  hasPose: boolean,
+  x: number,
+  y: number,
+  yaw: number,
+}
+
+export interface FleetRobotFootprintMessage {
+  isRound: boolean,
+  radius: number,
+  robotLength: number,
+  robotWidth: number,
+  navCenterToRobotCenter: number,
+}
+
+export interface FleetMotorStateMessage {
+  id: number,
+  name: string,
+  voltage: number,
+  speed: number,
+  position: number,
+  temperature: number,
+  payload: number,
+  isEnabled: boolean,
+  isPowered: boolean,
+  isFaulted: boolean,
+  isConnected: boolean,
+  errorCode: number,
+  errorMessage: string,
+}
+
+export interface FleetWheelStateMessage {
+  stamp: FleetTimeMessage,
+  motors: FleetMotorStateMessage[],
+}
+
+export interface FleetDiagnosticKeyValueMessage {
+  key: string,
+  value: string,
+}
+
+export interface FleetDiagnosticStatusMessage {
+  level: number,
+  name: string,
+  message: string,
+  hardwareId: string,
+  values: FleetDiagnosticKeyValueMessage[],
+}
+
+export interface FleetDiagnosticStateMessage {
+  stamp: FleetTimeMessage,
+  status: FleetDiagnosticStatusMessage[],
+}
+
+export interface FleetPalletStateMessage {
+  palletPresent: boolean,
+  bufferPresent: boolean,
+  palletStock: number,
+  bufferStock: number,
+  raw: number[],
+}
+
+export interface FleetRobotDataMessage {
+  robot: string,
+  name: string,
+  model: string,
+  ip: string,
+  zenohNamespace: string,
+  status: string,
+  statusDetail: string,
+  lastAttemptTime: number,
+  retryPeriodSec: number,
+  mode: string,
+  taskId: string,
+  activityId: string,
+  map: string,
+  location: FleetLocationMessage,
+  hasFootprint: boolean,
+  footprint: FleetRobotFootprintMessage,
+  hasBattery: boolean,
+  battery: number,
+  hasBatteryPercent: boolean,
+  batteryPercent: number,
+  hasBatteryCurrent: boolean,
+  batteryCurrent: number,
+  hasWheelState: boolean,
+  wheels: FleetWheelStateMessage,
+  hasDiagnostics: boolean,
+  diagnostics: FleetDiagnosticStateMessage,
+  hasPalletState: boolean,
+  palletState: FleetPalletStateMessage,
+}
+
+export interface FleetDataMessage {
+  key?: string,
+  header: FleetHeaderMessage,
+  fleetType: string,
+  name: string,
+  seq: number,
+  unixMillisTime: number,
+  robots: FleetRobotDataMessage[],
+  pendingRobots: FleetRobotDataMessage[],
+}
+
+export interface BuildingMapParamMessage {
+  name: string,
+  type: number,
+  valueInt: number,
+  valueFloat: number,
+  valueString: string,
+  valueBool: boolean,
+}
+
+export interface BuildingMapImageMessage {
+  name: string,
+  xOffset: number,
+  yOffset: number,
+  yaw: number,
+  scale: number,
+  encoding: string,
+  dataBase64: string,
+  dataLength: number,
+  width?: number,
+  height?: number,
+}
+
+export interface BuildingMapPlaceMessage {
+  name: string,
+  x: number,
+  y: number,
+  yaw: number,
+  positionTolerance: number,
+  yawTolerance: number,
+}
+
+export interface BuildingMapDoorMessage {
+  name: string,
+  v1X: number,
+  v1Y: number,
+  v2X: number,
+  v2Y: number,
+  doorType: number,
+  motionRange: number,
+  motionDirection: number,
+}
+
+export interface BuildingMapGraphVertexMessage {
+  x: number,
+  y: number,
+  name: string,
+  params: BuildingMapParamMessage[],
+}
+
+export interface BuildingMapGraphEdgeMessage {
+  v1: number,
+  v2: number,
+  type: number,
+  params: BuildingMapParamMessage[],
+}
+
+export interface BuildingMapGraphMessage {
+  name: string,
+  type: 'nav' | 'wall',
+  vertices: BuildingMapGraphVertexMessage[],
+  edges: BuildingMapGraphEdgeMessage[],
+  params: BuildingMapParamMessage[],
+}
+
+export interface BuildingMapLevelMessage {
+  name: string,
+  elevation: number,
+  images: BuildingMapImageMessage[],
+  places: BuildingMapPlaceMessage[],
+  doors: BuildingMapDoorMessage[],
+  graphs: BuildingMapGraphMessage[],
+}
+
+export interface BuildingMapLiftMessage {
+  name: string,
+  levels: string[],
+  doors: BuildingMapDoorMessage[],
+  wallGraph: BuildingMapGraphMessage,
+  refX: number,
+  refY: number,
+  refYaw: number,
+  width: number,
+  depth: number,
+}
+
+export interface BuildingMapMessage {
+  key?: string,
+  name: string,
+  levels: BuildingMapLevelMessage[],
+  lifts: BuildingMapLiftMessage[],
 }
 
 export type PointCloudPoint = [number, number, number]

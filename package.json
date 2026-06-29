@@ -68,6 +68,12 @@
       "desktop/zenoh-robot-pose-bridge.py",
       "desktop/zenoh-pointcloud-bridge.py",
       "desktop/zenoh-telemetry-bridge.py",
+      "desktop/zenoh-motor-state-bridge.py",
+      "desktop/zenoh-fleet-data-bridge.py",
+      "desktop/zenoh-building-map-bridge.py",
+      "desktop/zenoh-dido-bridge.py",
+      "desktop/zenoh-hardware-diagnostics-bridge.py",
+      "desktop/zenoh-command-bridge.py",
       "desktop/vendor/**/*"
     ],
     "directories": {

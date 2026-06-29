@@ -750,7 +750,11 @@ def encode_twist_payload(command):
     return bytes(payload)
 
 
-def handle_stdin(command_publisher):
+def encode_empty_payload():
+    return b"\x00\x01\x00\x00"
+
+
+def handle_stdin(command_publisher, actuator_reset_publisher, actuator_reset_key):
     global running
 
     try:
@@ -771,6 +775,12 @@ def handle_stdin(command_publisher):
                     command_publisher.put(encode_twist_payload(message.get("command") or {}))
                 except Exception as error:
                     emit({"type": "error", "message": f"failed to publish cmd_vel: {error}"})
+            elif message.get("type") == "actuator_reset":
+                try:
+                    actuator_reset_publisher.put(encode_empty_payload())
+                    emit({"type": "published", "key": actuator_reset_key})
+                except Exception as error:
+                    emit({"type": "error", "message": f"failed to publish actuators/reset: {error}"})
             elif message.get("type") == "stop":
                 running = False
                 break
@@ -820,6 +830,7 @@ def main():
         if normalize_frame_id(frame)
     ]
     command_key = f"{args.namespace.strip('/')}/cmd_vel_collision"
+    actuator_reset_key = f"{args.namespace.strip('/')}/actuators/reset"
 
     try:
         import zenoh
@@ -839,6 +850,7 @@ def main():
 
     session = None
     command_publisher = None
+    actuator_reset_publisher = None
     subscribers = []
     last_decode_error_at = {}
     last_tf_decode_error_at = {}
@@ -947,12 +959,14 @@ def main():
             "urdfStaticTransforms": urdf_static_transform_count,
             "urdfStaticError": urdf_static_error,
             "commandKey": command_key,
+            "actuatorResetKey": actuator_reset_key,
         })
         session = zenoh.open(config)
         command_publisher = session.declare_publisher(command_key)
+        actuator_reset_publisher = session.declare_publisher(actuator_reset_key)
         subscribers = [session.declare_subscriber(key, on_sample) for key in subscriptions]
         subscribers.extend(session.declare_subscriber(key, on_tf_sample) for key in tf_key_exprs)
-        stdin_thread = threading.Thread(target=handle_stdin, args=(command_publisher,), daemon=True)
+        stdin_thread = threading.Thread(target=handle_stdin, args=(command_publisher, actuator_reset_publisher, actuator_reset_key), daemon=True)
         stdin_thread.start()
         emit({
             "type": "status",
@@ -963,6 +977,7 @@ def main():
             "urdfStaticTransforms": urdf_static_transform_count,
             "urdfStaticError": urdf_static_error,
             "commandKey": command_key,
+            "actuatorResetKey": actuator_reset_key,
         })
 
         while running:
@@ -978,6 +993,11 @@ def main():
             try:
                 command_publisher.put(encode_twist_payload({}))
                 command_publisher.undeclare()
+            except Exception:
+                pass
+        if actuator_reset_publisher is not None:
+            try:
+                actuator_reset_publisher.undeclare()
             except Exception:
                 pass
         for subscriber in subscribers:

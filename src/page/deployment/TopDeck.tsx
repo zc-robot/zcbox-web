@@ -15,7 +15,7 @@ import apiServer from '@/service/apiServer'
 import type { NavPoint, PointMessage, RobotStatus } from '@/types'
 import { useKeyPress } from '@/hooks'
 import { parseFiniteNumber, parseRobotStatus } from '@/util'
-import { canvasAngleToQuaternion, parsePgm } from '@/util/transform'
+import { canvasAngleToQuaternion, convertMapRasterToPngBlob, parseMapRaster } from '@/util/transform'
 import { buildRmfBuildingYaml, sanitizeRmfFileName } from '@/util/rmf'
 import { getEvenlyRedistributedWaypoints, getWaypointRedistributionSpacing, getWaypointsOnSameLine, orderWaypointsByLineProjection } from '@/util/waypoints'
 
@@ -493,14 +493,26 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
       const blob = await apiServer.downloadMap(foundMap.navigation_map_file_path)
       const arrayBuffer = await blob.arrayBuffer()
       const uint8Array = new Uint8Array(arrayBuffer)
-      const pgmData = parsePgm(uint8Array)
-      const mapData = pgmData.data
+      const mapRaster = await parseMapRaster(uint8Array)
+      const mapInfo = mapRaster.width === foundMap.info.width && mapRaster.height === foundMap.info.height
+        ? foundMap.info
+        : {
+            ...foundMap.info,
+            width: mapRaster.width,
+            height: mapRaster.height,
+          }
+
+      if (mapInfo !== foundMap.info) {
+        console.warn(
+          `Downloaded ${mapRaster.format.toUpperCase()} map size ${mapRaster.width}x${mapRaster.height} differs from metadata ${foundMap.info.width}x${foundMap.info.height}; using image size.`,
+        )
+      }
 
       // 获取部署配置
       const profiles = await apiServer.fetchMapDeployment(currentMap.map_id)
 
       // 更新状态（这会触发Redux DevTools的序列化，但我们已经添加了状态净化功能）
-      setMapGrid(mapData, foundMap.info)
+      setMapGrid(mapRaster.data, mapInfo)
       requestCenterRobot()
       addProfiles(profiles)
 
@@ -601,12 +613,16 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
       return
     }
 
+    const selectedLevels = selections.map(selection => ({
+      selection,
+      drawingFilename: `${sanitizeRmfFileName(selection.map.name)}.png`,
+    }))
     const currentMapName = mapsNew.find(map => map.id === mapId)?.name
     const buildingName = currentMapName ?? selections[0].map.name ?? 'map'
     const content = buildRmfBuildingYaml(
-      selections.map(selection => ({
+      selectedLevels.map(({ selection, drawingFilename }) => ({
         levelName: selection.map.name,
-        drawingFilename: `${sanitizeRmfFileName(selection.map.name)}.png`,
+        drawingFilename,
         gridInfo: selection.map.info,
         profile: selection.profile,
       })),
@@ -615,19 +631,49 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
       },
     )
 
-    const loadingToast = toast.loading('正在上传导航图...')
+    const loadingToast = toast.loading('正在准备导航图文件...')
+    let uploadToast: string | undefined
+    let referenceToast: string | undefined
     setIsUploadingRmf(true)
     try {
-      const response = await apiServer.uploadRmfBuildingYaml(targetHost, content)
+      const mapImages = await Promise.all(selectedLevels.map(async ({ selection, drawingFilename }) => {
+        const mapPath = selection.map.navigation_map_file_path || selection.map.localization_map_file_path
+        if (!mapPath)
+          throw new Error(`${selection.map.name} 缺少地图图片路径`)
+
+        const blob = await apiServer.downloadMap(mapPath)
+        const data = new Uint8Array(await blob.arrayBuffer())
+        return {
+          filename: drawingFilename,
+          blob: await convertMapRasterToPngBlob(data),
+        }
+      }))
+
+      toast.dismiss(loadingToast)
+      uploadToast = toast.loading('正在上传导航图...')
+      const response = await apiServer.uploadRmfBuildingYaml(targetHost, content, mapImages)
       if (!response.ok || response.returncode !== 0)
         throw new Error(response.stderr || response.stdout || `returncode=${response.returncode}`)
+      toast.dismiss(uploadToast)
+      uploadToast = undefined
+
+      referenceToast = toast.loading('正在更新参考坐标...')
+      await apiServer.updateFleetReferenceCoordinates(
+        selectedLevels.map(({ selection }) => selection.map.name),
+        false,
+      )
 
       setShowExportModal(false)
-      toast.dismiss(loadingToast)
-      toast.success('导航图已上传')
+      toast.dismiss(referenceToast)
+      referenceToast = undefined
+      toast.success('导航图已上传，参考坐标已更新')
     }
     catch (error) {
       toast.dismiss(loadingToast)
+      if (uploadToast)
+        toast.dismiss(uploadToast)
+      if (referenceToast)
+        toast.dismiss(referenceToast)
       toast.error(`上传导航图失败 ${error}`)
     }
     finally {
@@ -869,7 +915,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           className="panel-item group"
           onClick={() => setShowShelfStateModal(true)}>
           <div className="i-material-symbols-inventory-2-outline-rounded panel-icon" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">货架状态</span>
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">外设状态</span>
         </div>
         <div
           className={`${isScanVisible ? 'panel-item-enabled' : 'panel-item'} group`}
