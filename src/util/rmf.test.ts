@@ -2,7 +2,9 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { GridInfoMessage, NavLift, NavProfile } from '../types.js'
 import {
+  applyRmfPixelTransform,
   buildRmfBuildingYaml,
+  createAlignedMapImageLayout,
   createVisualLiftAlignmentGeometry,
   createVisualMapAlignmentGeometry,
   getLiftRectangleCorners,
@@ -204,4 +206,104 @@ test('visual map alignment geometry uses operator-aligned image fiducials direct
     { x: 150, y: 120 },
   ])
   assert.equal(geometry?.get('L2')?.measurementDistance, 2)
+})
+
+test('visual map alignment layout gives every level the same aligned canvas', () => {
+  const layout = createAlignedMapImageLayout([
+    {
+      levelName: 'L1',
+      width: 100,
+      height: 80,
+      transform: { x: 0, y: 0, rotation: 0 },
+    },
+    {
+      levelName: 'L2',
+      width: 40,
+      height: 30,
+      transform: { x: 20, y: 10, rotation: 0 },
+    },
+  ])
+
+  assert.equal(layout.width, 100)
+  assert.equal(layout.height, 80)
+  const levelTwoLayout = layout.levels.find(level => level.levelName === 'L2')
+  assert.ok(levelTwoLayout)
+  assert.deepEqual(applyRmfPixelTransform({ x: 0, y: 0 }, levelTwoLayout.pixelTransform), { x: 20, y: 10 })
+})
+
+test('RMF visual map export shifts fiducials into the shared aligned canvas frame', () => {
+  const levelOneLift = lift({ uid: 'lift-l1', level_name: 'L1' })
+  const levelTwoLift = lift({ uid: 'lift-l2', level_name: 'L2' })
+  const layout = createAlignedMapImageLayout([
+    {
+      levelName: 'L1',
+      width: 100,
+      height: 80,
+      transform: { x: 0, y: 0, rotation: 0 },
+    },
+    {
+      levelName: 'L2',
+      width: 40,
+      height: 30,
+      transform: { x: 20, y: 10, rotation: 0 },
+    },
+  ])
+  const layoutByLevel = new Map(layout.levels.map(level => [level.levelName, level]))
+
+  const yaml = buildRmfBuildingYaml([
+    {
+      levelName: 'L1',
+      drawingFilename: 'L1.png',
+      gridInfo: { ...gridInfo(), width: 100, height: 80 },
+      pixelTransform: layoutByLevel.get('L1')?.pixelTransform,
+      profile: profile('L1', levelOneLift),
+    },
+    {
+      levelName: 'L2',
+      drawingFilename: 'L2.png',
+      gridInfo: { ...gridInfo(), width: 40, height: 30 },
+      pixelTransform: layoutByLevel.get('L2')?.pixelTransform,
+      profile: profile('L2', levelTwoLift),
+    },
+  ], {
+    buildingName: 'Aligned Site',
+    alignment: {
+      method: 'visual-map',
+      referenceLevelName: 'L1',
+      measurementDistance: 2,
+      levels: [
+        {
+          levelName: 'L1',
+          liftUid: 'lift-l1',
+          fiducials: [
+            { x: 30, y: 20 },
+            { x: 40, y: 20 },
+            { x: 40, y: 30 },
+            { x: 30, y: 30 },
+          ],
+          measurementVertices: [
+            { x: 30, y: 20 },
+            { x: 40, y: 20 },
+          ],
+        },
+        {
+          levelName: 'L2',
+          liftUid: 'lift-l2',
+          fiducials: [
+            { x: 10, y: 10 },
+            { x: 20, y: 10 },
+            { x: 20, y: 20 },
+            { x: 10, y: 20 },
+          ],
+          measurementVertices: [
+            { x: 10, y: 10 },
+            { x: 20, y: 10 },
+          ],
+        },
+      ],
+    },
+  })
+
+  assert.match(yaml, /"L1":[\s\S]*- \[30, 20, ALIGN_LIFT_FRONT_LEFT\][\s\S]*"L2":[\s\S]*- \[30, 20, ALIGN_LIFT_FRONT_LEFT\]/)
+  assert.match(yaml, /"L2":[\s\S]*- \[30, 20, 0, ""\][\s\S]*- \[40, 20, 0, ""\]/)
 })

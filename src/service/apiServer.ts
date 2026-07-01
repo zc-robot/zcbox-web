@@ -69,6 +69,20 @@ export interface RmfBuildingMapImageUpload {
   blob: Blob
 }
 
+export interface SavedMapFilesUpdate {
+  localizationPng?: Blob
+  localizationYaml?: Blob
+  navigationPng?: Blob
+  navigationYaml?: Blob
+}
+
+export interface SavedMapFilesUpdateResponse {
+  map_name: string
+  updated?: Record<string, unknown>
+  database_record?: Partial<MapListItem> & { name?: string }
+  [key: string]: unknown
+}
+
 export interface FleetReferenceCoordinatesResponse {
   ok?: boolean
   code?: number
@@ -367,7 +381,7 @@ class ApiServer {
     return URL.createObjectURL(response)
   }
 
-  private async requestComposeControl<T>(path: string, options: { method?: 'GET' | 'PUT' | 'POST', json?: unknown } = {}) {
+  private async requestComposeControl<T>(path: string, options: { method?: 'GET' | 'PUT' | 'POST'; json?: unknown } = {}) {
     const requestPath = path.startsWith('/') ? path : `/${path}`
     const token = this.composeControlToken
     const method = options.method ?? 'GET'
@@ -523,6 +537,31 @@ class ApiServer {
     return response
   }
 
+  updateSavedMapFiles = async (mapName: string, files: SavedMapFilesUpdate) => {
+    const formData = new FormData()
+    const safeBaseName = mapName.replace(/[\\/:*?"<>|]+/g, '-').trim() || 'map'
+    formData.append('map_name', mapName)
+
+    if (files.localizationPng)
+      formData.append('localization_png', files.localizationPng, `${safeBaseName}.png`)
+    if (files.localizationYaml)
+      formData.append('localization_yaml', files.localizationYaml, `${safeBaseName}.yaml`)
+    if (files.navigationPng)
+      formData.append('navigation_png', files.navigationPng, `${safeBaseName}.png`)
+    if (files.navigationYaml)
+      formData.append('navigation_yaml', files.navigationYaml, `${safeBaseName}.yaml`)
+
+    const json = await this.client.post('slam/updateMapFiles', {
+      body: formData,
+      timeout: 30 * 60 * 1000,
+    }).json<Resp<SavedMapFilesUpdateResponse>>()
+
+    if (json.code !== 0)
+      throw new Error(json.message || `更新 ${mapName} 地图文件失败`)
+
+    return json.data
+  }
+
   fetchMapDeployment = async (mapId: number) => {
     const url = `deploy/getAllDeploymentOfMap/${mapId}`
     const json = await this.client.get(url).json<Resp<NavProfile[]>>()
@@ -593,7 +632,7 @@ class ApiServer {
         map_id: targetMap.id,
         new_name: newName,
       },
-    }).json<Resp<{ map_id: number, new_name: string }>>()
+    }).json<Resp<{ map_id: number; new_name: string }>>()
 
     return json
   }

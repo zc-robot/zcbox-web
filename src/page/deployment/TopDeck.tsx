@@ -15,8 +15,9 @@ import apiServer from '@/service/apiServer'
 import type { NavPoint, PointMessage, RobotStatus } from '@/types'
 import { useKeyPress } from '@/hooks'
 import { parseFiniteNumber, parseRobotStatus } from '@/util'
-import { canvasAngleToQuaternion, convertMapRasterToPngBlob, parseMapRaster } from '@/util/transform'
-import { buildRmfBuildingYaml, sanitizeRmfFileName } from '@/util/rmf'
+import { canvasAngleToQuaternion, convertMapRasterToPngBlob, parseMapRaster, renderAlignedMapRasterToPngBlob } from '@/util/transform'
+import { buildAlignedNav2MapYaml } from '@/util/nav2MapYaml'
+import { buildRmfBuildingYaml, createAlignedMapImageLayout, sanitizeRmfFileName } from '@/util/rmf'
 import { getEvenlyRedistributedWaypoints, getWaypointRedistributionSpacing, getWaypointsOnSameLine, orderWaypointsByLineProjection } from '@/util/waypoints'
 
 type ExecuteWaypointNavType = 'auto' | 'manually'
@@ -30,6 +31,18 @@ export interface TopDeckProps {
 interface ApiResultLike {
   code?: number
   message?: string
+}
+
+interface PreparedRmfMapImage {
+  filename: string
+  blob: Blob
+  localUpdate?: {
+    mapName: string
+    localizationPng: Blob
+    localizationYaml: Blob
+    navigationPng: Blob
+    navigationYaml: Blob
+  }
 }
 
 function createSelectedWaypointTaskUid() {
@@ -58,7 +71,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const [executePreciseRad, setExecutePreciseRad] = useState('0.05')
   const [executeNavType, setExecuteNavType] = useState<ExecuteWaypointNavType>('auto')
   const [executeActionId, setExecuteActionId] = useState('')
-  const { zoom, robotInfo, robotStatus, hasLivePose, updateRobotFsm, updateLocalizationQuality, setMapGrid, setPathPointInfo, mapsNew, isScanVisible, setScanVisibility, updateScanPointSize, requestCenterRobot, relocalizationPose, beginRelocalization, cancelRelocalization } = useGridStore(state => ({
+  const { zoom, robotInfo, robotStatus, hasLivePose, updateRobotFsm, updateLocalizationQuality, setMapGrid, setPathPointInfo, mapsNew, setMapsNew, isScanVisible, setScanVisibility, updateScanPointSize, requestCenterRobot, relocalizationPose, beginRelocalization, cancelRelocalization } = useGridStore(state => ({
     zoom: state.zoom,
     robotInfo: state.robotInfo,
     robotStatus: state.robotInfo?.fsm,
@@ -68,6 +81,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     setMapGrid: state.setMapGrid,
     setPathPointInfo: state.setPathPointInfo,
     mapsNew: state.mapsNew,
+    setMapsNew: state.setMapsNew,
     isScanVisible: state.isScanVisible,
     setScanVisibility: state.setScanVisibility,
     updateScanPointSize: state.updateScanPointSize,
@@ -617,6 +631,22 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
       selection,
       drawingFilename: `${sanitizeRmfFileName(selection.map.name)}.png`,
     }))
+    const isVisualMapAlignment = alignment?.method === 'visual-map'
+    const alignedMapImageLayout = isVisualMapAlignment
+      ? createAlignedMapImageLayout(selectedLevels.map(({ selection }) => {
+        const alignmentLevel = alignment.levels.find(level => level.levelName === selection.map.name)
+
+        return {
+          levelName: selection.map.name,
+          width: selection.map.info.width,
+          height: selection.map.info.height,
+          transform: alignmentLevel?.imageTransform,
+        }
+      }))
+      : null
+    const alignedMapImageLayoutByLevel = new Map(
+      alignedMapImageLayout?.levels.map(level => [level.levelName, level]) ?? [],
+    )
     const currentMapName = mapsNew.find(map => map.id === mapId)?.name
     const buildingName = currentMapName ?? selections[0].map.name ?? 'map'
     const content = buildRmfBuildingYaml(
@@ -624,6 +654,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
         levelName: selection.map.name,
         drawingFilename,
         gridInfo: selection.map.info,
+        pixelTransform: alignedMapImageLayoutByLevel.get(selection.map.name)?.pixelTransform,
         profile: selection.profile,
       })),
       {
@@ -635,20 +666,115 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     const loadingToast = toast.loading('正在准备导航图文件...')
     let uploadToast: string | undefined
     let referenceToast: string | undefined
+    let localUpdateToast: string | undefined
     setIsUploadingRmf(true)
     try {
-      const mapImages = await Promise.all(selectedLevels.map(async ({ selection, drawingFilename }) => {
+      if (isVisualMapAlignment) {
+        const missingAssetLevel = selectedLevels.find(({ selection }) => {
+          const map = selection.map
+          return !map.localization_map_file_path
+            || !map.localization_map_yaml_file_path
+            || !map.navigation_map_file_path
+            || !map.navigation_map_yaml_file_path
+        })
+        if (missingAssetLevel)
+          throw new Error(`${missingAssetLevel.selection.map.name} 缺少 localization 或 navigation 地图 PNG/YAML，无法覆盖本地地图文件`)
+      }
+
+      const referenceLevel = isVisualMapAlignment
+        ? selectedLevels.find(({ selection }) => selection.map.name === alignment.referenceLevelName)
+        : undefined
+      const referenceYaml = referenceLevel
+        ? await (await apiServer.downloadMap(referenceLevel.selection.map.navigation_map_yaml_file_path)).text()
+        : ''
+
+      const mapImages = await Promise.all(selectedLevels.map(async ({ selection, drawingFilename }): Promise<PreparedRmfMapImage> => {
         const mapPath = selection.map.navigation_map_file_path || selection.map.localization_map_file_path
         if (!mapPath)
           throw new Error(`${selection.map.name} 缺少地图图片路径`)
 
+        const alignedLevelLayout = alignedMapImageLayoutByLevel.get(selection.map.name)
+
+        if (isVisualMapAlignment && alignedMapImageLayout && alignedLevelLayout) {
+          const [
+            localizationBlob,
+            navigationBlob,
+          ] = await Promise.all([
+            apiServer.downloadMap(selection.map.localization_map_file_path),
+            apiServer.downloadMap(selection.map.navigation_map_file_path),
+          ])
+          const [localizationData, navigationData] = await Promise.all([
+            localizationBlob.arrayBuffer(),
+            navigationBlob.arrayBuffer(),
+          ])
+          const renderOptions = {
+            width: alignedMapImageLayout.width,
+            height: alignedMapImageLayout.height,
+            sourceWidth: alignedLevelLayout.width,
+            sourceHeight: alignedLevelLayout.height,
+            pixelTransform: alignedLevelLayout.pixelTransform,
+          }
+          const [localizationPng, navigationPng] = await Promise.all([
+            renderAlignedMapRasterToPngBlob(new Uint8Array(localizationData), renderOptions),
+            renderAlignedMapRasterToPngBlob(new Uint8Array(navigationData), renderOptions),
+          ])
+          const yamlContent = buildAlignedNav2MapYaml({
+            referenceYaml,
+            imageFilename: `${selection.map.name}.png`,
+            imageHeight: alignedMapImageLayout.height,
+            fallbackResolution: referenceLevel?.selection.map.info.resolution ?? selection.map.info.resolution,
+          })
+          const localizationYaml = new Blob([yamlContent], { type: 'application/x-yaml;charset=utf-8' })
+          const navigationYaml = new Blob([yamlContent], { type: 'application/x-yaml;charset=utf-8' })
+
+          return {
+            filename: drawingFilename,
+            blob: navigationPng,
+            localUpdate: {
+              mapName: selection.map.name,
+              localizationPng,
+              localizationYaml,
+              navigationPng,
+              navigationYaml,
+            },
+          }
+        }
+
         const blob = await apiServer.downloadMap(mapPath)
         const data = new Uint8Array(await blob.arrayBuffer())
+
         return {
           filename: drawingFilename,
-          blob: await convertMapRasterToPngBlob(data),
+          blob: alignedMapImageLayout && alignedLevelLayout
+            ? await renderAlignedMapRasterToPngBlob(data, {
+              width: alignedMapImageLayout.width,
+              height: alignedMapImageLayout.height,
+              sourceWidth: alignedLevelLayout.width,
+              sourceHeight: alignedLevelLayout.height,
+              pixelTransform: alignedLevelLayout.pixelTransform,
+            })
+            : await convertMapRasterToPngBlob(data),
         }
       }))
+
+      if (isVisualMapAlignment) {
+        localUpdateToast = toast.loading('正在更新本地地图文件...')
+        await Promise.all(mapImages.map((image) => {
+          if (!image.localUpdate)
+            throw new Error(`${image.filename} 缺少本地地图更新文件`)
+
+          return apiServer.updateSavedMapFiles(image.localUpdate.mapName, {
+            localizationPng: image.localUpdate.localizationPng,
+            localizationYaml: image.localUpdate.localizationYaml,
+            navigationPng: image.localUpdate.navigationPng,
+            navigationYaml: image.localUpdate.navigationYaml,
+          })
+        }))
+        const nextMaps = await apiServer.fetchMapListNew()
+        setMapsNew(nextMaps)
+        toast.dismiss(localUpdateToast)
+        localUpdateToast = undefined
+      }
 
       toast.dismiss(loadingToast)
       uploadToast = toast.loading('正在上传导航图...')
@@ -675,6 +801,8 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
         toast.dismiss(uploadToast)
       if (referenceToast)
         toast.dismiss(referenceToast)
+      if (localUpdateToast)
+        toast.dismiss(localUpdateToast)
       toast.error(`上传导航图失败 ${error}`)
     }
     finally {

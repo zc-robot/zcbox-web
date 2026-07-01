@@ -13,7 +13,41 @@ export interface RmfExportLevelSource {
   levelName: string
   drawingFilename: string
   gridInfo: GridInfoMessage
+  pixelTransform?: RmfPixelTransform
   profile: NavProfile
+}
+
+export interface RmfMapImageAlignmentTransform {
+  x: number
+  y: number
+  rotation: number
+}
+
+export interface RmfPixelTransform {
+  translateX: number
+  translateY: number
+  rotation: number
+  centerX: number
+  centerY: number
+}
+
+export interface RmfAlignedMapImageSource {
+  levelName: string
+  width: number
+  height: number
+  transform?: RmfMapImageAlignmentTransform
+}
+
+export interface RmfAlignedMapImageLayoutLevel extends RmfAlignedMapImageSource {
+  pixelTransform: RmfPixelTransform
+}
+
+export interface RmfAlignedMapImageLayout {
+  width: number
+  height: number
+  originX: number
+  originY: number
+  levels: RmfAlignedMapImageLayoutLevel[]
 }
 
 export interface RmfLiftRectangle {
@@ -38,6 +72,7 @@ export interface RmfVisualLiftAlignmentOptions {
 export interface RmfVisualMapAlignmentLevel {
   levelName: string
   liftUid: string
+  imageTransform?: RmfMapImageAlignmentTransform
   measurementVertices: [PixelPoint, PixelPoint]
   fiducials: [PixelPoint, PixelPoint, PixelPoint, PixelPoint]
 }
@@ -120,6 +155,104 @@ function formatInlineValue(value: boolean | number | string | Array<boolean | nu
   return value ? 'true' : 'false'
 }
 
+function normalizeDimension(value: number) {
+  return Math.max(1, Math.ceil(Number.isFinite(value) ? value : 1))
+}
+
+function normalizeImageAlignmentTransform(transform?: RmfMapImageAlignmentTransform): RmfMapImageAlignmentTransform {
+  const x = transform?.x
+  const y = transform?.y
+  const rotation = transform?.rotation
+
+  return {
+    x: typeof x === 'number' && Number.isFinite(x) ? x : 0,
+    y: typeof y === 'number' && Number.isFinite(y) ? y : 0,
+    rotation: typeof rotation === 'number' && Number.isFinite(rotation) ? rotation : 0,
+  }
+}
+
+export function applyRmfPixelTransform(point: PixelPoint, transform?: RmfPixelTransform): PixelPoint {
+  if (!transform)
+    return { ...point }
+
+  const theta = transform.rotation * Math.PI / 180
+  const cos = Math.cos(theta)
+  const sin = Math.sin(theta)
+  const dx = point.x - transform.centerX
+  const dy = point.y - transform.centerY
+
+  return {
+    x: transform.centerX + dx * cos - dy * sin + transform.translateX,
+    y: transform.centerY + dx * sin + dy * cos + transform.translateY,
+  }
+}
+
+function createRawPixelTransform(source: RmfAlignedMapImageSource): RmfPixelTransform {
+  const transform = normalizeImageAlignmentTransform(source.transform)
+  const width = normalizeDimension(source.width)
+  const height = normalizeDimension(source.height)
+
+  return {
+    translateX: transform.x,
+    translateY: transform.y,
+    rotation: transform.rotation,
+    centerX: width / 2,
+    centerY: height / 2,
+  }
+}
+
+export function createAlignedMapImageLayout(sources: RmfAlignedMapImageSource[]): RmfAlignedMapImageLayout {
+  if (sources.length === 0) {
+    return {
+      width: 1,
+      height: 1,
+      originX: 0,
+      originY: 0,
+      levels: [],
+    }
+  }
+
+  const normalizedSources = sources.map(source => ({
+    ...source,
+    width: normalizeDimension(source.width),
+    height: normalizeDimension(source.height),
+    transform: normalizeImageAlignmentTransform(source.transform),
+  }))
+  const transformedCorners = normalizedSources.flatMap((source) => {
+    const pixelTransform = createRawPixelTransform(source)
+    return [
+      { x: 0, y: 0 },
+      { x: source.width, y: 0 },
+      { x: source.width, y: source.height },
+      { x: 0, y: source.height },
+    ].map(point => applyRmfPixelTransform(point, pixelTransform))
+  })
+  const originX = Math.floor(Math.min(...transformedCorners.map(point => point.x)))
+  const originY = Math.floor(Math.min(...transformedCorners.map(point => point.y)))
+  const maxX = Math.ceil(Math.max(...transformedCorners.map(point => point.x)))
+  const maxY = Math.ceil(Math.max(...transformedCorners.map(point => point.y)))
+  const width = Math.max(1, maxX - originX)
+  const height = Math.max(1, maxY - originY)
+
+  return {
+    width,
+    height,
+    originX,
+    originY,
+    levels: normalizedSources.map((source) => {
+      const pixelTransform = createRawPixelTransform(source)
+      return {
+        ...source,
+        pixelTransform: {
+          ...pixelTransform,
+          translateX: pixelTransform.translateX - originX,
+          translateY: pixelTransform.translateY - originY,
+        },
+      }
+    }),
+  }
+}
+
 function formatInlineObject(entries: Array<[string, boolean | number | string | Array<boolean | number | string>]>) {
   if (entries.length === 0)
     return '{}'
@@ -138,6 +271,14 @@ export function mapToPixel(point: PixelPoint, gridInfo: GridInfoMessage): PixelP
 
 function navPointToPixel(point: NavPoint, gridInfo: GridInfoMessage) {
   return mapToPixel({ x: point.x, y: point.y }, gridInfo)
+}
+
+function mapToLevelPixel(point: PixelPoint, source: RmfExportLevelSource) {
+  return applyRmfPixelTransform(mapToPixel(point, source.gridInfo), source.pixelTransform)
+}
+
+function navPointToLevelPixel(point: NavPoint, source: RmfExportLevelSource) {
+  return applyRmfPixelTransform(navPointToPixel(point, source.gridInfo), source.pixelTransform)
 }
 
 function getSharedBounds(levels: RmfExportLevelSource[]) {
@@ -253,12 +394,12 @@ export function createVisualLiftAlignmentGeometry(
 
     const corners = getLiftRectangleCorners(selectedLevel)
     const fiducials = corners.map((corner, index) => ({
-      ...mapToPixel(corner, source.gridInfo),
+      ...mapToLevelPixel(corner, source),
       label: LIFT_ALIGNMENT_FIDUCIAL_LABELS[index],
     }))
     const measurementVertices = [
-      mapToPixel(corners[0], source.gridInfo),
-      mapToPixel(corners[1], source.gridInfo),
+      mapToLevelPixel(corners[0], source),
+      mapToLevelPixel(corners[1], source),
     ] satisfies [PixelPoint, PixelPoint]
 
     alignmentGeometry.set(selectedLevel.levelName, {
@@ -290,11 +431,16 @@ export function createVisualMapAlignmentGeometry(
     if (!selectedLevel.measurementVertices.every(isFinitePixelPoint) || !selectedLevel.fiducials.every(isFinitePixelPoint))
       return null
 
+    const source = levelSourcesByName.get(selectedLevel.levelName)
+    if (!source)
+      return null
+
     alignmentGeometry.set(selectedLevel.levelName, {
-      measurementVertices: selectedLevel.measurementVertices,
+      measurementVertices: selectedLevel.measurementVertices
+        .map(point => applyRmfPixelTransform(point, source.pixelTransform)) as [PixelPoint, PixelPoint],
       measurementDistance: alignment.measurementDistance,
       fiducials: selectedLevel.fiducials.map((fiducial, index) => ({
-        ...fiducial,
+        ...applyRmfPixelTransform(fiducial, source.pixelTransform),
         label: LIFT_ALIGNMENT_FIDUCIAL_LABELS[index],
       })),
     })
@@ -337,8 +483,8 @@ function buildVertexLine(x: number, y: number, name = '', attributes: Array<[str
   return `      - [${parts.join(', ')}]`
 }
 
-function buildPointVertexLine(point: NavPoint, gridInfo: GridInfoMessage) {
-  const pixelPoint = navPointToPixel(point, gridInfo)
+function buildPointVertexLine(point: NavPoint, source: RmfExportLevelSource) {
+  const pixelPoint = navPointToLevelPixel(point, source)
   const attributes: Array<[string, boolean | number | string | Array<boolean | number | string>]> = []
   if (point.is_charger)
     attributes.push(['is_charger', [4, true]])
@@ -353,10 +499,10 @@ function getLiftKey(lift: NavLift) {
   return liftName || lift.uid
 }
 
-function buildLiftCabinVertexLine(lift: NavLift, gridInfo: GridInfoMessage, liftReferences: Map<string, LiftAccumulator>) {
+function buildLiftCabinVertexLine(lift: NavLift, source: RmfExportLevelSource, liftReferences: Map<string, LiftAccumulator>) {
   const liftKey = getLiftKey(lift)
   const liftReference = liftReferences.get(liftKey)
-  const pixelPoint = liftReference ?? mapToPixel({ x: lift.x, y: lift.y }, gridInfo)
+  const pixelPoint = liftReference ?? mapToLevelPixel({ x: lift.x, y: lift.y }, source)
 
   return buildVertexLine(pixelPoint.x, pixelPoint.y, '', [['lift_cabin', [1, liftKey]]])
 }
@@ -422,20 +568,20 @@ function buildLevelData(source: RmfExportLevelSource, alignmentGeometry: RmfLeve
 
   source.profile.data.waypoints.forEach((point) => {
     pointIndexMap.set(point.uid, nextVertexIndex)
-    vertexLines.push(buildPointVertexLine(point, source.gridInfo))
+    vertexLines.push(buildPointVertexLine(point, source))
     nextVertexIndex += 1
   })
 
   source.profile.data.lifts.forEach((lift) => {
-    vertexLines.push(buildLiftCabinVertexLine(lift, source.gridInfo, liftReferences))
+    vertexLines.push(buildLiftCabinVertexLine(lift, source, liftReferences))
     nextVertexIndex += 1
   })
 
   const doorPairs: DoorVertexPair[] = []
   source.profile.data.doors.forEach((door) => {
     const endpoints = buildDoorEndpoints(door)
-    const startPixel = mapToPixel(endpoints.start, source.gridInfo)
-    const endPixel = mapToPixel(endpoints.end, source.gridInfo)
+    const startPixel = mapToLevelPixel(endpoints.start, source)
+    const endPixel = mapToLevelPixel(endpoints.end, source)
     const startIndex = nextVertexIndex
     vertexLines.push(buildVertexLine(startPixel.x, startPixel.y))
     nextVertexIndex += 1
@@ -491,7 +637,7 @@ function buildLiftAccumulators(levels: RmfExportLevelSource[]) {
   levels.forEach((source) => {
     source.profile.data.lifts.forEach((lift) => {
       const liftKey = getLiftKey(lift)
-      const pixelPoint = mapToPixel({ x: lift.x, y: lift.y }, source.gridInfo)
+      const pixelPoint = mapToLevelPixel({ x: lift.x, y: lift.y }, source)
       const existing = accumulators.get(liftKey)
 
       if (!existing) {

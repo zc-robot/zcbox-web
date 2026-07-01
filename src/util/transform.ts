@@ -1,4 +1,5 @@
 import type { PoseMessage, QuaternionMessage } from '@/types'
+import type { RmfPixelTransform } from '@/util/rmf'
 
 export function normalizeYaw(yaw: number) {
   return Math.atan2(Math.sin(yaw), Math.cos(yaw))
@@ -332,6 +333,87 @@ function canvasToPngBlob(canvas: HTMLCanvasElement) {
         reject(new Error('无法创建 PNG 地图文件'))
     }, 'image/png')
   })
+}
+
+interface MapRasterDrawable {
+  source: CanvasImageSource
+  close: () => void
+}
+
+export interface AlignedMapRasterRenderOptions {
+  width: number
+  height: number
+  sourceWidth: number
+  sourceHeight: number
+  pixelTransform: RmfPixelTransform
+  fillGrayscale?: number
+}
+
+function clampGrayscale(value: number) {
+  return Math.max(0, Math.min(255, Math.round(Number.isFinite(value) ? value : 205)))
+}
+
+async function createMapRasterDrawable(data: Uint8Array): Promise<MapRasterDrawable> {
+  if (isPng(data)) {
+    const bitmap = await createImageBitmap(new Blob([data], { type: 'image/png' }))
+    return {
+      source: bitmap,
+      close: () => bitmap.close(),
+    }
+  }
+
+  if (!isPgm(data))
+    throw new Error('Unsupported map image format, only PGM and PNG are supported.')
+
+  const { width, height, pixels } = parsePgmPixels(data)
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const context = canvas.getContext('2d')
+  if (!context)
+    throw new Error('无法创建 PNG 地图转换画布')
+
+  context.putImageData(new ImageData(pixels, width, height), 0, 0)
+  return {
+    source: canvas,
+    close: () => {},
+  }
+}
+
+export async function renderAlignedMapRasterToPngBlob(data: Uint8Array, options: AlignedMapRasterRenderOptions) {
+  const width = Math.max(1, Math.ceil(options.width))
+  const height = Math.max(1, Math.ceil(options.height))
+  const sourceWidth = Math.max(1, Math.ceil(options.sourceWidth))
+  const sourceHeight = Math.max(1, Math.ceil(options.sourceHeight))
+  const fill = clampGrayscale(options.fillGrayscale ?? 205)
+  const drawable = await createMapRasterDrawable(data)
+
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+
+    const context = canvas.getContext('2d')
+    if (!context)
+      throw new Error('无法创建 PNG 地图对齐画布')
+
+    context.imageSmoothingEnabled = false
+    context.fillStyle = `rgb(${fill}, ${fill}, ${fill})`
+    context.fillRect(0, 0, width, height)
+
+    context.save()
+    context.translate(options.pixelTransform.translateX, options.pixelTransform.translateY)
+    context.translate(options.pixelTransform.centerX, options.pixelTransform.centerY)
+    context.rotate(options.pixelTransform.rotation * Math.PI / 180)
+    context.translate(-options.pixelTransform.centerX, -options.pixelTransform.centerY)
+    context.drawImage(drawable.source, 0, 0, sourceWidth, sourceHeight)
+    context.restore()
+
+    return canvasToPngBlob(canvas)
+  }
+  finally {
+    drawable.close()
+  }
 }
 
 export async function convertMapRasterToPngBlob(data: Uint8Array) {

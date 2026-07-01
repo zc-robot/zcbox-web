@@ -38,10 +38,36 @@ interface MapImagePreview {
   error?: string
 }
 
+interface AlignmentView {
+  zoom: number
+  panX: number
+  panY: number
+}
+
+const DEFAULT_ALIGNMENT_VIEW: AlignmentView = {
+  zoom: 1,
+  panX: 0,
+  panY: 0,
+}
+const MIN_ALIGNMENT_VIEW_ZOOM = 0.4
+const MAX_ALIGNMENT_VIEW_ZOOM = 8
+
 function removeMapValue<T>(record: Record<number, T>, mapId: number) {
   const next = { ...record }
   delete next[mapId]
   return next
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max)
+}
+
+function normalizeAlignmentView(view: AlignmentView): AlignmentView {
+  return {
+    zoom: clampNumber(Number.isFinite(view.zoom) ? view.zoom : 1, MIN_ALIGNMENT_VIEW_ZOOM, MAX_ALIGNMENT_VIEW_ZOOM),
+    panX: Number.isFinite(view.panX) ? view.panX : 0,
+    panY: Number.isFinite(view.panY) ? view.panY : 0,
+  }
 }
 
 function getLiftLabel(lift: NavLift) {
@@ -184,7 +210,9 @@ interface MapAlignmentPreviewProps {
   targetImage?: MapImagePreview
   targetCorners?: [PixelPoint, PixelPoint, PixelPoint, PixelPoint]
   targetTransform?: MapTransform
+  view: AlignmentView
   disabled: boolean
+  onViewChange: (view: AlignmentView) => void
   onTargetTransformChange: (transform: MapTransform) => void
 }
 
@@ -199,13 +227,22 @@ const MapAlignmentPreview: React.FC<MapAlignmentPreviewProps> = ({
   targetImage,
   targetCorners,
   targetTransform,
+  view,
   disabled,
+  onViewChange,
   onTargetTransformChange,
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null)
   const dragStartRef = useRef<MapDragStart | null>(null)
   const padding = Math.max(referenceImage.width, referenceImage.height) * 0.12
-  const viewBox = `${-padding} ${-padding} ${referenceImage.width + padding * 2} ${referenceImage.height + padding * 2}`
+  const viewBaseWidth = referenceImage.width + padding * 2
+  const viewBaseHeight = referenceImage.height + padding * 2
+  const normalizedView = normalizeAlignmentView(view)
+  const viewWidth = viewBaseWidth / normalizedView.zoom
+  const viewHeight = viewBaseHeight / normalizedView.zoom
+  const viewCenterX = referenceImage.width / 2 + normalizedView.panX
+  const viewCenterY = referenceImage.height / 2 + normalizedView.panY
+  const viewBox = `${viewCenterX - viewWidth / 2} ${viewCenterY - viewHeight / 2} ${viewWidth} ${viewHeight}`
   const transformedTargetCorners = targetImage && targetCorners && targetTransform
     ? targetCorners.map(point => transformMapPoint(point, targetImage, targetTransform))
     : []
@@ -221,6 +258,15 @@ const MapAlignmentPreview: React.FC<MapAlignmentPreviewProps> = ({
     point.y = event.clientY
     const transformed = point.matrixTransform(matrix.inverse())
     return { x: transformed.x, y: transformed.y }
+  }
+
+  const handleWheel = (event: React.WheelEvent<SVGSVGElement>) => {
+    event.preventDefault()
+    const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12
+    onViewChange(normalizeAlignmentView({
+      ...normalizedView,
+      zoom: normalizedView.zoom * factor,
+    }))
   }
 
   const handlePointerDown = (event: React.PointerEvent<SVGSVGElement>) => {
@@ -267,6 +313,7 @@ const MapAlignmentPreview: React.FC<MapAlignmentPreviewProps> = ({
       viewBox={viewBox}
       role="img"
       aria-label="map alignment preview"
+      onWheel={handleWheel}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -312,7 +359,12 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
   const [mapImagesById, setMapImagesById] = useState<Record<number, MapImagePreview>>({})
   const [mapTransformsById, setMapTransformsById] = useState<Record<number, MapTransform>>({})
   const [activeAlignmentMapId, setActiveAlignmentMapId] = useState(0)
+  const [alignmentView, setAlignmentView] = useState<AlignmentView>(DEFAULT_ALIGNMENT_VIEW)
+  const [alignmentConfirmationsByMapId, setAlignmentConfirmationsByMapId] = useState<Record<number, string>>({})
   const mapImagesRef = useRef<Record<number, MapImagePreview>>({})
+  const loadingMapImageIdsRef = useRef<Set<number>>(new Set())
+  const selectedMapIdsRef = useRef<Set<number>>(new Set(selectedMapIds))
+  const isMountedRef = useRef(true)
 
   useEffect(() => {
     setTargetHost(defaultUploadHost)
@@ -373,7 +425,12 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
     mapImagesRef.current = mapImagesById
   }, [mapImagesById])
 
+  useEffect(() => {
+    selectedMapIdsRef.current = new Set(selectedMapIds)
+  }, [selectedMapIds])
+
   useEffect(() => () => {
+    isMountedRef.current = false
     Object.values(mapImagesRef.current).forEach((preview) => {
       if (preview.url)
         URL.revokeObjectURL(preview.url)
@@ -383,11 +440,16 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
   useEffect(() => {
     if (orderedSelectedMaps.length === 0) {
       setReferenceMapId(0)
+      setMapTransformsById({})
+      setAlignmentConfirmationsByMapId({})
       return
     }
 
-    if (!orderedSelectedMaps.some(map => map.id === referenceMapId))
+    if (!orderedSelectedMaps.some(map => map.id === referenceMapId)) {
       setReferenceMapId(orderedSelectedMaps[0].id)
+      setMapTransformsById({})
+      setAlignmentConfirmationsByMapId({})
+    }
   }, [orderedSelectedMaps, referenceMapId])
 
   useEffect(() => {
@@ -484,20 +546,23 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
   }, [activeAlignmentMapId, alignmentTargetMaps])
 
   useEffect(() => {
+    setAlignmentView(DEFAULT_ALIGNMENT_VIEW)
+  }, [alignmentMode, referenceMapId])
+
+  useEffect(() => {
     if (alignmentMode !== 'visual-lift')
       return
-
-    let isCancelled = false
 
     orderedSelectedMaps.forEach((map) => {
       const mapImagePath = getMapImagePath(map)
       if (!mapImagePath)
         return
 
-      const existing = mapImagesById[map.id]
-      if (existing)
+      const existing = mapImagesRef.current[map.id]
+      if (existing || loadingMapImageIdsRef.current.has(map.id))
         return
 
+      loadingMapImageIdsRef.current.add(map.id)
       setMapImagesById(prev => ({
         ...prev,
         [map.id]: {
@@ -512,7 +577,7 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
           const blob = await apiServer.downloadMap(mapImagePath)
           const pngBlob = await convertMapRasterToPngBlob(new Uint8Array(await blob.arrayBuffer()))
           const url = URL.createObjectURL(pngBlob)
-          if (isCancelled) {
+          if (!isMountedRef.current || !selectedMapIdsRef.current.has(map.id)) {
             URL.revokeObjectURL(url)
             return
           }
@@ -534,7 +599,7 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
           })
         }
         catch (error) {
-          if (isCancelled)
+          if (!isMountedRef.current || !selectedMapIdsRef.current.has(map.id))
             return
 
           setMapImagesById(prev => ({
@@ -547,13 +612,12 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
             },
           }))
         }
+        finally {
+          loadingMapImageIdsRef.current.delete(map.id)
+        }
       })()
     })
-
-    return () => {
-      isCancelled = true
-    }
-  }, [alignmentMode, mapImagesById, orderedSelectedMaps])
+  }, [alignmentMode, orderedSelectedMaps])
 
   const handleMapToggle = (mapId: number, checked: boolean) => {
     setSelectedMapIds((prev) => {
@@ -574,6 +638,12 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
       setProfilesByMapId(prev => removeMapValue(prev, mapId))
       setSelectedLiftIds(prev => removeMapValue(prev, mapId))
       setMapTransformsById(prev => removeMapValue(prev, mapId))
+      setAlignmentConfirmationsByMapId(prev => removeMapValue(prev, mapId))
+      if (mapId === referenceMapId) {
+        setMapTransformsById({})
+        setAlignmentConfirmationsByMapId({})
+      }
+      loadingMapImageIdsRef.current.delete(mapId)
       setMapImagesById((prev) => {
         const existing = prev[mapId]
         if (existing?.url)
@@ -620,6 +690,39 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
   const activeLiftCorners = activeAlignmentMap && activeAlignmentLift
     ? getLiftPixelCorners(activeAlignmentLift, activeAlignmentMap)
     : undefined
+  const getAlignmentConfirmationSignature = (map: MapListItem) => {
+    if (!referenceMap || !referenceLift || !referenceImage || map.id === referenceMap.id)
+      return null
+
+    const lift = getSelectedLiftForMap(map)
+    const image = getReadyMapImage(map)
+    if (!lift || !image)
+      return null
+
+    const transform = getMapTransform(map, lift)
+    return [
+      referenceMap.id,
+      referenceLift.uid,
+      referenceImage.width,
+      referenceImage.height,
+      map.id,
+      lift.uid,
+      image.width,
+      image.height,
+      formatDraftValue(transform.x),
+      formatDraftValue(transform.y),
+      formatDraftValue(transform.rotation),
+    ].join('|')
+  }
+  const isTargetAlignmentConfirmed = (map: MapListItem) => {
+    const signature = getAlignmentConfirmationSignature(map)
+    return signature != null && alignmentConfirmationsByMapId[map.id] === signature
+  }
+  const confirmedAlignmentTargetCount = alignmentTargetMaps.filter(isTargetAlignmentConfirmed).length
+  const unconfirmedAlignmentTargetCount = Math.max(0, alignmentTargetMaps.length - confirmedAlignmentTargetCount)
+  const visualLevelAlignmentConfirmed = alignmentMode !== 'visual-lift'
+    || orderedSelectedMaps.length < 2
+    || (alignmentTargetMaps.length > 0 && unconfirmedAlignmentTargetCount === 0)
   const visualLiftAlignmentReady = alignmentMode !== 'visual-lift'
     || orderedSelectedMaps.length < 2
     || (
@@ -632,6 +735,7 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
     && trimmedTargetHost.length > 0
     && orderedSelectedMaps.length > 0
     && visualLiftAlignmentReady
+    && visualLevelAlignmentConfirmed
     && orderedSelectedMaps.every((map) => {
       const profiles = profilesByMapId[map.id]
       const selectedProfileId = selectedProfileIds[map.id]
@@ -648,6 +752,7 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
       [map.id]: liftUid,
     }))
     setMapTransformsById({})
+    setAlignmentConfirmationsByMapId({})
   }
 
   const updateMapTransform = (mapId: number, transform: MapTransform) => {
@@ -655,6 +760,7 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
       ...prev,
       [mapId]: transform,
     }))
+    setAlignmentConfirmationsByMapId(prev => removeMapValue(prev, mapId))
   }
 
   const resetMapTransform = (map: MapListItem, lift: NavLift) => {
@@ -669,6 +775,85 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
       next[map.id] = getDefaultMapTransform(referenceMap, referenceLift, map, lift, image)
       return next
     })
+    setAlignmentConfirmationsByMapId(prev => removeMapValue(prev, map.id))
+  }
+
+  const handleAlignmentModeChange = (mode: AlignmentMode) => {
+    setAlignmentMode(mode)
+    setAlignmentConfirmationsByMapId({})
+  }
+
+  const handleReferenceMapChange = (mapId: number) => {
+    setReferenceMapId(mapId)
+    setMapTransformsById({})
+    setAlignmentConfirmationsByMapId({})
+  }
+
+  const confirmActiveAlignmentMap = () => {
+    if (!activeAlignmentMap)
+      return
+
+    const signature = getAlignmentConfirmationSignature(activeAlignmentMap)
+    if (!signature) {
+      toast.error('请先选择目标 level、电梯，并等待地图图片加载完成')
+      return
+    }
+
+    const nextConfirmations = {
+      ...alignmentConfirmationsByMapId,
+      [activeAlignmentMap.id]: signature,
+    }
+    setAlignmentConfirmationsByMapId(nextConfirmations)
+
+    const nextUnconfirmedMap = alignmentTargetMaps.find((map) => {
+      if (map.id === activeAlignmentMap.id)
+        return false
+
+      const mapSignature = getAlignmentConfirmationSignature(map)
+      return mapSignature != null && nextConfirmations[map.id] !== mapSignature
+    })
+
+    if (nextUnconfirmedMap)
+      setActiveAlignmentMapId(nextUnconfirmedMap.id)
+  }
+
+  const zoomAlignmentView = (factor: number) => {
+    setAlignmentView(prev => normalizeAlignmentView({
+      ...prev,
+      zoom: prev.zoom * factor,
+    }))
+  }
+
+  const panAlignmentView = (directionX: number, directionY: number) => {
+    const referenceSize = Math.max(referenceImage?.width ?? referenceMap?.info.width ?? 100, referenceImage?.height ?? referenceMap?.info.height ?? 100)
+    setAlignmentView((prev) => {
+      const normalizedView = normalizeAlignmentView(prev)
+      const step = referenceSize * 0.08 / normalizedView.zoom
+
+      return normalizeAlignmentView({
+        ...normalizedView,
+        panX: normalizedView.panX + directionX * step,
+        panY: normalizedView.panY + directionY * step,
+      })
+    })
+  }
+
+  const centerAlignmentViewOnReferenceLift = () => {
+    if (!referenceMap || !referenceLiftCorners) {
+      setAlignmentView(DEFAULT_ALIGNMENT_VIEW)
+      return
+    }
+
+    const center = getPointCenter(referenceLiftCorners)
+    setAlignmentView(prev => normalizeAlignmentView({
+      ...prev,
+      panX: center.x - referenceMap.info.width / 2,
+      panY: center.y - referenceMap.info.height / 2,
+    }))
+  }
+
+  const resetAlignmentView = () => {
+    setAlignmentView(DEFAULT_ALIGNMENT_VIEW)
   }
 
   const createVisualMapAlignment = (): ExportRmfAlignment | undefined => {
@@ -677,6 +862,11 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
 
     if (!referenceMap || !referenceLift || !referenceImage || !referenceLiftCorners) {
       toast.error('请选择参考 level、电梯，并等待地图图片加载完成')
+      return undefined
+    }
+
+    if (unconfirmedAlignmentTargetCount > 0) {
+      toast.error('请先确认所有目标 level 的对齐结果')
       return undefined
     }
 
@@ -698,6 +888,7 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
         return {
           levelName: map.name,
           liftUid: lift.uid,
+          imageTransform: { x: 0, y: 0, rotation: 0 },
           fiducials: referenceLiftCorners,
           measurementVertices: [referenceLiftCorners[0], referenceLiftCorners[1]],
         }
@@ -710,6 +901,7 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
       return {
         levelName: map.name,
         liftUid: lift.uid,
+        imageTransform: transform,
         fiducials,
         measurementVertices: [fiducials[0], fiducials[1]],
       }
@@ -795,7 +987,7 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
               className="bg-gray-50 border-(solid 1px gray-300) text-sm rounded-lg px-2 py-1"
               value={alignmentMode}
               disabled={isSubmitting}
-              onChange={event => setAlignmentMode(event.target.value as AlignmentMode)}>
+              onChange={event => handleAlignmentModeChange(event.target.value as AlignmentMode)}>
               <option value="metadata">地图元数据</option>
               <option value="visual-lift">电梯可视对齐</option>
             </select>
@@ -806,7 +998,7 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
                   className="bg-gray-50 border-(solid 1px gray-300) text-sm rounded-lg px-2 py-1"
                   value={referenceMapId}
                   disabled={isSubmitting}
-                  onChange={event => setReferenceMapId(Number(event.target.value))}>
+                  onChange={event => handleReferenceMapChange(Number(event.target.value))}>
                   {orderedSelectedMaps.map(map => (
                     <option key={map.id} value={map.id}>{map.name}</option>
                   ))}
@@ -827,7 +1019,9 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
                     targetImage={activeAlignmentImage}
                     targetCorners={activeLiftCorners}
                     targetTransform={activeAlignmentTransform}
+                    view={alignmentView}
                     disabled={isSubmitting || !activeAlignmentMap}
+                    onViewChange={setAlignmentView}
                     onTargetTransformChange={(transform) => {
                       if (activeAlignmentMap)
                         updateMapTransform(activeAlignmentMap.id, transform)
@@ -851,6 +1045,112 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
                       <option key={map.id} value={map.id}>{map.name}</option>
                     ))}
                   </select>
+                  <div className="mt-3 border-t-(solid 1px gray-200) pt-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-gray-500">视图缩放</span>
+                      <span className="text-xs text-gray-500">{`${Math.round(alignmentView.zoom * 100)}%`}</span>
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <button
+                        type="button"
+                        title="缩小"
+                        className="h-7 w-7 border-none bg-gray-100 hover:bg-gray-200 rounded-md flex flex-(items-center justify-center) text-gray-700 disabled:opacity-50"
+                        disabled={isSubmitting}
+                        onClick={() => zoomAlignmentView(1 / 1.25)}>
+                        <div className="i-material-symbols-zoom-out-rounded text-4" />
+                      </button>
+                      <button
+                        type="button"
+                        title="放大"
+                        className="h-7 w-7 border-none bg-gray-100 hover:bg-gray-200 rounded-md flex flex-(items-center justify-center) text-gray-700 disabled:opacity-50"
+                        disabled={isSubmitting}
+                        onClick={() => zoomAlignmentView(1.25)}>
+                        <div className="i-material-symbols-zoom-in-rounded text-4" />
+                      </button>
+                      <button
+                        type="button"
+                        title="居中到电梯"
+                        className="h-7 w-7 border-none bg-gray-100 hover:bg-gray-200 rounded-md flex flex-(items-center justify-center) text-gray-700 disabled:opacity-50"
+                        disabled={isSubmitting}
+                        onClick={centerAlignmentViewOnReferenceLift}>
+                        <div className="i-material-symbols-center-focus-strong-rounded text-4" />
+                      </button>
+                      <button
+                        type="button"
+                        title="重置视图"
+                        className="h-7 w-7 border-none bg-gray-100 hover:bg-gray-200 rounded-md flex flex-(items-center justify-center) text-gray-700 disabled:opacity-50"
+                        disabled={isSubmitting}
+                        onClick={resetAlignmentView}>
+                        <div className="i-material-symbols-fit-screen-rounded text-4" />
+                      </button>
+                    </div>
+                    <div className="mt-2 grid grid-cols-3 gap-1 w-25">
+                      <div />
+                      <button
+                        type="button"
+                        title="上移视图"
+                        className="h-7 w-7 border-none bg-gray-100 hover:bg-gray-200 rounded-md flex flex-(items-center justify-center) text-gray-700 disabled:opacity-50"
+                        disabled={isSubmitting}
+                        onClick={() => panAlignmentView(0, -1)}>
+                        <div className="i-material-symbols-keyboard-arrow-up-rounded text-4" />
+                      </button>
+                      <div />
+                      <button
+                        type="button"
+                        title="左移视图"
+                        className="h-7 w-7 border-none bg-gray-100 hover:bg-gray-200 rounded-md flex flex-(items-center justify-center) text-gray-700 disabled:opacity-50"
+                        disabled={isSubmitting}
+                        onClick={() => panAlignmentView(-1, 0)}>
+                        <div className="i-material-symbols-keyboard-arrow-left-rounded text-4" />
+                      </button>
+                      <button
+                        type="button"
+                        title="居中到电梯"
+                        className="h-7 w-7 border-none bg-gray-100 hover:bg-gray-200 rounded-md flex flex-(items-center justify-center) text-gray-700 disabled:opacity-50"
+                        disabled={isSubmitting}
+                        onClick={centerAlignmentViewOnReferenceLift}>
+                        <div className="i-material-symbols-center-focus-strong-rounded text-4" />
+                      </button>
+                      <button
+                        type="button"
+                        title="右移视图"
+                        className="h-7 w-7 border-none bg-gray-100 hover:bg-gray-200 rounded-md flex flex-(items-center justify-center) text-gray-700 disabled:opacity-50"
+                        disabled={isSubmitting}
+                        onClick={() => panAlignmentView(1, 0)}>
+                        <div className="i-material-symbols-keyboard-arrow-right-rounded text-4" />
+                      </button>
+                      <div />
+                      <button
+                        type="button"
+                        title="下移视图"
+                        className="h-7 w-7 border-none bg-gray-100 hover:bg-gray-200 rounded-md flex flex-(items-center justify-center) text-gray-700 disabled:opacity-50"
+                        disabled={isSubmitting}
+                        onClick={() => panAlignmentView(0, 1)}>
+                        <div className="i-material-symbols-keyboard-arrow-down-rounded text-4" />
+                      </button>
+                      <div />
+                    </div>
+                  </div>
+                  <div className="mt-3 border-t-(solid 1px gray-200) pt-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-gray-500">对齐确认</span>
+                      <span className={`text-xs ${unconfirmedAlignmentTargetCount === 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                        {`${confirmedAlignmentTargetCount}/${alignmentTargetMaps.length}`}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className={`mt-2 w-full border-none px-3 py-2 rounded-md text-xs ${activeAlignmentMap && isTargetAlignmentConfirmed(activeAlignmentMap) ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-600 text-white hover:bg-emerald-700'} disabled:opacity-50`}
+                      disabled={isSubmitting || !activeAlignmentMap || !activeAlignmentLift || !activeAlignmentImage || !activeAlignmentTransform}
+                      onClick={confirmActiveAlignmentMap}>
+                      {activeAlignmentMap && isTargetAlignmentConfirmed(activeAlignmentMap) ? '已确认，重新确认当前 level' : '确认当前 level 对齐'}
+                    </button>
+                    {unconfirmedAlignmentTargetCount > 0 && (
+                      <div className="mt-2 text-xs text-amber-600">
+                        还有 {unconfirmedAlignmentTargetCount} 个目标 level 需要确认，确认后会自动切到下一个。
+                      </div>
+                    )}
+                  </div>
                   {activeAlignmentMap && activeAlignmentLift && activeAlignmentTransform && (
                     <>
                       <div className="mt-2 grid grid-cols-3 gap-2">
@@ -888,6 +1188,7 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
                     const lifts = profile?.data.lifts ?? []
                     const selectedLiftId = selectedLiftIds[map.id] ?? ''
                     const isReference = map.id === referenceMapId
+                    const isConfirmed = !isReference && isTargetAlignmentConfirmed(map)
                     const image = mapImagesById[map.id]
 
                     return (
@@ -896,6 +1197,11 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
                           <div className="font-medium truncate">{map.name}</div>
                           {isReference && (
                             <span className="ml-a text-xs bg-blue-100 text-blue-700 rounded px-2 py-0.5">参考</span>
+                          )}
+                          {!isReference && (
+                            <span className={`ml-a text-xs rounded px-2 py-0.5 ${isConfirmed ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                              {isConfirmed ? '已确认' : '待确认'}
+                            </span>
                           )}
                         </div>
                         {lifts.length === 0 && (

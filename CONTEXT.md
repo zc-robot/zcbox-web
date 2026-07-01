@@ -120,6 +120,22 @@ _Avoid_: Map file
 An operational map layer in a site that contains the map image and deployment information such as waypoints and related navigation data. In this product, level and map refer to the same operator-facing concept, with level preferred when the object includes more than raw map files.
 _Avoid_: Map
 
+**Level Alignment**:
+The Deployment Phase workflow where operators choose one reference Level and visually align other selected Levels, one target Level at a time, into the same top-left-origin image coordinate frame before Deployment Upload. Level Alignment is used when multiple Levels must share consistent lift geometry, RMF coordinates, and referenced Level image dimensions.
+_Avoid_: Map matching, chained map alignment
+
+**Level Alignment Output**:
+The Deployment Upload artifacts produced from Level Alignment. Every aligned Level image has the same pixel dimensions and the same top-left-origin coordinate frame, with empty areas filled as gray pixels, and the corresponding map YAML metadata describes that shared aligned image frame rather than the original source image frame. The aligned map YAML copies the reference Level's occupancy interpretation fields such as resolution, negate, occupied threshold, free threshold, and mode, while changing the image filename and recalculating origin from the aligned image height and resolution so the image's top-left pixel is the application coordinate origin, for example `origin: [0, -(height * resolution), 0]`. The same aligned Level image and map YAML metadata should replace both navigation and localization local working Level map assets after the original assets are backed up, not only exist as transient upload payloads.
+_Avoid_: Original map image, preview overlay
+
+**Level Asset Backup**:
+A recovery copy of a Level's navigation and localization local working image and map YAML metadata made by the local map-file update step before Level Alignment Output replaces those assets. Level Asset Backup supports manual recovery of the previous local working Level map assets; an operator-facing restore workflow is separate from Level Alignment.
+_Avoid_: Restore UI, deployment artifact
+
+**Alignment Confirmation**:
+The operator acknowledgement that a target Level has been reviewed and accepted against the reference Level during Level Alignment. Alignment Confirmation is invalidated when the reference Level, selected lift, alignment transform, or aligned image dimensions change, but not when the operator only changes the preview viewport.
+_Avoid_: Automatic alignment, image loaded
+
 **Waypoint**:
 A named navigable pose on a Level that can be used as a task destination, route point, storage location reference, or operational landmark. A waypoint must be meaningful to navigation or dispatch, not merely a drawn point on the canvas.
 _Avoid_: Canvas point
