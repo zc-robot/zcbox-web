@@ -860,6 +860,20 @@ class ApiServer {
     return null
   }
 
+  fetchAllRobotParameters = async () => {
+    const response = await this.client.get('param_handler/yamlGetAll', { retry: 0 })
+    const contentType = response.headers.get('content-type')?.toLowerCase() || ''
+    const content = await response.text()
+    const normalizedContent = content.trim().toLowerCase()
+
+    if (contentType.includes('text/html') || normalizedContent.startsWith('<!doctype html') || normalizedContent.startsWith('<html'))
+      throw new Error('The robot controller returned a web page instead of parameter data. Check the connection and sign-in state.')
+    if (!content.trim())
+      throw new Error('The robot controller returned an empty parameter file.')
+
+    return content
+  }
+
   uploadParams = async (params: RobotParams) => {
     const json = await this.client.post('parameter/get_params', { json: params }).json()
     return json

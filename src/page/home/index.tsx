@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Toaster, toast } from 'react-hot-toast'
+import ParameterViewerModal from './ParameterViewerModal'
 import apiServer from '@/service/apiServer'
 import { useGridStore, useParamsStore } from '@/store'
-import { usePointCloudZenoh, useRobotPoseZenoh, useTelemetryZenoh } from '@/hooks'
+import { useLocales, usePointCloudZenoh, useRobotPoseZenoh, useTelemetryZenoh } from '@/hooks'
 
 interface MapContextMenuState {
   id: number
@@ -36,6 +37,7 @@ function normalizeRunningMode(state: { data?: unknown; message?: string }): Runn
 }
 
 const Home: React.FC = () => {
+  const { locale } = useLocales()
   useRobotPoseZenoh()
   usePointCloudZenoh()
 
@@ -60,6 +62,7 @@ const Home: React.FC = () => {
   const [menuState, setMenuState] = useState<MapContextMenuState | null>(null)
   const [renamingMapId, setRenamingMapId] = useState<number | null>(null)
   const [renameDialog, setRenameDialog] = useState<MapRenameDialogState | null>(null)
+  const [showParameterViewer, setShowParameterViewer] = useState(false)
 
   const initMapData = useCallback(async () => {
     const maps = await apiServer.fetchMapList()
@@ -325,6 +328,13 @@ const Home: React.FC = () => {
         <button
           className="mt-a flex flex-(items-center justify-center) border-(t-solid 1px gray-3) border-x-0 border-b-0 bg-transparent py-3 text-gray-5 hover:bg-gray-2"
           type="button"
+          onClick={() => setShowParameterViewer(true)}>
+          <div className="i-material-symbols-tune-rounded mr-2 text-5" />
+          <div className="text-3">{locale('robotParameters')}</div>
+        </button>
+        <button
+          className="flex flex-(items-center justify-center) border-(t-solid 1px gray-3) border-x-0 border-b-0 bg-transparent py-3 text-gray-5 hover:bg-gray-2"
+          type="button"
           title="Change controller"
           onClick={changeNestController}>
           <div className="i-material-symbols-swap-horiz-rounded mr-2 text-5" />
@@ -338,6 +348,7 @@ const Home: React.FC = () => {
         </div>
       </div>
       <Outlet />
+      {showParameterViewer && <ParameterViewerModal onClose={() => setShowParameterViewer(false)} />}
       <Toaster />
     </div>
   )

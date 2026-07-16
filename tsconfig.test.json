@@ -13,6 +13,8 @@
   "include": [
     "src/page/fleet/runtimeModel.ts",
     "src/page/fleet/runtimeModel.test.ts",
+    "src/page/home/parameterModel.ts",
+    "src/page/home/parameterModel.test.ts",
     "src/util/nav2MapYaml.ts",
     "src/util/nav2MapYaml.test.ts",
     "src/util/rmf.ts",
