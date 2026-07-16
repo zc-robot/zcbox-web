@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Toaster, toast } from 'react-hot-toast'
 import ParameterViewerModal from './ParameterViewerModal'
+import RobotDiagnosticsModal from './RobotDiagnosticsModal'
 import apiServer from '@/service/apiServer'
 import { useGridStore, useParamsStore } from '@/store'
 import { useLocales, usePointCloudZenoh, useRobotPoseZenoh, useTelemetryZenoh } from '@/hooks'
@@ -63,6 +64,7 @@ const Home: React.FC = () => {
   const [renamingMapId, setRenamingMapId] = useState<number | null>(null)
   const [renameDialog, setRenameDialog] = useState<MapRenameDialogState | null>(null)
   const [showParameterViewer, setShowParameterViewer] = useState(false)
+  const [showDiagnostics, setShowDiagnostics] = useState(false)
 
   const initMapData = useCallback(async () => {
     const maps = await apiServer.fetchMapList()
@@ -328,6 +330,13 @@ const Home: React.FC = () => {
         <button
           className="mt-a flex flex-(items-center justify-center) border-(t-solid 1px gray-3) border-x-0 border-b-0 bg-transparent py-3 text-gray-5 hover:bg-gray-2"
           type="button"
+          onClick={() => setShowDiagnostics(true)}>
+          <div className="i-material-symbols-health-and-safety-outline-rounded mr-2 text-5" />
+          <div className="text-3">{locale('robotDiagnostics')}</div>
+        </button>
+        <button
+          className="flex flex-(items-center justify-center) border-(t-solid 1px gray-3) border-x-0 border-b-0 bg-transparent py-3 text-gray-5 hover:bg-gray-2"
+          type="button"
           onClick={() => setShowParameterViewer(true)}>
           <div className="i-material-symbols-tune-rounded mr-2 text-5" />
           <div className="text-3">{locale('robotParameters')}</div>
@@ -340,14 +349,11 @@ const Home: React.FC = () => {
           <div className="i-material-symbols-swap-horiz-rounded mr-2 text-5" />
           <div className="text-3">Change controller</div>
         </button>
-        <Link to="/settings" className="flex flex-(items-center justify-center) text-gray-5 py-4 decoration-none border-(t-solid 1px gray-3)">
-          <div className="i-material-symbols-settings-rounded mr-2" />
-          <div className="text-4">Settings</div>
-        </Link>
         <div>
         </div>
       </div>
       <Outlet />
+      {showDiagnostics && <RobotDiagnosticsModal onClose={() => setShowDiagnostics(false)} />}
       {showParameterViewer && <ParameterViewerModal onClose={() => setShowParameterViewer(false)} />}
       <Toaster />
     </div>
