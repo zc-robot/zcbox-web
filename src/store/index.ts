@@ -8,6 +8,7 @@ import type { ParamsSlice } from './params'
 import { paramsSlice } from './params'
 import type { ProfileSlice } from './profile'
 import { profileSlice } from './profile'
+import { normalizeConnectionHistory, parseRobotNameResponse } from '@/util/robotConnection'
 
 // 自定义状态净化函数，用于处理大型地图数据
 function stateSanitizer(state: any) {
@@ -43,11 +44,26 @@ export const useBoundStore = create<GridSlice & OperationSlice & ProfileSlice & 
       isGetDomainAuto: state.isGetDomainAuto,
       appMode: state.appMode,
       nestControllerIp: state.nestControllerIp,
-      nestControllerHistory: state.nestControllerHistory,
+      robotName: state.robotName,
+      connectionHostHistory: state.connectionHostHistory,
       pointCloudTopics: state.pointCloudTopics,
       robotParams: state.robotParams,
       mapParams: state.mapParams,
     }),
+    merge: (persistedState, currentState) => {
+      const state = persistedState && typeof persistedState === 'object'
+        ? persistedState as Record<string, unknown>
+        : {}
+      const { nestControllerHistory: legacyConnectionHistory, ...migratedState } = state
+      return {
+        ...currentState,
+        ...migratedState,
+        robotName: parseRobotNameResponse(migratedState.robotName),
+        connectionHostHistory: normalizeConnectionHistory(
+          migratedState.connectionHostHistory ?? legacyConnectionHistory,
+        ),
+      }
+    },
   },
 ))
 

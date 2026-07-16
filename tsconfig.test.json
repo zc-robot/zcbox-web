@@ -22,6 +22,8 @@
     "src/util/nav2MapYaml.test.ts",
     "src/util/rmf.ts",
     "src/util/rmf.test.ts",
+    "src/util/robotConnection.ts",
+    "src/util/robotConnection.test.ts",
     "src/types.d.ts"
   ]
 }

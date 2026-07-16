@@ -1,5 +1,7 @@
 import type { StateCreator } from 'zustand'
 import type { AppMode, FootprintParams, JointParams, LanguageCode, PointAction, RobotParams } from '@/types'
+import { UNKNOWN_ROBOT_NAME, bindConnectionHistory } from '@/util/robotConnection'
+import type { ConnectionHostHistoryEntry } from '@/util/robotConnection'
 
 export const defaultPointCloudTopics = [
   '**/depth/points/filtered',
@@ -14,7 +16,8 @@ export interface ParamsSlice {
   isGetDomainAuto: boolean
   appMode: AppMode | null
   nestControllerIp: string
-  nestControllerHistory: string[]
+  robotName: string
+  connectionHostHistory: ConnectionHostHistoryEntry[]
   pointCloudTopics: string[]
   robotParams: RobotParams | null
   pointActions: PointAction[]
@@ -29,7 +32,7 @@ export interface ParamsSlice {
   updateWsDomain: (domain: string) => void
   updateIsGetDomainAuto: (domainAuto: boolean) => void
   updateAppMode: (mode: AppMode | null) => void
-  rememberNestControllerIp: (ip: string) => void
+  rememberConnectionHost: (ip: string, robotName: string, preserveExistingName?: boolean) => void
   changeNestController: () => void
   updatePointCloudTopics: (topics: string[]) => void
   updateMapParams: (by: { resolution?: number; model?: string }) => void
@@ -46,7 +49,8 @@ export const paramsSlice: StateCreator<ParamsSlice> = set => ({
   isGetDomainAuto: true,
   appMode: null,
   nestControllerIp: '',
-  nestControllerHistory: [],
+  robotName: UNKNOWN_ROBOT_NAME,
+  connectionHostHistory: [],
   pointCloudTopics: defaultPointCloudTopics,
   robotParams: null,
   pointActions: [],
@@ -71,7 +75,7 @@ export const paramsSlice: StateCreator<ParamsSlice> = set => ({
   updateAppMode: (mode: AppMode | null) => {
     set({ appMode: mode })
   },
-  rememberNestControllerIp: (ip: string) => {
+  rememberConnectionHost: (ip: string, robotName: string, preserveExistingName = false) => {
     const normalizedIp = ip.trim()
 
     set((state) => {
@@ -80,10 +84,10 @@ export const paramsSlice: StateCreator<ParamsSlice> = set => ({
 
       return {
         nestControllerIp: normalizedIp,
-        nestControllerHistory: [
-          normalizedIp,
-          ...state.nestControllerHistory.filter(item => item !== normalizedIp),
-        ].slice(0, 8),
+        robotName: robotName.trim() || UNKNOWN_ROBOT_NAME,
+        connectionHostHistory: bindConnectionHistory(state.connectionHostHistory, normalizedIp, robotName, {
+          preserveExistingName,
+        }),
       }
     })
   },
@@ -94,6 +98,7 @@ export const paramsSlice: StateCreator<ParamsSlice> = set => ({
       isGetDomainAuto: false,
       appMode: null,
       nestControllerIp: '',
+      robotName: UNKNOWN_ROBOT_NAME,
     })
   },
   updatePointCloudTopics: (topics: string[]) => {

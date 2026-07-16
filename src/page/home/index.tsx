@@ -51,6 +51,7 @@ const Home: React.FC = () => {
   }))
 
   const apiDomain = useParamsStore(state => state.apiDomain)
+  const robotName = useParamsStore(state => state.robotName)
   const changeNestController = useParamsStore(state => state.changeNestController)
   const location = useLocation()
   const isMappingRoute = location.pathname === '/mapping'
@@ -229,6 +230,12 @@ const Home: React.FC = () => {
   return (
     <div className="flex h-full">
       <div className="flex flex-col w-40 bg-gray-100 border-(r-solid 1px gray-3)">
+        <div className="border-(b-solid 1px gray-3) px-3 py-3" title={robotName}>
+          <div className="flex items-center gap-2">
+            <div className="i-material-symbols-smart-toy-outline-rounded shrink-0 text-5 text-gray-500" />
+            <div className="min-w-0 truncate text-sm font-700 text-gray-700">{robotName || 'Unknown'}</div>
+          </div>
+        </div>
         <nav>
           <Link
             className="flex flex-(items-center justify-center) py-4 decoration-none"

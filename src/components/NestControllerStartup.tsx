@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react'
 import Input from './Input'
 import { useLocales } from '@/hooks'
+import { fetchRobotName } from '@/service/robotConnection'
 import { useParamsStore } from '@/store'
 import { isValidIpv4, normalizeNestControllerIp } from '@/util/nestController'
+import { UNKNOWN_ROBOT_NAME, normalizeConnectionHistory } from '@/util/robotConnection'
 import type { AppMode } from '@/types'
 
 interface NestControllerStartupProps {
@@ -13,29 +15,31 @@ const NestControllerStartup: React.FC<NestControllerStartupProps> = ({ onConnect
   const { locale } = useLocales()
   const {
     nestControllerIp,
-    nestControllerHistory,
+    connectionHostHistory,
     appMode,
-    rememberNestControllerIp,
+    rememberConnectionHost,
     updateApiDomain,
     updateWsDomain,
     updateIsGetDomainAuto,
     updateAppMode,
   } = useParamsStore(state => ({
     nestControllerIp: state.nestControllerIp,
-    nestControllerHistory: state.nestControllerHistory,
+    connectionHostHistory: state.connectionHostHistory,
     appMode: state.appMode,
-    rememberNestControllerIp: state.rememberNestControllerIp,
+    rememberConnectionHost: state.rememberConnectionHost,
     updateApiDomain: state.updateApiDomain,
     updateWsDomain: state.updateWsDomain,
     updateIsGetDomainAuto: state.updateIsGetDomainAuto,
     updateAppMode: state.updateAppMode,
   }))
-  const initialIp = useMemo(() => nestControllerIp || nestControllerHistory[0] || '', [nestControllerHistory, nestControllerIp])
+  const historyEntries = useMemo(() => normalizeConnectionHistory(connectionHostHistory), [connectionHostHistory])
+  const initialIp = useMemo(() => nestControllerIp || historyEntries[0]?.ip || '', [historyEntries, nestControllerIp])
   const [ip, setIp] = useState(initialIp)
   const [mode, setMode] = useState<AppMode>(appMode ?? 'robot')
   const [error, setError] = useState('')
+  const [isConnecting, setIsConnecting] = useState(false)
 
-  const connect = (value: string) => {
+  const connect = async (value: string) => {
     const normalizedIp = normalizeNestControllerIp(value)
 
     if (!isValidIpv4(normalizedIp)) {
@@ -43,11 +47,23 @@ const NestControllerStartup: React.FC<NestControllerStartupProps> = ({ onConnect
       return
     }
 
-    rememberNestControllerIp(normalizedIp)
-    updateAppMode(mode)
+    setIsConnecting(true)
     updateApiDomain(`http://${normalizedIp}:5000`)
     updateWsDomain(`ws://${normalizedIp}:1234`)
     updateIsGetDomainAuto(false)
+
+    let robotName = UNKNOWN_ROBOT_NAME
+    if (mode === 'robot') {
+      try {
+        robotName = await fetchRobotName(normalizedIp)
+      }
+      catch {
+        robotName = UNKNOWN_ROBOT_NAME
+      }
+    }
+
+    rememberConnectionHost(normalizedIp, robotName, mode !== 'robot')
+    updateAppMode(mode)
     onConnected(mode)
   }
 
@@ -58,7 +74,7 @@ const NestControllerStartup: React.FC<NestControllerStartupProps> = ({ onConnect
           className="w-full max-w-150 border-(solid 1px gray-3) bg-white p-6 shadow-sm"
           onSubmit={(event) => {
             event.preventDefault()
-            connect(ip)
+            void connect(ip)
           }}>
           <h1 className="m-0 text-6 font-600">
             {locale('nestControllerTitle')}
@@ -75,6 +91,7 @@ const NestControllerStartup: React.FC<NestControllerStartupProps> = ({ onConnect
               <button
                 className={`border-solid border-1px p-4 text-left hover:bg-blue-50 ${mode === 'robot' ? 'border-blue-700 bg-blue-50' : 'border-gray-300 bg-white'}`}
                 type="button"
+                disabled={isConnecting}
                 onClick={() => setMode('robot')}>
                 <div className="flex items-center text-base font-600">
                   <div className="i-material-symbols-smart-toy-outline-rounded mr-2 text-5" />
@@ -87,6 +104,7 @@ const NestControllerStartup: React.FC<NestControllerStartupProps> = ({ onConnect
               <button
                 className={`border-solid border-1px p-4 text-left hover:bg-emerald-50 ${mode === 'fleet' ? 'border-emerald-700 bg-emerald-50' : 'border-gray-300 bg-white'}`}
                 type="button"
+                disabled={isConnecting}
                 onClick={() => setMode('fleet')}>
                 <div className="flex items-center text-base font-600">
                   <div className="i-material-symbols-conversion-path-rounded mr-2 text-5" />
@@ -108,6 +126,7 @@ const NestControllerStartup: React.FC<NestControllerStartupProps> = ({ onConnect
               className="min-w-0 flex-1"
               inputMode="decimal"
               autoFocus
+              disabled={isConnecting}
               value={ip}
               onChange={(event) => {
                 setIp(event.target.value)
@@ -116,8 +135,9 @@ const NestControllerStartup: React.FC<NestControllerStartupProps> = ({ onConnect
               placeholder="10.148.165.8" />
             <button
               className="border-(solid 1px blue-700) bg-blue-600 px-5 py-2 text-white hover:bg-blue-700"
-              type="submit">
-              {locale('nestControllerConnect')}
+              type="submit"
+              disabled={isConnecting}>
+              {isConnecting ? `${locale('nestControllerConnect')}…` : locale('nestControllerConnect')}
             </button>
           </div>
           {error && (
@@ -130,16 +150,20 @@ const NestControllerStartup: React.FC<NestControllerStartupProps> = ({ onConnect
             <div className="mb-3 text-sm font-600">
               {locale('nestControllerHistory')}
             </div>
-            {nestControllerHistory.length > 0
+            {historyEntries.length > 0
               ? (
                   <div className="flex flex-wrap gap-2">
-                    {nestControllerHistory.map(historyIp => (
+                    {historyEntries.map(entry => (
                       <button
-                        key={historyIp}
-                        className="border-(solid 1px gray-4) bg-gray-50 px-3 py-1 text-sm hover:bg-gray-2"
+                        key={entry.ip}
+                        className="border-(solid 1px gray-4) bg-gray-50 px-3 py-2 text-left text-sm hover:bg-gray-2 disabled:cursor-wait disabled:opacity-60"
                         type="button"
-                        onClick={() => connect(historyIp)}>
-                        {historyIp}
+                        disabled={isConnecting}
+                        onClick={() => {
+                          void connect(entry.ip)
+                        }}>
+                        <span className="block font-600 text-gray-700">{entry.name}</span>
+                        <span className="block text-xs text-gray-500">{entry.ip}</span>
                       </button>
                     ))}
                   </div>
