@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import useWebSocket, { ReadyState } from 'react-use-websocket'
 import toast from 'react-hot-toast'
 import BatchRenameWaypointsModal from './BatchRenameWaypointsModal'
 import ExportRmfModal from './ExportRmfModal'
+import NavigationTransitionEventsModal from './NavigationTransitionEventsModal'
 import RedistributeWaypointsModal from './RedistributeWaypointsModal'
 import RotateLineWaypointsModal from './RotateLineWaypointsModal'
 import ShelfStateModal from './ShelfStateModal'
@@ -12,15 +13,16 @@ import LidarScanControls from '@/components/LidarScanControls'
 import PointCloudControls from '@/components/PointCloudControls'
 import { useGridStore, useOperationStore, useParamsStore, useProfileStore } from '@/store'
 import apiServer from '@/service/apiServer'
-import type { NavPoint, PointMessage, RobotStatus } from '@/types'
+import type { GridInfoMessage, NavPoint, NavProfile, PointMessage, RobotStatus } from '@/types'
 import { useKeyPress } from '@/hooks'
 import { parseFiniteNumber, parseRobotStatus } from '@/util'
 import { canvasAngleToQuaternion, convertMapRasterToPngBlob, parseMapRaster, renderAlignedMapRasterToPngBlob } from '@/util/transform'
-import { buildAlignedNav2MapYaml } from '@/util/nav2MapYaml'
-import { buildRmfBuildingYaml, createAlignedMapImageLayout, sanitizeRmfFileName } from '@/util/rmf'
+import { buildAlignedNav2MapYaml, resolveAlignedNav2MapResolution } from '@/util/nav2MapYaml'
+import { buildRmfBuildingYaml, createAlignedMapImageLayout, createGridInfoWithImageDimensions, sanitizeRmfFileName, transformNavProfileToAlignedMapFrame } from '@/util/rmf'
 import { getEvenlyRedistributedWaypoints, getWaypointRedistributionSpacing, getWaypointsOnSameLine, orderWaypointsByLineProjection } from '@/util/waypoints'
 
 type ExecuteWaypointNavType = 'auto' | 'manually'
+type NavigationRestartState = 'restarting' | 'succeeded' | 'failed'
 
 const EXECUTABLE_ROBOT_STATUSES = new Set<RobotStatus>(['idle', 'succeeded', 'failed', 'canceled'])
 
@@ -36,12 +38,39 @@ interface ApiResultLike {
 interface PreparedRmfMapImage {
   filename: string
   blob: Blob
+  updatedProfile?: NavProfile
   localUpdate?: {
     mapName: string
     localizationPng: Blob
     localizationYaml: Blob
     navigationPng: Blob
     navigationYaml: Blob
+  }
+}
+
+function createAlignedGridInfo(width: number, height: number, resolution: number): GridInfoMessage {
+  return {
+    width,
+    height,
+    resolution,
+    origin: {
+      position: {
+        x: 0,
+        y: -height * resolution,
+        z: 0,
+      },
+      orientation: {
+        x: 0,
+        y: 0,
+        z: 0,
+        w: 1,
+      },
+      pyr: {
+        pitch: 0,
+        roll: 0,
+        yaw: 0,
+      },
+    },
   }
 }
 
@@ -64,6 +93,9 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const [showRedistributeModal, setShowRedistributeModal] = useState(false)
   const [showRotateLineModal, setShowRotateLineModal] = useState(false)
   const [showShelfStateModal, setShowShelfStateModal] = useState(false)
+  const [showNavigationTransitionEvents, setShowNavigationTransitionEvents] = useState(false)
+  const [navigationRestartState, setNavigationRestartState] = useState<NavigationRestartState>('restarting')
+  const navigationTransitionReadyRef = useRef<((ready: boolean) => void) | null>(null)
   const [showExecuteOptions, setShowExecuteOptions] = useState(false)
   const [rmfUploadHost, setRmfUploadHost] = useState(() => apiServer.defaultRmfWebVizHost)
   const [isUploadingRmf, setIsUploadingRmf] = useState(false)
@@ -71,8 +103,9 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const [executePreciseRad, setExecutePreciseRad] = useState('0.05')
   const [executeNavType, setExecuteNavType] = useState<ExecuteWaypointNavType>('auto')
   const [executeActionId, setExecuteActionId] = useState('')
-  const { zoom, robotInfo, robotStatus, hasLivePose, updateRobotFsm, updateLocalizationQuality, setMapGrid, setPathPointInfo, mapsNew, setMapsNew, isScanVisible, setScanVisibility, updateScanPointSize, requestCenterRobot, relocalizationPose, beginRelocalization, cancelRelocalization } = useGridStore(state => ({
+  const { zoom, gridInfo, robotInfo, robotStatus, hasLivePose, updateRobotFsm, updateLocalizationQuality, setMapGrid, setPathPointInfo, mapsNew, setMapsNew, isScanVisible, setScanVisibility, updateScanPointSize, requestCenterRobot, requestCenterMap, relocalizationPose, beginRelocalization, cancelRelocalization } = useGridStore(state => ({
     zoom: state.zoom,
+    gridInfo: state.gridInfo,
     robotInfo: state.robotInfo,
     robotStatus: state.robotInfo?.fsm,
     hasLivePose: state.hasLivePose,
@@ -86,6 +119,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     setScanVisibility: state.setScanVisibility,
     updateScanPointSize: state.updateScanPointSize,
     requestCenterRobot: state.requestCenterRobot,
+    requestCenterMap: state.requestCenterMap,
     relocalizationPose: state.relocalizationPose,
     beginRelocalization: state.beginRelocalization,
     cancelRelocalization: state.cancelRelocalization,
@@ -109,6 +143,10 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     rotateCurrentProfileLineWaypoints: state.rotateCurrentProfileLineWaypoints,
   }))
   const pointActions = useParamsStore(state => state.pointActions)
+  const nestControllerIp = useParamsStore(state => state.nestControllerIp)
+  const handleNavigationTransitionReady = useCallback(() => {
+    navigationTransitionReadyRef.current?.(true)
+  }, [])
 
   const zoomInClick = () => zoom(1.1)
   const zoomOutClick = () => zoom(0.9)
@@ -119,6 +157,26 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     }
 
     requestCenterRobot()
+  }
+  const centerMapOnCanvas = () => {
+    if (!gridInfo) {
+      toast.error('暂无地图')
+      return
+    }
+
+    requestCenterMap()
+  }
+  const submitDeploymentProfile = (profile: NavProfile) => {
+    return apiServer.submitProfile({
+      map_id: profile.map_id,
+      uid: profile.uid,
+      name: profile.name,
+      description: profile.description,
+      waypoints: profile.data.waypoints,
+      paths: profile.data.paths,
+      doors: profile.data.doors ?? [],
+      lifts: profile.data.lifts ?? [],
+    })
   }
   const toggleScanVisibility = () => setScanVisibility(!isScanVisible)
   const increaseScanPointSize = () => updateScanPointSize(0.01)
@@ -561,15 +619,16 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     const doors = profile.data.doors ?? []
     const lifts = profile.data.lifts ?? []
     try {
-      await apiServer.submitProfile({
+      await submitDeploymentProfile({
+        ...profile,
         map_id: mapId,
-        uid: profile.uid,
-        name: profile.name,
-        description: profile.description,
-        waypoints: points,
-        paths,
-        doors,
-        lifts,
+        data: {
+          ...profile.data,
+          waypoints: points,
+          paths,
+          doors,
+          lifts,
+        },
       })
       toast.success('保存成功')
     }
@@ -588,6 +647,26 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     const confirmed = confirm('确定强制重启导航程序？当前运行中的导航将被中断。')
     if (!confirmed)
       return
+
+    let readinessTimeout: ReturnType<typeof setTimeout>
+    const waitForTransitionMonitoring = new Promise<boolean>((resolve) => {
+      const finishWaiting = (ready: boolean) => {
+        clearTimeout(readinessTimeout)
+        if (navigationTransitionReadyRef.current === finishWaiting)
+          navigationTransitionReadyRef.current = null
+        resolve(ready)
+      }
+      navigationTransitionReadyRef.current = finishWaiting
+      readinessTimeout = setTimeout(() => finishWaiting(false), 5000)
+    })
+    setNavigationRestartState('restarting')
+    setShowNavigationTransitionEvents(true)
+    const transitionMonitoringReady = await waitForTransitionMonitoring
+    if (!transitionMonitoringReady) {
+      setNavigationRestartState('failed')
+      toast.error('生命周期事件监控连接失败，未执行导航重启')
+      return
+    }
 
     const loadingToast = toast.loading('正在强制重启导航...')
 
@@ -613,10 +692,12 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
         throw new Error(navigationResp.message || '启动导航失败')
 
       toast.dismiss(loadingToast)
+      setNavigationRestartState('succeeded')
       toast.success('导航程序已重启')
     }
     catch (error) {
       toast.dismiss(loadingToast)
+      setNavigationRestartState('failed')
       toast.error(`重启导航失败 ${error}`)
     }
   }
@@ -632,14 +713,24 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
       drawingFilename: `${sanitizeRmfFileName(selection.map.name)}.png`,
     }))
     const isVisualMapAlignment = alignment?.method === 'visual-map'
+    const visualAlignmentLevelsByName = new Map(
+      isVisualMapAlignment ? alignment.levels.map(level => [level.levelName, level]) : [],
+    )
+    const getSourceGridInfo = (selection: ExportRmfSelection) => {
+      const alignmentLevel = visualAlignmentLevelsByName.get(selection.map.name)
+      return createGridInfoWithImageDimensions(selection.map.info, {
+        width: alignmentLevel?.imageWidth,
+        height: alignmentLevel?.imageHeight,
+      })
+    }
     const alignedMapImageLayout = isVisualMapAlignment
       ? createAlignedMapImageLayout(selectedLevels.map(({ selection }) => {
-        const alignmentLevel = alignment.levels.find(level => level.levelName === selection.map.name)
+        const alignmentLevel = visualAlignmentLevelsByName.get(selection.map.name)
 
         return {
           levelName: selection.map.name,
-          width: selection.map.info.width,
-          height: selection.map.info.height,
+          width: alignmentLevel?.imageWidth ?? selection.map.info.width,
+          height: alignmentLevel?.imageHeight ?? selection.map.info.height,
           transform: alignmentLevel?.imageTransform,
         }
       }))
@@ -653,7 +744,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
       selectedLevels.map(({ selection, drawingFilename }) => ({
         levelName: selection.map.name,
         drawingFilename,
-        gridInfo: selection.map.info,
+        gridInfo: getSourceGridInfo(selection),
         pixelTransform: alignedMapImageLayoutByLevel.get(selection.map.name)?.pixelTransform,
         profile: selection.profile,
       })),
@@ -696,17 +787,8 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
         const alignedLevelLayout = alignedMapImageLayoutByLevel.get(selection.map.name)
 
         if (isVisualMapAlignment && alignedMapImageLayout && alignedLevelLayout) {
-          const [
-            localizationBlob,
-            navigationBlob,
-          ] = await Promise.all([
-            apiServer.downloadMap(selection.map.localization_map_file_path),
-            apiServer.downloadMap(selection.map.navigation_map_file_path),
-          ])
-          const [localizationData, navigationData] = await Promise.all([
-            localizationBlob.arrayBuffer(),
-            navigationBlob.arrayBuffer(),
-          ])
+          const navigationBlob = await apiServer.downloadMap(selection.map.navigation_map_file_path)
+          const navigationData = await navigationBlob.arrayBuffer()
           const renderOptions = {
             width: alignedMapImageLayout.width,
             height: alignedMapImageLayout.height,
@@ -714,15 +796,26 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
             sourceHeight: alignedLevelLayout.height,
             pixelTransform: alignedLevelLayout.pixelTransform,
           }
-          const [localizationPng, navigationPng] = await Promise.all([
-            renderAlignedMapRasterToPngBlob(new Uint8Array(localizationData), renderOptions),
-            renderAlignedMapRasterToPngBlob(new Uint8Array(navigationData), renderOptions),
-          ])
+          const navigationPng = await renderAlignedMapRasterToPngBlob(new Uint8Array(navigationData), renderOptions)
+          // Operators align the navigation image. Legacy localization images can have
+          // a different source frame, so persist the aligned visual frame to both slots.
+          const localizationPng = navigationPng
+          const resolution = resolveAlignedNav2MapResolution(
+            referenceYaml,
+            referenceLevel?.selection.map.info.resolution ?? selection.map.info.resolution,
+          )
+          const alignedGridInfo = createAlignedGridInfo(alignedMapImageLayout.width, alignedMapImageLayout.height, resolution)
+          const updatedProfile = transformNavProfileToAlignedMapFrame(
+            selection.profile,
+            getSourceGridInfo(selection),
+            alignedGridInfo,
+            alignedLevelLayout.pixelTransform,
+          )
           const yamlContent = buildAlignedNav2MapYaml({
             referenceYaml,
             imageFilename: `${selection.map.name}.png`,
             imageHeight: alignedMapImageLayout.height,
-            fallbackResolution: referenceLevel?.selection.map.info.resolution ?? selection.map.info.resolution,
+            fallbackResolution: resolution,
           })
           const localizationYaml = new Blob([yamlContent], { type: 'application/x-yaml;charset=utf-8' })
           const navigationYaml = new Blob([yamlContent], { type: 'application/x-yaml;charset=utf-8' })
@@ -730,6 +823,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           return {
             filename: drawingFilename,
             blob: navigationPng,
+            updatedProfile,
             localUpdate: {
               mapName: selection.map.name,
               localizationPng,
@@ -770,6 +864,14 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
             navigationYaml: image.localUpdate.navigationYaml,
           })
         }))
+        const updatedProfiles = mapImages.map((image) => {
+          if (!image.updatedProfile)
+            throw new Error(`${image.filename} 缺少部署配置更新文件`)
+
+          return image.updatedProfile
+        })
+        await Promise.all(updatedProfiles.map(submitDeploymentProfile))
+        addProfiles(updatedProfiles)
         const nextMaps = await apiServer.fetchMapListNew()
         setMapsNew(nextMaps)
         toast.dismiss(localUpdateToast)
@@ -1036,6 +1138,12 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
         </div>
         <div
           className="panel-item group"
+          onClick={centerMapOnCanvas}>
+          <div className="i-material-symbols-center-focus-strong-rounded panel-icon" />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">地图居中</span>
+        </div>
+        <div
+          className="panel-item group"
           onClick={centerRobotOnCanvas}>
           <div className="i-material-symbols-my-location-rounded panel-icon" />
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">机器人居中</span>
@@ -1128,6 +1236,13 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
       )}
       {showShelfStateModal && (
         <ShelfStateModal onClose={() => setShowShelfStateModal(false)} />
+      )}
+      {showNavigationTransitionEvents && (
+        <NavigationTransitionEventsModal
+          host={nestControllerIp}
+          restartState={navigationRestartState}
+          onReady={handleNavigationTransitionReady}
+          onClose={() => setShowNavigationTransitionEvents(false)} />
       )}
       {showBatchRenameModal && (
         <BatchRenameWaypointsModal

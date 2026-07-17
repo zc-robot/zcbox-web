@@ -10,9 +10,7 @@ interface PointModalProps {
 
 const MapInfoModal: React.FC<PointModalProps> = ({ onClose }) => {
   const [name, setName] = useState<string>('地图一')
-  const setMaps = useGridStore(state => state.setMaps)
   const setMapsNew = useGridStore(state => state.setMapsNew)
-
 
   const handleSubmit = async () => {
     if (!name)
@@ -22,9 +20,7 @@ const MapInfoModal: React.FC<PointModalProps> = ({ onClose }) => {
       const resp = await apiServer.saveMap(name)
       if (resp.code === 0) {
         const mapsNew = await apiServer.fetchMapListNew()
-        const maps = await apiServer.fetchMapList()
         setMapsNew(mapsNew)
-        setMaps(maps)
         onClose()
         toast.success('保存成功')
       }

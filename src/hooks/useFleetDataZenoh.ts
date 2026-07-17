@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParamsStore } from '@/store'
+import { useFleetSiteNamespace } from './useFleetSiteNamespace'
 import type { FleetDataMessage } from '@/types'
 
 const FLEET_DATA_TOPIC = 'fleet_data'
@@ -24,6 +25,7 @@ const initialState: FleetDataZenohState = {
 
 export function useFleetDataZenoh() {
   const nestControllerIp = useParamsStore(state => state.nestControllerIp)
+  const fleetSiteNamespace = useFleetSiteNamespace()
   const [state, setState] = useState<FleetDataZenohState>(initialState)
 
   useEffect(() => {
@@ -31,6 +33,26 @@ export function useFleetDataZenoh() {
       setState({
         ...initialState,
         status: window.zcDesktop?.isDesktop ? 'missing-controller' : 'desktop-only',
+      })
+      return
+    }
+
+    if (fleetSiteNamespace.status === 'idle' || fleetSiteNamespace.status === 'loading') {
+      setState({
+        ...initialState,
+        status: 'loading-site-namespace',
+      })
+      return
+    }
+
+    if (!fleetSiteNamespace.namespace) {
+      setState({
+        ...initialState,
+        status: 'missing-site-namespace',
+        error: fleetSiteNamespace.error || 'Fleet site name is not configured',
+      })
+      window.zcDesktop.stopZenohFleetData().catch((error) => {
+        console.warn('Failed to stop Zenoh fleet data bridge', error)
       })
       return
     }
@@ -80,6 +102,7 @@ export function useFleetDataZenoh() {
         setState(current => ({ ...current, status: 'starting', error: null }))
         await window.zcDesktop?.startZenohFleetData({
           host: nestControllerIp,
+          namespace: fleetSiteNamespace.namespace,
           topics: [FLEET_DATA_TOPIC],
         })
       }
@@ -106,7 +129,7 @@ export function useFleetDataZenoh() {
         console.warn('Failed to stop Zenoh fleet data bridge', error)
       })
     }
-  }, [nestControllerIp])
+  }, [fleetSiteNamespace.error, fleetSiteNamespace.namespace, fleetSiteNamespace.status, nestControllerIp])
 
   return state
 }

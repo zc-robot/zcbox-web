@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand'
-import type { GridInfoMessage, LaserScanMessage, MapData, MapListItem, PointCloudMessage, PointMessage, PoseMessage, RobotInfoMessage, RobotStatus } from '@/types'
+import type { GridInfoMessage, LaserScanMessage, MapListItem, PointCloudMessage, PointMessage, PoseMessage, RobotInfoMessage, RobotStatus } from '@/types'
 import { DEFAULT_LIDAR_SCAN_TOPIC, DEFAULT_LIDAR_SCAN_TOPICS, resolveLidarScanTopic } from '@/constants/lidar'
 
 const defaultScanPointSize = 0.08
@@ -13,7 +13,6 @@ interface CenterPointRequest {
 
 export interface GridSlice {
   scale: number
-  maps: MapData[]
   mapsNew: MapListItem[]
   gridInfo: GridInfoMessage | null
   pathPointInfo: PointMessage[]
@@ -42,7 +41,6 @@ export interface GridSlice {
   relocalizationPose: PoseMessage | null
 
   // Actions
-  setMaps: (maps: MapData[]) => void
   setMapsNew: (maps: MapListItem[]) => void
   setMapGrid: (data: number[], grid: GridInfoMessage) => void
   setPathPointInfo: (points: PointMessage[]) => void
@@ -62,6 +60,7 @@ export interface GridSlice {
   setPointCloudVisibility: (visible: boolean) => void
   updatePointCloudPointSize: (delta: number) => void
   requestCenterRobot: () => void
+  requestCenterMap: () => void
   requestCenterPoint: (point: { x: number; y: number }) => void
   beginRelocalization: () => void
   updateRelocalizationPose: (pose: PoseMessage) => void
@@ -112,7 +111,6 @@ function getPointCloudTopic(pointCloud: PointCloudMessage) {
 
 export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
   scale: 2,
-  maps: [],
   mapsNew: [],
   gridInfo: null,
   pathPointInfo: [],
@@ -141,9 +139,6 @@ export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
   relocalizationPose: null,
 
   // Actions
-  setMaps: (maps) => {
-    set({ maps })
-  },
   setMapsNew: (mapsNew) => {
     set({ mapsNew })
   },
@@ -301,6 +296,24 @@ export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
   requestCenterRobot: () => {
     set(state => ({
       centerRobotRequestId: state.centerRobotRequestId + 1,
+    }))
+  },
+  requestCenterMap: () => {
+    const gridInfo = get().gridInfo
+    if (!gridInfo)
+      return
+
+    const width = gridInfo.width * gridInfo.resolution
+    const height = gridInfo.height * gridInfo.resolution
+    const x = gridInfo.origin.position.x + width / 2
+    const y = -(gridInfo.origin.position.y + height) + height / 2
+
+    set(state => ({
+      centerPointRequest: {
+        requestId: (state.centerPointRequest?.requestId ?? 0) + 1,
+        x,
+        y,
+      },
     }))
   },
   requestCenterPoint: (point) => {

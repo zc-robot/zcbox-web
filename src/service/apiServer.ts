@@ -1,5 +1,7 @@
 import ky from 'ky'
-import type { CurrentMapData, MapData, MapDataDetail, MapListItem, NavProfile, PointAction, PoseMessage, QuaternionMessage, RobotParams } from '@/types'
+import { extractLatestRobotParameterYaml, normalizeRobotParametersByHeads, parseRobotParameterHeads, serializeRobotParameterUpdateBody } from './robotParameterPayload'
+import type { RobotParameterNumericType } from './robotParameterPayload'
+import type { CurrentMapData, MapDataDetail, MapListItem, NavProfile, PointAction, PoseMessage, QuaternionMessage, RobotParams, TaskManagerCancelTaskResult, TaskManagerCreateTaskPayload, TaskManagerCreateTaskResult, TaskManagerDeleteTaskResult, TaskManagerRunTaskResult, TaskManagerTaskDetail, TaskManagerTaskInfo } from '@/types'
 import { useBoundStore } from '@/store'
 
 interface Resp<T> {
@@ -81,6 +83,13 @@ export interface SavedMapFilesUpdateResponse {
   updated?: Record<string, unknown>
   database_record?: Partial<MapListItem> & { name?: string }
   [key: string]: unknown
+}
+
+export interface DeleteMapResponse {
+  map_id: number
+  map_name?: string
+  removed_files?: string[]
+  deleted_deployments?: number
 }
 
 export interface FleetReferenceCoordinatesResponse {
@@ -198,6 +207,96 @@ export interface FleetConfigWriteResponse {
   error?: string
 }
 
+export interface FleetConfigNamespaceData {
+  path: string
+  size: number
+  modified_time: number
+  key: string
+  namespace: string
+  site_id: string
+  ros_namespace: string
+  exists?: boolean
+  valid?: boolean
+  validation_error?: string | null
+  backup_path?: string | null
+}
+
+export interface FleetConfigNamespaceResponse {
+  ok?: boolean
+  code?: number
+  data: FleetConfigNamespaceData
+  msg?: string
+  message?: string
+  error?: string
+}
+
+export type ComposeControlAction = 'up' | 'down' | 'stop' | 'restart'
+
+export interface ComposeControlHealthResponse {
+  ok: boolean
+  allowed_compose_files: string[]
+  error?: string
+}
+
+export interface ComposeControlAllowedFilesResponse {
+  ok: boolean
+  files: string[]
+  error?: string
+}
+
+export interface ComposeControlCommandRequest {
+  file?: string
+  project?: string
+  detach?: boolean
+  build?: boolean
+  pull?: boolean
+  remove_orphans?: boolean
+  volumes?: boolean
+  services?: string[]
+}
+
+export interface ComposeControlCommandResponse {
+  ok: boolean
+  command?: string
+  returncode?: number
+  duration_sec?: number
+  stdout?: string
+  stderr?: string
+  error?: string
+}
+
+export interface ComposeControlServiceStatus {
+  id: string
+  name: string
+  project: string
+  service: string
+  state: string
+  health: string
+  status: string
+  image: string
+  exit_code?: unknown
+  publishers?: unknown[]
+}
+
+export interface ComposeControlStatusResponse extends ComposeControlCommandResponse {
+  file: string
+  status: string
+  running: boolean
+  total: number
+  running_count: number
+  state_counts: Record<string, number>
+  health_counts: Record<string, number>
+  services: ComposeControlServiceStatus[]
+}
+
+export interface ComposeControlLogsRequest {
+  file?: string
+  project?: string
+  service?: string
+  tail?: number
+  timestamps?: boolean
+}
+
 interface ComposeMapSitesResponse {
   ok: boolean
   root: string
@@ -211,6 +310,32 @@ interface ComposeMapFilesResponse {
   path: string
   files: ComposeMapFile[]
   error?: string
+}
+
+interface ZenohTaskServiceOptions {
+  servicePath?: string
+  timeoutMs?: number
+}
+
+interface ZenohTaskListRequestOptions extends ZenohTaskServiceOptions {
+  robotNameFilter?: string
+}
+
+function normalizeZenohTaskListOptions(options: string | ZenohTaskListRequestOptions = ''): ZenohTaskListRequestOptions {
+  return typeof options === 'string' ? { robotNameFilter: options } : options
+}
+
+function composeControlPath(path: string, params: Record<string, string | number | boolean | null | undefined> = {}) {
+  const searchParams = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '')
+      return
+
+    searchParams.set(key, String(value))
+  })
+
+  const query = searchParams.toString()
+  return query ? `${path}?${query}` : path
 }
 
 type RawMapListItem = MapListItem & {
@@ -381,7 +506,7 @@ class ApiServer {
     return URL.createObjectURL(response)
   }
 
-  private async requestComposeControl<T>(path: string, options: { method?: 'GET' | 'PUT' | 'POST'; json?: unknown } = {}) {
+  private async requestComposeControl<T>(path: string, options: { method?: 'GET' | 'PUT' | 'POST'; json?: unknown; timeout?: number } = {}) {
     const requestPath = path.startsWith('/') ? path : `/${path}`
     const token = this.composeControlToken
     const method = options.method ?? 'GET'
@@ -406,7 +531,7 @@ class ApiServer {
 
     return ky(url.toString(), {
       method,
-      timeout: 10000,
+      timeout: options.timeout ?? 10000,
       headers,
       json: options.json,
     }).json<T>()
@@ -461,6 +586,73 @@ class ApiServer {
     } satisfies ComposeMapSiteWithFiles)))
   }
 
+  fetchComposeControlHealth = async () => {
+    const json = await this.requestComposeControl<ComposeControlHealthResponse>('/health')
+    if (!json.ok)
+      throw new Error(json.error || 'Failed to fetch compose control health')
+
+    return json
+  }
+
+  fetchComposeAllowedFiles = async () => {
+    const json = await this.requestComposeControl<ComposeControlAllowedFilesResponse>('/api/compose/allowed-files')
+    if (!json.ok)
+      throw new Error(json.error || 'Failed to fetch compose files')
+
+    return json.files
+  }
+
+  fetchComposeStatus = async (file = '', project = '') => {
+    const json = await this.requestComposeControl<ComposeControlStatusResponse>(
+      composeControlPath('/api/compose/status', { file, project }),
+      { timeout: 30000 },
+    )
+    if (!json.ok)
+      throw new Error(json.error || json.stderr || 'Failed to fetch compose status')
+
+    return json
+  }
+
+  fetchComposeConfig = async (file = '', project = '') => {
+    const json = await this.requestComposeControl<ComposeControlCommandResponse>(
+      composeControlPath('/api/compose/config', { file, project }),
+      { timeout: 30000 },
+    )
+    if (!json.ok)
+      throw new Error(json.error || json.stderr || 'Failed to fetch compose config')
+
+    return json
+  }
+
+  fetchComposeLogs = async ({ file = '', project = '', service = '', tail = 200, timestamps = false }: ComposeControlLogsRequest = {}) => {
+    const json = await this.requestComposeControl<ComposeControlCommandResponse>(
+      composeControlPath('/api/compose/logs', {
+        file,
+        project,
+        service,
+        tail: Math.max(1, Math.floor(tail)),
+        timestamps,
+      }),
+      { timeout: 70000 },
+    )
+    if (!json.ok)
+      throw new Error(json.error || json.stderr || 'Failed to fetch compose logs')
+
+    return json
+  }
+
+  runComposeCommand = async (action: ComposeControlAction, request: ComposeControlCommandRequest = {}) => {
+    const json = await this.requestComposeControl<ComposeControlCommandResponse>(`/api/compose/${action}`, {
+      method: 'POST',
+      timeout: 120000,
+      json: request,
+    })
+    if (!json.ok)
+      throw new Error(json.error || json.stderr || `Failed to run docker compose ${action}`)
+
+    return json
+  }
+
   fetchFleetConfig = async () => {
     const json = await this.requestComposeControl<FleetConfigResponse>('/api/fleet-config')
     if (!json.ok)
@@ -481,6 +673,38 @@ class ApiServer {
     })
     if (!json.ok)
       throw new Error(json.error || 'Failed to save rmf.yaml')
+
+    return json
+  }
+
+  fetchFleetConfigNamespace = async () => {
+    const json = await this.requestComposeControl<FleetConfigNamespaceResponse>('/api/fleet-config/namespace')
+    if (json.ok === false)
+      throw new Error(json.error || json.message || json.msg || 'Failed to fetch site name')
+    if (typeof json.code === 'number' && json.code !== 0)
+      throw new Error(json.message || json.msg || json.error || 'Failed to fetch site name')
+    if (!json.data)
+      throw new Error('Failed to fetch site name')
+
+    return json
+  }
+
+  updateFleetConfigNamespace = async (namespace: string, expectedModifiedTime?: number, dryRun = false) => {
+    const json = await this.requestComposeControl<FleetConfigNamespaceResponse>('/api/fleet-config/namespace', {
+      method: 'PUT',
+      json: {
+        namespace,
+        expected_modified_time: expectedModifiedTime,
+        backup: true,
+        dry_run: dryRun,
+      },
+    })
+    if (json.ok === false)
+      throw new Error(json.error || json.message || json.msg || 'Failed to save site name')
+    if (typeof json.code === 'number' && json.code !== 0)
+      throw new Error(json.message || json.msg || json.error || 'Failed to save site name')
+    if (!json.data)
+      throw new Error('Failed to save site name')
 
     return json
   }
@@ -511,13 +735,8 @@ class ApiServer {
     })) as MapListItem[]
   }
 
-  fetchMapList = async () => {
-    const json = await this.client.get('deploy/getMaps').json<Resp<MapData[]>>()
-    return json.data
-  }
-
   fetchCurrentMap = async () => {
-    const json = await this.client.get('deploy/getCurrentMap').json<Resp<CurrentMapData>>()
+    const json = await this.client.get('map/getCurrentMap').json<Resp<CurrentMapData>>()
     return json.data
   }
 
@@ -603,7 +822,7 @@ class ApiServer {
   }
 
   deleteMap = async (id: number) => {
-    const json = await this.client.get(`deploy/deleteMap/${id}`).json<Resp<null>>()
+    const json = await this.client.delete(`map/v2/deleteMap/${id}`).json<Resp<DeleteMapResponse>>()
     return json
   }
 
@@ -613,7 +832,7 @@ class ApiServer {
   }
 
   changeMap = async (mapId: number) => {
-    const json = await this.client.post('deploy/changeMap', {
+    const json = await this.client.post('map/changeMap', {
       json: {
         map_id: mapId,
       },
@@ -665,6 +884,132 @@ class ApiServer {
   stopTask = async () => {
     const json = await this.client.get('deploy/stopTask').json()
     return json
+  }
+
+  listTasks = async (options: string | ZenohTaskListRequestOptions = ''): Promise<TaskManagerTaskInfo[]> => {
+    if (!window.zcDesktop?.listZenohTasks)
+      throw new Error('任务列表仅支持桌面应用')
+
+    const requestOptions = normalizeZenohTaskListOptions(options)
+    const response = await window.zcDesktop.listZenohTasks({
+      host: this.controllerHost,
+      robotNameFilter: requestOptions.robotNameFilter || '',
+      servicePath: requestOptions.servicePath,
+      timeoutMs: requestOptions.timeoutMs,
+    })
+    if (!response.success)
+      throw new Error(response.message || '获取任务列表失败')
+
+    return response.tasks
+  }
+
+  getTask = async (taskId: string, options: ZenohTaskServiceOptions = {}): Promise<TaskManagerTaskDetail> => {
+    if (!window.zcDesktop?.getZenohTask)
+      throw new Error('任务详情仅支持桌面应用')
+
+    const response = await window.zcDesktop.getZenohTask({
+      host: this.controllerHost,
+      servicePath: options.servicePath,
+      taskId,
+      timeoutMs: options.timeoutMs,
+    })
+    if (!response.success)
+      throw new Error(response.message || '获取任务详情失败')
+
+    return {
+      found: response.found,
+      task: response.task,
+      unit_tasks: response.unit_tasks,
+      message: response.message,
+    }
+  }
+
+  createTask = async (task: TaskManagerCreateTaskPayload, options: ZenohTaskServiceOptions = {}): Promise<TaskManagerCreateTaskResult> => {
+    if (!window.zcDesktop?.createZenohTask)
+      throw new Error('任务创建仅支持桌面应用')
+
+    const response = await window.zcDesktop.createZenohTask({
+      host: this.controllerHost,
+      servicePath: options.servicePath,
+      task,
+      timeoutMs: options.timeoutMs,
+    })
+    if (!response.success)
+      throw new Error(response.message || '创建任务失败')
+    if (!response.ok)
+      throw new Error(response.message || '任务管理器拒绝创建任务')
+
+    return {
+      ok: response.ok,
+      task_id: response.task_id,
+      task_definition_id: response.task_definition_id,
+      message: response.message,
+    }
+  }
+
+  runTask = async (taskId: string, options: ZenohTaskServiceOptions = {}): Promise<TaskManagerRunTaskResult> => {
+    if (!window.zcDesktop?.runZenohTask)
+      throw new Error('任务运行仅支持桌面应用')
+
+    const response = await window.zcDesktop.runZenohTask({
+      host: this.controllerHost,
+      servicePath: options.servicePath,
+      taskId,
+      timeoutMs: options.timeoutMs,
+    })
+    if (!response.success)
+      throw new Error(response.message || '运行任务失败')
+    if (!response.accepted)
+      throw new Error(response.message || '任务管理器拒绝运行任务')
+
+    return {
+      accepted: response.accepted,
+      task_execution_id: response.task_execution_id,
+      message: response.message,
+    }
+  }
+
+  cancelTaskExecution = async (taskId: string, options: ZenohTaskServiceOptions = {}): Promise<TaskManagerCancelTaskResult> => {
+    if (!window.zcDesktop?.cancelZenohTask)
+      throw new Error('任务取消仅支持桌面应用')
+
+    const response = await window.zcDesktop.cancelZenohTask({
+      host: this.controllerHost,
+      servicePath: options.servicePath,
+      taskId,
+      timeoutMs: options.timeoutMs,
+    })
+    if (!response.success)
+      throw new Error(response.message || '取消任务失败')
+    if (!response.ok)
+      throw new Error(response.message || '任务管理器拒绝取消任务')
+
+    return {
+      ok: response.ok,
+      message: response.message,
+    }
+  }
+
+  deleteTaskDefinition = async (taskId: string, force = false, options: ZenohTaskServiceOptions = {}): Promise<TaskManagerDeleteTaskResult> => {
+    if (!window.zcDesktop?.deleteZenohTask)
+      throw new Error('任务删除仅支持桌面应用')
+
+    const response = await window.zcDesktop.deleteZenohTask({
+      host: this.controllerHost,
+      servicePath: options.servicePath,
+      taskId,
+      force,
+      timeoutMs: options.timeoutMs,
+    })
+    if (!response.success)
+      throw new Error(response.message || '删除任务失败')
+    if (!response.ok)
+      throw new Error(response.message || '任务管理器拒绝删除任务')
+
+    return {
+      ok: response.ok,
+      message: response.message,
+    }
   }
 
   relocate = async (profile: string, point: string) => {
@@ -829,7 +1174,7 @@ class ApiServer {
 
     const url = new URL(/^https?:\/\//i.test(trimmedHost) ? trimmedHost : `http://${trimmedHost}`)
     if (!url.port)
-      url.port = '6080'
+      url.port = '4999'
     url.pathname = '/api/map/building_yaml'
     url.search = ''
     url.hash = ''
@@ -846,8 +1191,12 @@ class ApiServer {
     for (const image of mapImages)
       formData.append('maps', image.blob, image.filename)
 
+    const token = this.composeControlToken
     const json = await ky.post(this.buildRmfBuildingYamlUploadUrl(targetHost), {
       body: formData,
+      headers: token
+        ? { authorization: `Bearer ${token}` }
+        : undefined,
       timeout: 30 * 60 * 1000,
     }).json<RmfBuildingYamlUploadResponse>()
     return json
@@ -861,17 +1210,99 @@ class ApiServer {
   }
 
   fetchAllRobotParameters = async () => {
-    const response = await this.client.get('param_handler/yamlGetAll', { retry: 0 })
-    const contentType = response.headers.get('content-type')?.toLowerCase() || ''
-    const content = await response.text()
-    const normalizedContent = content.trim().toLowerCase()
+    const domain = useBoundStore.getState().apiDomain || import.meta.env.VITE_API_DOMAIN || 'http://localhost:1234'
+    let content: string
 
-    if (contentType.includes('text/html') || normalizedContent.startsWith('<!doctype html') || normalizedContent.startsWith('<html'))
-      throw new Error('The robot controller returned a web page instead of parameter data. Check the connection and sign-in state.')
-    if (!content.trim())
-      throw new Error('The robot controller returned an empty parameter file.')
+    if (window.zcDesktop?.fetchRobotParameters) {
+      const url = new URL(domain)
+      const response = await window.zcDesktop.fetchRobotParameters({
+        host: url.hostname,
+        port: url.port ? Number(url.port) : 5000,
+      })
+      content = response.body
+    }
+    else {
+      const response = await this.client.get('param_handler/yamlGetAll', { retry: 0 })
+      content = await response.text()
+    }
 
-    return content
+    return extractLatestRobotParameterYaml(content)
+  }
+
+  fetchRobotParameterHeads = async () => {
+    const domain = useBoundStore.getState().apiDomain || import.meta.env.VITE_API_DOMAIN || 'http://localhost:1234'
+    let content: string
+
+    if (window.zcDesktop?.fetchRobotParameterHeads) {
+      const url = new URL(domain)
+      const response = await window.zcDesktop.fetchRobotParameterHeads({
+        host: url.hostname,
+        port: url.port ? Number(url.port) : 5000,
+      })
+      content = response.body
+    }
+    else {
+      const response = await this.client.get('param_handler/yamlGetHeads', { retry: 0 })
+      content = await response.text()
+    }
+
+    return parseRobotParameterHeads(content)
+  }
+
+  fetchRobotParametersByHeads = async (heads: string[]) => {
+    const normalizedHeads = heads.map(head => head.trim()).filter(Boolean)
+    if (normalizedHeads.length === 0)
+      throw new Error('At least one robot parameter head is required.')
+
+    const domain = useBoundStore.getState().apiDomain || import.meta.env.VITE_API_DOMAIN || 'http://localhost:1234'
+    let content: string
+
+    if (window.zcDesktop?.fetchRobotParametersByHeads) {
+      const url = new URL(domain)
+      const response = await window.zcDesktop.fetchRobotParametersByHeads({
+        host: url.hostname,
+        port: url.port ? Number(url.port) : 5000,
+        heads: normalizedHeads,
+      })
+      content = response.body
+    }
+    else {
+      const response = await this.client.post('param_handler/yamlGetParamsByHeads', {
+        json: { heads: normalizedHeads },
+        retry: 0,
+      })
+      content = await response.text()
+    }
+
+    return normalizeRobotParametersByHeads(content, normalizedHeads)
+  }
+
+  updateRobotParameter = async (keyPath: string, newValue: unknown, numericType?: RobotParameterNumericType) => {
+    const domain = useBoundStore.getState().apiDomain || import.meta.env.VITE_API_DOMAIN || 'http://localhost:1234'
+
+    if (window.zcDesktop?.updateRobotParameter) {
+      const url = new URL(domain)
+      return window.zcDesktop.updateRobotParameter({
+        host: url.hostname,
+        port: url.port ? Number(url.port) : 5000,
+        keyPath,
+        newValue,
+        numericType,
+      })
+    }
+
+    const response = await this.client.post('param_handler/yamlUpdateValue', {
+      body: serializeRobotParameterUpdateBody(keyPath, newValue, numericType),
+      headers: {
+        'content-type': 'application/json',
+      },
+      retry: 0,
+    })
+    return {
+      ok: response.ok,
+      status: response.status,
+      body: await response.text(),
+    }
   }
 
   uploadParams = async (params: RobotParams) => {

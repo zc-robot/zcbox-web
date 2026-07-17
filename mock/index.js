@@ -26,16 +26,6 @@ const server = http.createServer((req, res) => {
       res.end(data)
     })
   }
-  else if (req.url === '/deploy/getMaps') {
-    res.setHeader('Content-Type', 'application/json')
-    res.end(JSON.stringify({
-      code: 0,
-      data: [
-        { id: 3, name: '地图3' },
-        { id: 4, name: '地图4' },
-      ]
-    }))
-  }
   else if (req.url === '/deploy/get_robot_data') {
     res.setHeader('Content-Type', 'application/json')
     fs.readFile(`${dirPath}/pose.json`, (_, data) => {

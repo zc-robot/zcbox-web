@@ -11,7 +11,7 @@ import time
 
 
 CDR_HEADER_SIZE = 4
-DEFAULT_BUILDING_MAP_TOPICS = ("/map",)
+DEFAULT_BUILDING_MAP_TOPICS = ("map",)
 
 running = True
 
@@ -327,12 +327,11 @@ def normalize_topics(namespace, topics):
 
     for topic in topics:
         raw_topic = topic.strip()
-        is_absolute = raw_topic.startswith("/")
         topic = raw_topic.strip("/")
         if not topic:
             continue
 
-        key_expr = topic if is_absolute or not namespace or topic.startswith(f"{namespace}/") else f"{namespace}/{topic}"
+        key_expr = topic if not namespace or topic.startswith(f"{namespace}/") else f"{namespace}/{topic}"
         if key_expr not in normalized:
             normalized.append(key_expr)
 

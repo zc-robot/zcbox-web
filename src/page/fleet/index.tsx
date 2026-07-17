@@ -1,16 +1,21 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import { Toaster } from 'react-hot-toast'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import toast, { Toaster } from 'react-hot-toast'
 import { buildRobotHardwareDiagnosticsView } from './runtimeModel'
 import type { FleetHardwareDiagnosticState, FleetRobotHardwareDiagnosticsState } from './runtimeModel'
-import { useBuildingMapZenoh, useFleetDataZenoh, useFleetDidoZenoh, useFleetHardwareDiagnosticsZenoh, useInterval } from '@/hooks'
+import { notifyFleetSiteNamespaceUpdated, prefixFleetSiteTopic, useBuildingMapZenoh, useFleetBondsZenoh, useFleetDataZenoh, useFleetDidoZenoh, useFleetHardwareDiagnosticsZenoh, useFleetRmfStatesZenoh, useFleetSiteNamespace, useFleetWheelStatesZenoh, useInterval } from '@/hooks'
 import apiServer from '@/service/apiServer'
 import { useParamsStore } from '@/store'
-import type { BuildingMapGraphMessage, BuildingMapImageMessage, BuildingMapLevelMessage, BuildingMapMessage, FleetRobotDataMessage, TwistCommand } from '@/types'
-import type { ComposeMapSiteWithFiles, FleetConfigResponse, FleetConfigWriteResponse } from '@/service/apiServer'
+import type { BuildingMapGraphMessage, BuildingMapImageMessage, BuildingMapLevelMessage, BuildingMapMessage, FleetRobotDataMessage, RmfDoorRequestMessage, RmfLiftRequestMessage, StorageAreaLayoutMessage, StorageCellStockMessage, StorageReinitLayoutSpec, StorageShelfMessage, TaskManagerTaskDetail, TaskManagerTaskInfo, TaskManagerUnitTaskInfo, TwistCommand } from '@/types'
+import type { ComposeControlAction, ComposeControlCommandResponse, ComposeControlServiceStatus, ComposeControlStatusResponse, ComposeMapSiteWithFiles, FleetConfigNamespaceData, FleetConfigResponse, FleetConfigWriteResponse } from '@/service/apiServer'
 import type { DidoValue, FleetDidoZenohState, RobotDidoValues } from '@/hooks/useFleetDidoZenoh'
 import type { FleetHardwareDiagnosticsZenohState, HardwareDiagnosticsValue } from '@/hooks/useFleetHardwareDiagnosticsZenoh'
+import type { FleetRmfStatesZenohState, RmfDoorStateValue, RmfLiftStateValue, RmfScheduleMarkerValue, StorageStateValue } from '@/hooks/useFleetRmfStatesZenoh'
+import type { FleetWheelStatesZenohState, WheelStateValue } from '@/hooks/useFleetWheelStatesZenoh'
+import type { FleetBondsZenohState } from '@/hooks/useFleetBondsZenoh'
+import type { FleetBondValue } from '@/hooks/fleetBondModel'
+import { FLEET_BOND_STALE_MS, getFleetBondHealth } from '@/hooks/fleetBondModel'
 
-type FleetPage = 'dashboard' | 'robots' | 'tasks' | 'storage' | 'sites'
+type FleetPage = 'dashboard' | 'robots' | 'tasks' | 'storage' | 'sites' | 'compose'
 type FleetTaskStatus = 'draft' | 'scheduled' | 'active' | 'paused' | 'done'
 type FleetTaskPriority = 'low' | 'normal' | 'high'
 type StorageStatus = 'available' | 'reserved' | 'occupied' | 'blocked'
@@ -32,6 +37,8 @@ interface FleetJoystickOption {
 }
 
 type DigitalOutputCommandStatus = 'idle' | 'pending' | 'sent' | 'failed'
+type LiftRequestCommandStatus = 'idle' | 'pending' | 'sent' | 'failed'
+type DoorRequestCommandStatus = 'idle' | 'pending' | 'sent' | 'failed'
 
 interface DigitalOutputControl {
   id: string
@@ -43,6 +50,30 @@ interface DigitalOutputControl {
 interface DigitalOutputCommandFeedback {
   status: DigitalOutputCommandStatus
   value: boolean
+  message: string
+  updatedAt: number
+}
+
+interface DoorRequestDraft {
+  requesterId: string
+}
+
+interface DoorRequestCommandFeedback {
+  status: DoorRequestCommandStatus
+  mode: number
+  message: string
+  updatedAt: number
+}
+
+interface LiftRequestDraft {
+  sessionId: string
+  requestType: number
+  destinationFloor: string
+  doorState: number
+}
+
+interface LiftRequestCommandFeedback {
+  status: LiftRequestCommandStatus
   message: string
   updatedAt: number
 }
@@ -64,6 +95,27 @@ interface TaskDraft {
   map: string
   scheduleAt: string
   priority: FleetTaskPriority
+}
+
+interface GoToChargerTaskDraft {
+  robot: string
+  chargerWaypoint: string
+}
+
+interface GoToWaypointTaskDraft {
+  robot: string
+  waypoint: string
+}
+
+interface TaskWaypointOption {
+  name: string
+  levelName: string
+  graphName: string
+}
+
+interface GoToChargerFeedback {
+  tone: 'success' | 'error'
+  message: string
 }
 
 interface StorageArea {
@@ -109,10 +161,14 @@ const fleetPages: Array<{ id: FleetPage, label: string, icon: string }> = [
   { id: 'tasks', label: 'Tasks', icon: 'i-material-symbols-task-alt-rounded' },
   { id: 'storage', label: 'Storage', icon: 'i-material-symbols-inventory-2-outline-rounded' },
   { id: 'sites', label: 'Sites', icon: 'i-material-symbols-domain-rounded' },
+  { id: 'compose', label: 'Compose', icon: 'i-material-symbols-deployed-code-outline-rounded' },
 ]
 
 const defaultStorageAreas: StorageArea[] = []
 const digitalOutputAddressBase = 800
+const goToChargerTaskName = 'go_to_charger'
+const goToChargerActionName = 'reflector_docking'
+const goToWaypointTaskName = 'go_to_waypoint'
 
 function digitalBitLabel(prefix: 'I' | 'O', index: number) {
   return `${prefix}${index}`
@@ -300,6 +356,58 @@ function getRobotHardwareDiagnosticsValue(
   return undefined
 }
 
+function getRobotWheelStateValue(
+  robot: FleetRobotDataMessage,
+  wheelStates: FleetWheelStatesZenohState,
+  allRobots: FleetRobotDataMessage[],
+) {
+  const namespace = getRobotDidoNamespace(robot)
+  if (namespace)
+    return wheelStates.values[namespace]
+
+  if (wheelStates.fallbackNamespace && wheelStates.values[wheelStates.fallbackNamespace])
+    return wheelStates.values[wheelStates.fallbackNamespace]
+
+  const candidates = [robot.robot, robot.name].map(value => value.trim()).filter(Boolean)
+  const matched = Object.entries(wheelStates.values).find(([wheelNamespace]) => (
+    candidates.some(candidate => wheelNamespace.includes(candidate))
+  ))
+  if (matched)
+    return matched[1]
+
+  const discoveredValues = Object.values(wheelStates.values)
+  if (allRobots.length === 1 && discoveredValues.length === 1)
+    return discoveredValues[0]
+
+  return undefined
+}
+
+function getRobotBondValues(
+  robot: FleetRobotDataMessage,
+  bonds: FleetBondsZenohState,
+  allRobots: FleetRobotDataMessage[],
+) {
+  const namespace = getRobotDidoNamespace(robot)
+  if (namespace)
+    return bonds.values[namespace]
+
+  if (bonds.fallbackNamespace && bonds.values[bonds.fallbackNamespace])
+    return bonds.values[bonds.fallbackNamespace]
+
+  const candidates = [robot.robot, robot.name].map(value => value.trim()).filter(Boolean)
+  const matched = Object.entries(bonds.values).find(([bondNamespace]) => (
+    candidates.some(candidate => bondNamespace.includes(candidate))
+  ))
+  if (matched)
+    return matched[1]
+
+  const discoveredValues = Object.values(bonds.values)
+  if (allRobots.length === 1 && discoveredValues.length === 1)
+    return discoveredValues[0]
+
+  return undefined
+}
+
 function getRobotCommandNamespace(robot: FleetRobotDataMessage, dido: FleetDidoZenohState, allRobots: FleetRobotDataMessage[]) {
   const namespace = getRobotDidoNamespace(robot)
   if (namespace)
@@ -374,6 +482,39 @@ function getWheelSummary(robot: FleetRobotDataMessage) {
   return faulted > 0
     ? `${connected}/${motors.length} 连接, ${faulted} 故障`
     : `${connected}/${motors.length} 连接`
+}
+
+function getWheelStateToneClass(wheelState?: WheelStateValue) {
+  if (!wheelState)
+    return 'bg-gray-100 text-gray-700'
+
+  const motors = wheelState.motorStates
+  if (motors.some(motor => motor.isFaulted))
+    return 'bg-red-50 text-red-700'
+  if (motors.some(motor => !motor.isConnected))
+    return 'bg-amber-50 text-amber-700'
+  if (motors.length > 0)
+    return 'bg-emerald-50 text-emerald-700'
+
+  return 'bg-gray-100 text-gray-700'
+}
+
+function getWheelStateSummary(wheelState?: WheelStateValue) {
+  if (!wheelState)
+    return 'Unknown'
+
+  const motors = wheelState.motorStates
+  if (motors.length === 0)
+    return '0 motors'
+
+  const faulted = motors.filter(motor => motor.isFaulted).length
+  const disconnected = motors.filter(motor => !motor.isConnected).length
+  const powered = motors.filter(motor => motor.isPowered).length
+  if (faulted > 0)
+    return `${faulted} fault`
+  if (disconnected > 0)
+    return `${disconnected} disconnected`
+  return `${powered}/${motors.length} powered`
 }
 
 function getDiagnosticsSummary(robot: FleetRobotDataMessage) {
@@ -454,6 +595,114 @@ function getPriorityClass(priority: FleetTaskPriority) {
   return classes[priority]
 }
 
+const taskManagerStatusClass: Record<string, string> = {
+  CREATED: 'bg-gray-100 text-gray-700',
+  PENDING: 'bg-amber-50 text-amber-700',
+  RUNNING: 'bg-emerald-50 text-emerald-700',
+  SUCCEEDED: 'bg-blue-50 text-blue-700',
+  FAILED: 'bg-red-50 text-red-700',
+  CANCELED: 'bg-zinc-100 text-zinc-600',
+  PAUSED: 'bg-purple-50 text-purple-700',
+  ARCHIVED: 'bg-gray-100 text-gray-700',
+}
+
+const taskManagerExecutingStatuses = new Set(['PENDING', 'RUNNING'])
+
+const composeControlActionLabels: Record<ComposeControlAction, string> = {
+  up: 'Start',
+  stop: 'Stop',
+  restart: 'Restart',
+  down: 'Down',
+}
+
+function getTaskManagerStatusClass(status: string) {
+  return taskManagerStatusClass[status] || 'bg-gray-100 text-gray-700'
+}
+
+function getTaskManagerTaskName(task: TaskManagerTaskInfo) {
+  return task.name || task.task_definition_id || task.task_id || 'Unnamed task'
+}
+
+function getTaskManagerDefinitionId(task: TaskManagerTaskInfo) {
+  return task.task_definition_id || task.task_id
+}
+
+function isTaskManagerTaskExecuting(task: TaskManagerTaskInfo) {
+  return taskManagerExecutingStatuses.has(task.status)
+}
+
+function getComposeStatusClass(status: string) {
+  const normalized = status.toLowerCase()
+  if (normalized === 'running')
+    return 'bg-emerald-50 text-emerald-700'
+  if (normalized === 'partial' || normalized === 'starting' || normalized === 'restarting' || normalized === 'created')
+    return 'bg-amber-50 text-amber-700'
+  if (normalized === 'unhealthy')
+    return 'bg-red-50 text-red-700'
+  if (normalized === 'stopped' || normalized === 'empty')
+    return 'bg-gray-100 text-gray-700'
+
+  return 'bg-zinc-100 text-zinc-700'
+}
+
+function getComposeServiceName(service: ComposeControlServiceStatus) {
+  return service.service || service.name || service.id || '--'
+}
+
+function parseComposeServices(value: string) {
+  return Array.from(new Set(value.split(/[,\s]+/).map(item => item.trim()).filter(Boolean)))
+}
+
+function composeOutputText(response: ComposeControlCommandResponse | null) {
+  if (!response)
+    return ''
+
+  const parts = [response.stdout, response.stderr]
+    .map(value => value?.trim())
+    .filter(Boolean)
+
+  return parts.length > 0 ? parts.join('\n\n') : ''
+}
+
+function normalizeFleetSiteName(value: string) {
+  return value.trim().replace(/^\/+/, '').replace(/\/+$/, '')
+}
+
+function formatRosNamespace(value: string) {
+  const namespace = normalizeFleetSiteName(value)
+  return namespace ? `/${namespace}` : '--'
+}
+
+function formatUnixMilliseconds(value: number) {
+  if (!value)
+    return '--'
+
+  return new Date(value).toLocaleString()
+}
+
+function shortIdentifier(value: string) {
+  if (!value)
+    return '--'
+  if (value.length <= 12)
+    return value
+  return `${value.slice(0, 8)}...`
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : `${error}`
+}
+
+function TaskManagerSummaryField({ label, value, title }: { label: string; value: string; title?: string }) {
+  return (
+    <div className="min-w-[8rem] flex-1">
+      <div className="text-[11px] font-700 uppercase text-gray-400">{label}</div>
+      <div className="mt-0.5 min-w-0 break-words text-xs font-700 leading-4 text-gray-700" title={title || value}>
+        {value || '--'}
+      </div>
+    </div>
+  )
+}
+
 function getStorageStatusClass(status: StorageStatus) {
   const classes: Record<StorageStatus, string> = {
     available: 'bg-emerald-50 text-emerald-700',
@@ -462,6 +711,202 @@ function getStorageStatusClass(status: StorageStatus) {
     blocked: 'bg-red-50 text-red-700',
   }
   return classes[status]
+}
+
+function getStorageCellStatus(stock: number): StorageStatus {
+  if (stock < 0)
+    return 'blocked'
+  if (stock > 0)
+    return 'occupied'
+
+  return 'available'
+}
+
+function getStorageCellClass(status: StorageStatus) {
+  const classes: Record<StorageStatus, string> = {
+    available: 'border-emerald-100 bg-emerald-50/70 text-emerald-800',
+    reserved: 'border-blue-100 bg-blue-50/70 text-blue-800',
+    occupied: 'border-amber-100 bg-amber-50/80 text-amber-800',
+    blocked: 'border-red-100 bg-red-50/80 text-red-800',
+  }
+  return classes[status]
+}
+
+function getStorageCellId(areaIndex: number, shelfIndex: number, columnIndex: number, rowIndex: number) {
+  return `area_${areaIndex}_shelf_${shelfIndex}_column_${columnIndex}_row_${rowIndex}`
+}
+
+function formatStorageCellStock(cell: StorageCellStockMessage | undefined) {
+  if (!cell)
+    return 'missing'
+  if (cell.stock < 0)
+    return 'disabled'
+
+  return `stock ${cell.stock}`
+}
+
+const storageWaypointPattern = /^area_(\d+)_shelf_(\d+)_column_(\d+)$/i
+
+interface ParsedStorageWaypoint {
+  name: string
+  areaIndex: number
+  shelfIndex: number
+  columnIndex: number
+}
+
+interface GeneratedStorageLayout {
+  layout: StorageReinitLayoutSpec
+  waypointCount: number
+  shelfCount: number
+}
+
+interface StorageWaypointShelfSummary {
+  areaIndex: number
+  shelfIndex: number
+  columns: number
+}
+
+interface StorageReinitLayerDraft {
+  areaIndex: number
+  displayName: string
+  shelfIndex: number
+  columns: number
+  shelfSide: string
+  rows: string
+}
+
+interface StorageFeedback {
+  tone: 'success' | 'error'
+  message: string
+}
+
+interface StorageReinitAreaDraftGroup {
+  displayName: string
+  shelves: StorageReinitLayoutSpec['areas'][number]['shelves']
+}
+
+function parseStorageWaypointName(name: string): ParsedStorageWaypoint | null {
+  const match = name.trim().match(storageWaypointPattern)
+  if (!match)
+    return null
+
+  const areaIndex = Number(match[1])
+  const shelfIndex = Number(match[2])
+  const columnIndex = Number(match[3])
+  if (!Number.isInteger(areaIndex) || !Number.isInteger(shelfIndex) || !Number.isInteger(columnIndex))
+    return null
+  if (areaIndex <= 0 || shelfIndex <= 0 || columnIndex <= 0)
+    return null
+
+  return {
+    name,
+    areaIndex,
+    shelfIndex,
+    columnIndex,
+  }
+}
+
+function getStorageShelfDefaults(storageState: StorageStateValue | null, areaIndex: number, shelfIndex: number) {
+  const area = storageState?.layout.areas.find(candidate => candidate.areaIndex === areaIndex)
+  const shelf = area?.shelves.find(candidate => candidate.shelfIndex === shelfIndex)
+  return {
+    rows: 1,
+    shelf_side: shelf?.shelfSide || '',
+  }
+}
+
+function buildStorageReinitLayout(buildingMap: BuildingMapMessage | null, storageState: StorageStateValue | null): GeneratedStorageLayout {
+  const shelvesByKey = new Map<string, StorageWaypointShelfSummary>()
+  const waypointNames = new Set<string>()
+
+  for (const level of buildingMap?.levels ?? []) {
+    for (const graph of level.graphs) {
+      if (graph.type !== 'nav')
+        continue
+
+      for (const vertex of graph.vertices) {
+        const parsed = parseStorageWaypointName(vertex.name)
+        if (!parsed)
+          continue
+
+        waypointNames.add(parsed.name)
+        const key = `${parsed.areaIndex}:${parsed.shelfIndex}`
+        const current = shelvesByKey.get(key)
+        shelvesByKey.set(key, {
+          areaIndex: parsed.areaIndex,
+          shelfIndex: parsed.shelfIndex,
+          columns: Math.max(current?.columns ?? 0, parsed.columnIndex),
+        })
+      }
+    }
+  }
+
+  const areas = new Map<number, StorageWaypointShelfSummary[]>()
+  for (const shelf of shelvesByKey.values()) {
+    const shelves = areas.get(shelf.areaIndex) ?? []
+    shelves.push(shelf)
+    areas.set(shelf.areaIndex, shelves)
+  }
+
+  return {
+    layout: {
+      areas: Array.from(areas.entries())
+        .sort(([left], [right]) => left - right)
+        .map(([areaIndex, shelves]) => ({
+          area_index: areaIndex,
+          display_name: storageState?.layout.areas.find(candidate => candidate.areaIndex === areaIndex)?.displayName || '',
+          shelves: shelves
+            .sort((left, right) => left.shelfIndex - right.shelfIndex)
+            .map((shelf) => {
+              const defaults = getStorageShelfDefaults(storageState, shelf.areaIndex, shelf.shelfIndex)
+              return {
+                shelf_index: shelf.shelfIndex,
+                columns: shelf.columns,
+                rows: defaults.rows,
+                shelf_side: defaults.shelf_side,
+              }
+            }),
+        })),
+    },
+    waypointCount: waypointNames.size,
+    shelfCount: shelvesByKey.size,
+  }
+}
+
+function buildStorageReinitLayerDrafts(layout: StorageReinitLayoutSpec): StorageReinitLayerDraft[] {
+  return layout.areas.flatMap(area => area.shelves.map(shelf => ({
+    areaIndex: area.area_index,
+    displayName: area.display_name,
+    shelfIndex: shelf.shelf_index,
+    columns: shelf.columns,
+    shelfSide: shelf.shelf_side,
+    rows: '1',
+  })))
+}
+
+function buildStorageReinitLayoutFromLayerDrafts(drafts: StorageReinitLayerDraft[]): StorageReinitLayoutSpec {
+  const areas = new Map<number, StorageReinitAreaDraftGroup>()
+
+  for (const draft of drafts) {
+    const area = areas.get(draft.areaIndex) ?? { displayName: draft.displayName, shelves: [] }
+    area.shelves.push({
+      shelf_index: draft.shelfIndex,
+      columns: draft.columns,
+      rows: Number(draft.rows.trim() || '1'),
+      shelf_side: draft.shelfSide,
+    })
+    areas.set(draft.areaIndex, area)
+  }
+
+  return {
+    areas: Array.from(areas.entries())
+      .sort(([left], [right]) => left - right)
+      .map(([areaIndex, area]) => ({
+        area_index: areaIndex,
+        display_name: area.displayName,
+        shelves: area.shelves.sort((left, right) => left.shelf_index - right.shelf_index),
+      })),
+  }
 }
 
 function getSiteStatusClass(status: ManagedSiteStatus) {
@@ -1596,9 +2041,219 @@ function getRobotHealthLabel(tone: string) {
   return labels[tone] ?? labels.unknown
 }
 
+const doorModeLabels: Record<number, string> = {
+  0: 'Closed',
+  1: 'Moving',
+  2: 'Open',
+  3: 'Offline',
+  4: 'Unknown',
+}
+
+const doorRequestTopic = 'adapter_door_requests'
+const buildingMapTopic = 'map'
+const fleetDataTopic = 'fleet_data'
+const storageStateTopic = 'storage_state'
+const storageAreaDisplayNameServiceTopic = 'set_area_display_name'
+const storageReinitServiceTopic = 'reinit_storage'
+const taskManagerServiceTopics = {
+  list: 'list_tasks',
+  get: 'get_task',
+  create: 'create_task',
+  run: 'run_task',
+  cancel: 'task_manager/cancel_task',
+  delete: 'delete_task',
+} as const
+
+const doorRequestModeOptions = [
+  { value: 2, label: 'Open', icon: 'i-material-symbols-door-open-outline-rounded' },
+  { value: 0, label: 'Close', icon: 'i-material-symbols-door-front-outline-rounded' },
+]
+
+const liftDoorStateLabels: Record<number, string> = {
+  0: 'Closed',
+  1: 'Moving',
+  2: 'Open',
+}
+
+const liftMotionStateLabels: Record<number, string> = {
+  0: 'Stopped',
+  1: 'Up',
+  2: 'Down',
+  3: 'Unknown',
+}
+
+const liftModeLabels: Record<number, string> = {
+  0: 'Unknown',
+  1: 'Human',
+  2: 'AGV',
+  3: 'Fire',
+  4: 'Offline',
+  5: 'Emergency',
+}
+
+const liftRequestTopic = 'lift_requests'
+
+const liftRequestTypeOptions = [
+  { value: 1, label: 'AGV' },
+  { value: 2, label: 'Human' },
+  { value: 0, label: 'End' },
+]
+
+const liftDoorRequestOptions = [
+  { value: 2, label: 'Open' },
+  { value: 0, label: 'Closed' },
+]
+
+function normalizeRmfStateName(value: string) {
+  return value.trim().toLowerCase()
+}
+
+function getRmfDoorState(doorName: string, rmfStates: FleetRmfStatesZenohState) {
+  const exact = rmfStates.doorStates[doorName]
+  if (exact)
+    return exact
+
+  const normalizedName = normalizeRmfStateName(doorName)
+  return Object.values(rmfStates.doorStates).find(state => normalizeRmfStateName(state.doorName) === normalizedName)
+}
+
+function getRmfLiftState(liftName: string, rmfStates: FleetRmfStatesZenohState) {
+  const exact = rmfStates.liftStates[liftName]
+  if (exact)
+    return exact
+
+  const normalizedName = normalizeRmfStateName(liftName)
+  return Object.values(rmfStates.liftStates).find(state => normalizeRmfStateName(state.liftName) === normalizedName)
+}
+
+function getDoorModeLabel(mode?: number) {
+  return mode == null ? 'Unknown' : doorModeLabels[mode] ?? `Mode ${mode}`
+}
+
+function getLiftDoorStateLabel(state?: number) {
+  return state == null ? 'Unknown' : liftDoorStateLabels[state] ?? `Door ${state}`
+}
+
+function getLiftMotionStateLabel(state?: number) {
+  return state == null ? 'Unknown' : liftMotionStateLabels[state] ?? `Motion ${state}`
+}
+
+function getLiftModeLabel(mode?: number) {
+  return mode == null ? 'Unknown' : liftModeLabels[mode] ?? `Mode ${mode}`
+}
+
+function getDoorStateToneClass(state?: RmfDoorStateValue) {
+  if (!state)
+    return 'bg-gray-100 text-gray-700'
+
+  const classes: Record<number, string> = {
+    0: 'bg-slate-100 text-slate-700',
+    1: 'bg-blue-50 text-blue-700',
+    2: 'bg-emerald-50 text-emerald-700',
+    3: 'bg-red-50 text-red-700',
+    4: 'bg-gray-100 text-gray-700',
+  }
+  return classes[state.currentMode] ?? 'bg-gray-100 text-gray-700'
+}
+
+function getLiftStateToneClass(state?: RmfLiftStateValue) {
+  if (!state)
+    return 'bg-gray-100 text-gray-700'
+  if (state.currentMode === 4 || state.currentMode === 5)
+    return 'bg-red-50 text-red-700'
+  if (state.motionState === 1 || state.motionState === 2 || state.doorState === 1)
+    return 'bg-blue-50 text-blue-700'
+  if (state.doorState === 2 || state.currentMode === 2)
+    return 'bg-emerald-50 text-emerald-700'
+
+  return 'bg-violet-50 text-violet-700'
+}
+
+function getDoorStateStroke(state?: RmfDoorStateValue) {
+  if (!state)
+    return '#f59e0b'
+
+  const colors: Record<number, string> = {
+    0: '#64748b',
+    1: '#2563eb',
+    2: '#059669',
+    3: '#dc2626',
+    4: '#f59e0b',
+  }
+  return colors[state.currentMode] ?? '#f59e0b'
+}
+
+function getLiftStateStroke(state?: RmfLiftStateValue) {
+  if (!state)
+    return '#7c3aed'
+  if (state.currentMode === 4 || state.currentMode === 5)
+    return '#dc2626'
+  if (state.motionState === 1 || state.motionState === 2 || state.doorState === 1)
+    return '#2563eb'
+  if (state.doorState === 2 || state.currentMode === 2)
+    return '#059669'
+
+  return '#7c3aed'
+}
+
+function getLiftStateFill(state?: RmfLiftStateValue) {
+  if (!state)
+    return '#7c3aed26'
+  if (state.currentMode === 4 || state.currentMode === 5)
+    return '#dc262626'
+  if (state.motionState === 1 || state.motionState === 2 || state.doorState === 1)
+    return '#2563eb26'
+  if (state.doorState === 2 || state.currentMode === 2)
+    return '#05966926'
+
+  return '#7c3aed26'
+}
+
+function getLiftStateSummary(state?: RmfLiftStateValue) {
+  if (!state)
+    return 'Unknown'
+
+  const destination = state.destinationFloor && state.destinationFloor !== state.currentFloor
+    ? ` -> ${state.destinationFloor}`
+    : ''
+
+  return `${state.currentFloor || '--'}${destination} · ${getLiftMotionStateLabel(state.motionState)}`
+}
+
+function getDefaultDoorRequestDraft(_door: BuildingMapLevelMessage['doors'][number]): DoorRequestDraft {
+  return {
+    requesterId: 'manual_test',
+  }
+}
+
+function getLiftFloorOptions(lift: BuildingMapMessage['lifts'][number], state?: RmfLiftStateValue) {
+  const floors = [
+    ...(state?.availableFloors ?? []),
+    ...lift.levels,
+    state?.currentFloor ?? '',
+    state?.destinationFloor ?? '',
+  ].map(value => value.trim()).filter(Boolean)
+
+  return Array.from(new Set(floors))
+}
+
+function getDefaultLiftRequestDraft(lift: BuildingMapMessage['lifts'][number], state?: RmfLiftStateValue): LiftRequestDraft {
+  const floors = getLiftFloorOptions(lift, state)
+  return {
+    sessionId: `zcbox_${lift.name}`,
+    requestType: 1,
+    destinationFloor: state?.destinationFloor || state?.currentFloor || floors[0] || '',
+    doorState: 2,
+  }
+}
+
+function isChargerWaypointName(name: string) {
+  return /^c\d+$/i.test(name.trim())
+}
+
 function isChargerVertex(vertex: { name: string, params: Array<{ name: string, valueBool: boolean, valueString?: string }> }) {
   return vertex.params.some(param => param.name === 'is_charger' && param.valueBool)
-    || /^c\d+$/i.test(vertex.name)
+    || isChargerWaypointName(vertex.name)
     || /charger|充电/.test(vertex.name.toLowerCase())
 }
 
@@ -1627,6 +2282,40 @@ function getWaypointToneClass(vertex: { name: string, params: Array<{ name: stri
 
 function getWaypointLabel(vertex: { name: string }, index: number) {
   return vertex.name || `Vertex ${index}`
+}
+
+function getGraphWaypointKey(graphName: string, vertex: { name: string }, index: number) {
+  return `${graphName}:${index}:${vertex.name}`
+}
+
+function getNavWaypointOptions(buildingMap: BuildingMapMessage | null): TaskWaypointOption[] {
+  const optionsByName = new Map<string, TaskWaypointOption>()
+  for (const level of buildingMap?.levels ?? []) {
+    for (const graph of level.graphs) {
+      if (graph.type !== 'nav')
+        continue
+
+      for (const vertex of graph.vertices) {
+        const name = vertex.name.trim()
+        if (!name || optionsByName.has(name))
+          continue
+
+        optionsByName.set(name, {
+          name,
+          levelName: level.name,
+          graphName: graph.name,
+        })
+      }
+    }
+  }
+
+  return Array.from(optionsByName.values()).sort((a, b) => (
+    a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+  ))
+}
+
+function getChargerWaypointOptions(buildingMap: BuildingMapMessage | null): TaskWaypointOption[] {
+  return getNavWaypointOptions(buildingMap).filter(option => isChargerWaypointName(option.name))
 }
 
 function formatBuildingMapParamValue(param: { valueBool: boolean, valueString: string, valueFloat: number, valueInt: number, type: number }) {
@@ -1668,30 +2357,249 @@ function getGraphSummary(graph: BuildingMapGraphMessage | null) {
   return `${graph.vertices.length} vertices · ${graph.edges.length} edges`
 }
 
+type MapProjector = ReturnType<typeof createMapProjector>
+
+interface DashboardMapPoint {
+  x: number
+  y: number
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  const finiteValue = Number.isFinite(value) ? value : min
+  return Math.min(max, Math.max(min, finiteValue))
+}
+
+function markerScaleValue(value: number | undefined, fallback: number) {
+  return Number.isFinite(value) && value != null && value > 0 ? value : fallback
+}
+
+function markerRgba(marker: RmfScheduleMarkerValue) {
+  const color = marker.color ?? { r: 1, g: 0, b: 0, a: 1 }
+  const r = clampNumber(color.r, 0, 1) * 255
+  const g = clampNumber(color.g, 0, 1) * 255
+  const b = clampNumber(color.b, 0, 1) * 255
+  const a = Number.isFinite(color.a) && color.a > 0 ? clampNumber(color.a, 0, 1) : 0.6
+  return `rgba(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}, ${a})`
+}
+
+function markerStrokeWidth(marker: RmfScheduleMarkerValue, projector: MapProjector) {
+  return clampNumber(markerScaleValue(marker.scale?.x, 0.05) / projector.scale, 1, 8)
+}
+
+function markerRadius(marker: RmfScheduleMarkerValue, projector: MapProjector) {
+  return clampNumber(markerScaleValue(marker.scale?.x, 0.2) / projector.scale * 0.5, 2, 18)
+}
+
+function markerBoxSize(marker: RmfScheduleMarkerValue, projector: MapProjector) {
+  return {
+    width: clampNumber(markerScaleValue(marker.scale?.x, 0.2) / projector.scale, 4, 48),
+    height: clampNumber(markerScaleValue(marker.scale?.y, 0.2) / projector.scale, 4, 48),
+  }
+}
+
+function yawFromQuaternion(quaternion: RmfScheduleMarkerValue['pose']['orientation']) {
+  const { x, y, z, w } = quaternion
+  return Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
+}
+
+function arrowHeadPoints(start: DashboardMapPoint, end: DashboardMapPoint, size: number) {
+  const dx = end.x - start.x
+  const dy = end.y - start.y
+  const length = Math.hypot(dx, dy)
+  if (length <= 0.001)
+    return ''
+
+  const unitX = dx / length
+  const unitY = dy / length
+  const left = {
+    x: end.x - unitX * size - unitY * size * 0.55,
+    y: end.y - unitY * size + unitX * size * 0.55,
+  }
+  const right = {
+    x: end.x - unitX * size + unitY * size * 0.55,
+    y: end.y - unitY * size - unitX * size * 0.55,
+  }
+
+  return `${end.x},${end.y} ${left.x},${left.y} ${right.x},${right.y}`
+}
+
+function renderScheduleMarker(marker: RmfScheduleMarkerValue, projector: MapProjector) {
+  const key = `schedule-${marker.ns || 'default'}-${marker.id}`
+  const color = markerRgba(marker)
+  const strokeWidth = markerStrokeWidth(marker, projector)
+  const radius = markerRadius(marker, projector)
+  const points = marker.points ?? []
+  const projectPoint = (point: DashboardMapPoint) => projector.project(point.x, point.y)
+
+  if (marker.type === 4) {
+    const projectedPoints = points.map(projectPoint)
+    if (projectedPoints.length < 2)
+      return null
+
+    return (
+      <polyline
+        key={key}
+        points={projectedPoints.map(point => `${point.x},${point.y}`).join(' ')}
+        fill="none"
+        stroke={color}
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    )
+  }
+
+  if (marker.type === 5) {
+    return (
+      <g key={key}>
+        {points.slice(0, points.length - 1).map((point, index) => {
+          if (index % 2 !== 0)
+            return null
+
+          const start = projectPoint(point)
+          const end = projectPoint(points[index + 1])
+          return (
+            <line
+              key={`${key}-line-${index}`}
+              x1={start.x}
+              y1={start.y}
+              x2={end.x}
+              y2={end.y}
+              stroke={color}
+              strokeWidth={strokeWidth}
+              strokeLinecap="round"
+            />
+          )
+        })}
+      </g>
+    )
+  }
+
+  if (marker.type === 0) {
+    const startWorld = points[0] ?? marker.pose
+    const yaw = yawFromQuaternion(marker.pose.orientation)
+    const length = markerScaleValue(marker.scale?.x, 0.5)
+    const endWorld = points[1] ?? {
+      x: marker.pose.x + Math.cos(yaw) * length,
+      y: marker.pose.y + Math.sin(yaw) * length,
+    }
+    const start = projectPoint(startWorld)
+    const end = projectPoint(endWorld)
+    const head = arrowHeadPoints(start, end, clampNumber(strokeWidth * 3, 6, 16))
+
+    return (
+      <g key={key}>
+        <line
+          x1={start.x}
+          y1={start.y}
+          x2={end.x}
+          y2={end.y}
+          stroke={color}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+        />
+        {head && <polygon points={head} fill={color} />}
+      </g>
+    )
+  }
+
+  if (marker.type === 1 || marker.type === 6) {
+    const box = markerBoxSize(marker, projector)
+    const boxPoints = marker.type === 6 ? points : [marker.pose]
+    return (
+      <g key={key}>
+        {boxPoints.map((point, index) => {
+          const center = projectPoint(point)
+          return (
+            <rect
+              key={`${key}-box-${index}`}
+              x={center.x - box.width / 2}
+              y={center.y - box.height / 2}
+              width={box.width}
+              height={box.height}
+              rx={2}
+              fill={color}
+            />
+          )
+        })}
+      </g>
+    )
+  }
+
+  if (marker.type === 9) {
+    const point = projectPoint(marker.pose)
+    return (
+      <text key={key} x={point.x + 6} y={point.y - 6} fill={color} className="text-[11px] font-800">
+        {marker.text || `${marker.ns}:${marker.id}`}
+      </text>
+    )
+  }
+
+  if (marker.type === 11) {
+    return (
+      <g key={key}>
+        {points.slice(0, points.length - 2).map((point, index) => {
+          if (index % 3 !== 0)
+            return null
+
+          const trianglePoints = [point, points[index + 1], points[index + 2]]
+            .map(projectPoint)
+            .map(projected => `${projected.x},${projected.y}`)
+            .join(' ')
+          return <polygon key={`${key}-triangle-${index}`} points={trianglePoints} fill={color} stroke={color} strokeWidth={1} />
+        })}
+      </g>
+    )
+  }
+
+  const circlePoints = marker.type === 7 || marker.type === 8 ? points : [marker.pose]
+  return (
+    <g key={key}>
+      {circlePoints.map((point, index) => {
+        const center = projectPoint(point)
+        return <circle key={`${key}-circle-${index}`} cx={center.x} cy={center.y} r={radius} fill={color} />
+      })}
+    </g>
+  )
+}
+
 function DashboardPage({
   buildingMap,
+  host,
   mapStatus,
   mapConnected,
   mapUpdatedAt,
   mapError,
+  rmfStates,
   robots,
 }: {
   buildingMap: BuildingMapMessage | null
+  host: string
   mapStatus: string
   mapConnected: boolean
   mapUpdatedAt: number | null
   mapError: string | null
+  rmfStates: FleetRmfStatesZenohState
   robots: FleetRobotDataMessage[]
 }) {
+  const fleetSiteNamespace = useFleetSiteNamespace()
+  const buildingMapKey = prefixFleetSiteTopic(fleetSiteNamespace.namespace, buildingMapTopic)
+  const doorRequestKey = prefixFleetSiteTopic(fleetSiteNamespace.namespace, doorRequestTopic)
+  const liftRequestKey = prefixFleetSiteTopic(fleetSiteNamespace.namespace, liftRequestTopic)
   const [selectedLevelName, setSelectedLevelName] = useState('')
   const [selectedGraphName, setSelectedGraphName] = useState('')
   const [selectedRobotKey, setSelectedRobotKey] = useState('')
   const [selectedWaypointKey, setSelectedWaypointKey] = useState('')
   const [hoveredWaypointKey, setHoveredWaypointKey] = useState('')
+  const [doorRequestDrafts, setDoorRequestDrafts] = useState<Record<string, DoorRequestDraft>>({})
+  const [doorRequestFeedback, setDoorRequestFeedback] = useState<Record<string, DoorRequestCommandFeedback>>({})
+  const [liftRequestDrafts, setLiftRequestDrafts] = useState<Record<string, LiftRequestDraft>>({})
+  const [liftRequestFeedback, setLiftRequestFeedback] = useState<Record<string, LiftRequestCommandFeedback>>({})
   const [mapZoom, setMapZoom] = useState(1)
   const [layers, setLayers] = useState({
     images: true,
     nav: true,
+    schedule: true,
     doors: true,
     lifts: true,
     robots: true,
@@ -1721,18 +2629,48 @@ function DashboardPage({
   ), [robots, selectedLevel])
   const selectedRobot = visibleRobots.find(robot => getRobotKey(robot) === selectedRobotKey) ?? null
   const graphWaypoints = useMemo(() => (
-    selectedGraph?.vertices.map((vertex, index) => ({ vertex, index, key: `${index}:${vertex.name}` })) ?? []
+    selectedGraph?.vertices.map((vertex, index) => ({
+      graphName: selectedGraph.name,
+      vertex,
+      index,
+      key: getGraphWaypointKey(selectedGraph.name, vertex, index),
+    })) ?? []
   ), [selectedGraph])
   const selectedWaypointItem = graphWaypoints.find(item => item.key === selectedWaypointKey) ?? null
   const selectedWaypoint = selectedWaypointItem?.vertex ?? null
   const namedWaypoints = useMemo(() => (
-    graphWaypoints
+    navGraphs
+      .flatMap(graph => graph.vertices.map((vertex, index) => ({
+        graphName: graph.name,
+        vertex,
+        index,
+        key: getGraphWaypointKey(graph.name, vertex, index),
+      })))
       .filter(item => item.vertex.name)
-      .sort((a, b) => a.vertex.name.localeCompare(b.vertex.name))
-  ), [graphWaypoints])
+      .sort((a, b) => (
+        a.vertex.name.localeCompare(b.vertex.name, undefined, { numeric: true, sensitivity: 'base' })
+        || a.graphName.localeCompare(b.graphName, undefined, { numeric: true, sensitivity: 'base' })
+      ))
+  ), [navGraphs])
   const levelLifts = selectedLevel && buildingMap
     ? buildingMap.lifts.filter(lift => lift.levels.includes(selectedLevel.name))
     : []
+  const scheduleMarkers = useMemo(() => (
+    Object.values(rmfStates.scheduleMarkers).flatMap(namespaceMarkers => Object.values(namespaceMarkers))
+  ), [rmfStates.scheduleMarkers])
+  const observedDoorCount = Object.keys(rmfStates.doorStates).length
+  const observedLiftCount = Object.keys(rmfStates.liftStates).length
+  const observedScheduleMarkerCount = scheduleMarkers.length
+  const scheduleMarkerBadgeClass = observedScheduleMarkerCount > 0
+    ? 'bg-emerald-50 text-emerald-700'
+    : rmfStates.connected
+      ? 'bg-amber-50 text-amber-700'
+      : 'bg-gray-100 text-gray-700'
+  const scheduleMarkerStatus = observedScheduleMarkerCount > 0
+    ? `${observedScheduleMarkerCount} active`
+    : rmfStates.connected
+      ? 'Waiting for next publish'
+      : formatStatus(rmfStates.status, rmfStates.connected)
   const faultedRobots = visibleRobots.filter(robot => getRobotHealthTone(robot) === 'danger')
   const warningRobots = visibleRobots.filter(robot => getRobotHealthTone(robot) === 'warning')
   const activeRobots = visibleRobots.filter(robot => getRobotHealthTone(robot) === 'active')
@@ -1744,6 +2682,151 @@ function DashboardPage({
 
   function toggleLayer(key: keyof typeof layers) {
     setLayers(current => ({ ...current, [key]: !current[key] }))
+  }
+
+  function getDoorRequestDraft(door: BuildingMapLevelMessage['doors'][number]) {
+    return doorRequestDrafts[door.name] ?? getDefaultDoorRequestDraft(door)
+  }
+
+  function updateDoorRequestDraft(door: BuildingMapLevelMessage['doors'][number], patch: Partial<DoorRequestDraft>) {
+    setDoorRequestDrafts(current => ({
+      ...current,
+      [door.name]: {
+        ...getDefaultDoorRequestDraft(door),
+        ...current[door.name],
+        ...patch,
+      },
+    }))
+  }
+
+  function setDoorRequestResult(doorName: string, status: DoorRequestCommandStatus, mode: number, message: string) {
+    setDoorRequestFeedback(current => ({
+      ...current,
+      [doorName]: {
+        status,
+        mode,
+        message,
+        updatedAt: Date.now(),
+      },
+    }))
+  }
+
+  function publishDoorRequest(door: BuildingMapLevelMessage['doors'][number], requestedMode: number) {
+    const draft = getDoorRequestDraft(door)
+    const request: RmfDoorRequestMessage = {
+      requesterId: draft.requesterId.trim(),
+      doorName: door.name,
+      requestedMode: {
+        value: requestedMode,
+      },
+    }
+
+    if (!window.zcDesktop?.isDesktop) {
+      setDoorRequestResult(door.name, 'failed', requestedMode, 'Desktop app required')
+      return
+    }
+    if (!host) {
+      setDoorRequestResult(door.name, 'failed', requestedMode, 'Missing controller')
+      return
+    }
+    if (fleetSiteNamespace.status === 'idle' || fleetSiteNamespace.status === 'loading') {
+      setDoorRequestResult(door.name, 'failed', requestedMode, 'Loading site name')
+      return
+    }
+    if (!doorRequestKey) {
+      setDoorRequestResult(door.name, 'failed', requestedMode, fleetSiteNamespace.error || 'Missing site name')
+      return
+    }
+    if (!request.requesterId) {
+      setDoorRequestResult(door.name, 'failed', requestedMode, 'Missing requester')
+      return
+    }
+
+    setDoorRequestResult(door.name, 'pending', requestedMode, 'pending')
+    window.zcDesktop.publishZenohFleetDoorRequest({
+      host,
+      topic: doorRequestKey,
+      request,
+    }).then((result) => {
+      setDoorRequestResult(door.name, result.ok ? 'sent' : 'failed', requestedMode, result.ok ? `${getDoorModeLabel(requestedMode)} sent` : 'send failed')
+    }).catch((error) => {
+      setDoorRequestResult(door.name, 'failed', requestedMode, `${error}`)
+      console.warn('Failed to publish door request', error)
+    })
+  }
+
+  function getLiftRequestDraft(lift: BuildingMapMessage['lifts'][number], state?: RmfLiftStateValue) {
+    return liftRequestDrafts[lift.name] ?? getDefaultLiftRequestDraft(lift, state)
+  }
+
+  function updateLiftRequestDraft(lift: BuildingMapMessage['lifts'][number], state: RmfLiftStateValue | undefined, patch: Partial<LiftRequestDraft>) {
+    setLiftRequestDrafts(current => ({
+      ...current,
+      [lift.name]: {
+        ...getDefaultLiftRequestDraft(lift, state),
+        ...current[lift.name],
+        ...patch,
+      },
+    }))
+  }
+
+  function setLiftRequestResult(liftName: string, status: LiftRequestCommandStatus, message: string) {
+    setLiftRequestFeedback(current => ({
+      ...current,
+      [liftName]: {
+        status,
+        message,
+        updatedAt: Date.now(),
+      },
+    }))
+  }
+
+  function publishLiftRequest(lift: BuildingMapMessage['lifts'][number], state?: RmfLiftStateValue) {
+    const draft = getLiftRequestDraft(lift, state)
+    const request: RmfLiftRequestMessage = {
+      liftName: lift.name,
+      sessionId: draft.sessionId.trim(),
+      requestType: draft.requestType,
+      destinationFloor: draft.destinationFloor.trim(),
+      doorState: draft.doorState,
+    }
+
+    if (!window.zcDesktop?.isDesktop) {
+      setLiftRequestResult(lift.name, 'failed', 'Desktop app required')
+      return
+    }
+    if (!host) {
+      setLiftRequestResult(lift.name, 'failed', 'Missing controller')
+      return
+    }
+    if (fleetSiteNamespace.status === 'idle' || fleetSiteNamespace.status === 'loading') {
+      setLiftRequestResult(lift.name, 'failed', 'Loading site name')
+      return
+    }
+    if (!liftRequestKey) {
+      setLiftRequestResult(lift.name, 'failed', fleetSiteNamespace.error || 'Missing site name')
+      return
+    }
+    if (!request.sessionId) {
+      setLiftRequestResult(lift.name, 'failed', 'Missing session')
+      return
+    }
+    if (request.requestType !== 0 && !request.destinationFloor) {
+      setLiftRequestResult(lift.name, 'failed', 'Missing floor')
+      return
+    }
+
+    setLiftRequestResult(lift.name, 'pending', 'pending')
+    window.zcDesktop.publishZenohFleetLiftRequest({
+      host,
+      topic: liftRequestKey,
+      request,
+    }).then((result) => {
+      setLiftRequestResult(lift.name, result.ok ? 'sent' : 'failed', result.ok ? 'sent' : 'send failed')
+    }).catch((error) => {
+      setLiftRequestResult(lift.name, 'failed', `${error}`)
+      console.warn('Failed to publish lift request', error)
+    })
   }
 
   useEffect(() => {
@@ -1786,14 +2869,14 @@ function DashboardPage({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
         <Surface className="p-4">
           <div className="text-xs font-700 uppercase tracking-wide text-gray-500">Map source</div>
           <div className="mt-2 flex items-center gap-2">
             <span className={classNames('h-2.5 w-2.5 rounded-full', mapConnected ? 'bg-emerald-500' : 'bg-red-500')} />
             <span className="font-800 text-gray-900">{formatStatus(mapStatus, mapConnected)}</span>
           </div>
-          <div className="mt-1 text-xs text-gray-500">{buildingMap?.key || '/map'} · {formatTime(mapUpdatedAt)}</div>
+          <div className="mt-1 text-xs text-gray-500">{buildingMap?.key || buildingMapKey || buildingMapTopic} · {formatTime(mapUpdatedAt)}</div>
         </Surface>
         <Surface className="p-4">
           <div className="text-xs font-700 uppercase tracking-wide text-gray-500">Building</div>
@@ -1804,6 +2887,17 @@ function DashboardPage({
           <div className="text-xs font-700 uppercase tracking-wide text-gray-500">Nav graph</div>
           <div className="mt-2 truncate font-800 text-gray-900">{selectedGraph?.name || '--'}</div>
           <div className="mt-1 text-xs text-gray-500">{getGraphSummary(selectedGraph)}</div>
+        </Surface>
+        <Surface className="p-4">
+          <div className="text-xs font-700 uppercase tracking-wide text-gray-500">RMF state</div>
+          <div className="mt-2 flex items-center gap-2">
+            <span className={classNames('h-2.5 w-2.5 rounded-full', rmfStates.connected ? 'bg-emerald-500' : 'bg-red-500')} />
+            <span className="font-800 text-gray-900">{formatStatus(rmfStates.status, rmfStates.connected)}</span>
+          </div>
+          <div className="mt-1 text-xs text-gray-500">{observedDoorCount} doors · {observedLiftCount} lifts · {observedScheduleMarkerCount} markers</div>
+          {observedScheduleMarkerCount === 0 && rmfStates.connected && (
+            <div className="mt-1 text-xs font-700 text-amber-700">Schedule waiting for publish</div>
+          )}
         </Surface>
         <Surface className="p-4">
           <div className="text-xs font-700 uppercase tracking-wide text-gray-500">Robots on level</div>
@@ -1819,12 +2913,15 @@ function DashboardPage({
       {mapError && (
         <div className="rounded-lg border-(solid 1px red-200) bg-red-50 px-4 py-3 text-sm text-red-700">{mapError}</div>
       )}
+      {rmfStates.error && (
+        <div className="rounded-lg border-(solid 1px red-200) bg-red-50 px-4 py-3 text-sm text-red-700">{rmfStates.error}</div>
+      )}
 
       <Surface className="overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 border-(b-solid 1px gray-200) p-4">
           <div>
             <div className="font-800 text-gray-900">Dashboard</div>
-            <div className="text-xs text-gray-500">Map images + nav graph from Zenoh /map</div>
+            <div className="text-xs text-gray-500">Map images, nav graph, RMF state, and fleet requests use site-namespaced Zenoh topics</div>
           </div>
           <div className="flex flex-wrap gap-2">
             <select
@@ -1879,6 +2976,7 @@ function DashboardPage({
               {([
                 ['images', 'Images'],
                 ['nav', 'Nav'],
+                ['schedule', 'Schedule'],
                 ['doors', 'Doors'],
                 ['lifts', 'Lifts'],
                 ['robots', 'Robots'],
@@ -1925,10 +3023,25 @@ function DashboardPage({
                     {layers.doors && selectedLevel.doors.map((door) => {
                       const p1 = projector.project(door.v1X, door.v1Y)
                       const p2 = projector.project(door.v2X, door.v2Y)
+                      const doorState = getRmfDoorState(door.name, rmfStates)
+                      const stroke = getDoorStateStroke(doorState)
                       return (
                         <g key={door.name}>
-                          <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#f59e0b" strokeWidth={4} strokeLinecap="round" />
-                          {layers.labels && <text x={(p1.x + p2.x) / 2 + 5} y={(p1.y + p2.y) / 2 - 5} className="fill-amber-700 text-[11px] font-700">{door.name}</text>}
+                          <line
+                            x1={p1.x}
+                            y1={p1.y}
+                            x2={p2.x}
+                            y2={p2.y}
+                            stroke={stroke}
+                            strokeWidth={doorState ? 5 : 4}
+                            strokeDasharray={doorState?.currentMode === 3 ? '8 5' : undefined}
+                            strokeLinecap="round"
+                          />
+                          {layers.labels && (
+                            <text x={(p1.x + p2.x) / 2 + 5} y={(p1.y + p2.y) / 2 - 5} fill={stroke} className="text-[11px] font-700">
+                              {doorState ? `${door.name} · ${getDoorModeLabel(doorState.currentMode)}` : door.name}
+                            </text>
+                          )}
                         </g>
                       )
                     })}
@@ -1936,15 +3049,21 @@ function DashboardPage({
                     {layers.lifts && levelLifts.map((lift) => {
                       const points = liftFootprintPoints(lift).map(point => projector.project(point.x, point.y))
                       const center = projector.project(lift.refX, lift.refY)
+                      const liftState = getRmfLiftState(lift.name, rmfStates)
+                      const stroke = getLiftStateStroke(liftState)
                       return (
                         <g key={lift.name}>
                           <polygon
                             points={points.map(point => `${point.x},${point.y}`).join(' ')}
-                            fill="#7c3aed26"
-                            stroke="#7c3aed"
-                            strokeWidth={2}
+                            fill={getLiftStateFill(liftState)}
+                            stroke={stroke}
+                            strokeWidth={liftState ? 3 : 2}
                           />
-                          {layers.labels && <text x={center.x + 6} y={center.y - 6} className="fill-violet-700 text-[11px] font-800">{lift.name}</text>}
+                          {layers.labels && (
+                            <text x={center.x + 6} y={center.y - 6} fill={stroke} className="text-[11px] font-800">
+                              {liftState ? `${lift.name} · ${getLiftStateSummary(liftState)}` : lift.name}
+                            </text>
+                          )}
                         </g>
                       )
                     })}
@@ -1962,7 +3081,7 @@ function DashboardPage({
 
                     {layers.nav && selectedGraph?.vertices.map((vertex, index) => {
                       const point = projector.project(vertex.x, vertex.y)
-                      const waypointKey = `${index}:${vertex.name}`
+                      const waypointKey = getGraphWaypointKey(selectedGraph.name, vertex, index)
                       const isSelected = selectedWaypointKey === waypointKey
                       const isHovered = hoveredWaypointKey === waypointKey
                       const isCharger = isChargerVertex(vertex)
@@ -1991,6 +3110,8 @@ function DashboardPage({
                         </g>
                       )
                     })}
+
+                    {layers.schedule && scheduleMarkers.map(marker => renderScheduleMarker(marker, projector))}
 
                     {layers.robots && visibleRobots.map((robot) => {
                       const robotKey = getRobotKey(robot)
@@ -2157,11 +3278,11 @@ function DashboardPage({
                             )}
                     </section>
 
-                    <section>
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="font-800 text-gray-900">Robots</div>
-                        <Badge className={faultedRobots.length > 0 ? 'bg-red-50 text-red-700' : 'bg-gray-100 text-gray-700'}>
-                          {visibleRobots.length}
+	                    <section>
+	                      <div className="flex items-center justify-between gap-3">
+	                        <div className="font-800 text-gray-900">Robots</div>
+	                        <Badge className={faultedRobots.length > 0 ? 'bg-red-50 text-red-700' : 'bg-gray-100 text-gray-700'}>
+	                          {visibleRobots.length}
                         </Badge>
                       </div>
                       <div className="mt-2 max-h-64 space-y-2 overflow-auto pr-1">
@@ -2199,6 +3320,22 @@ function DashboardPage({
 
                     <section>
                       <div className="flex items-center justify-between gap-3">
+                        <div className="font-800 text-gray-900">Schedule markers</div>
+                        <Badge className={scheduleMarkerBadgeClass}>{observedScheduleMarkerCount}</Badge>
+                      </div>
+                      <div className={classNames(
+                        'mt-2 rounded-lg border-(solid 1px gray-200) bg-white/85 p-3 text-sm',
+                        observedScheduleMarkerCount > 0 ? 'text-emerald-700' : rmfStates.connected ? 'text-amber-700' : 'text-gray-500',
+                      )}>
+                        <div className="font-800">{scheduleMarkerStatus}</div>
+                        <div className="mt-1 text-xs text-gray-500">
+                          /schedule_markers · {rmfStates.scheduleMarkersUpdatedAt ? `updated ${formatTime(rmfStates.scheduleMarkersUpdatedAt)}` : 'no MarkerArray received'}
+                        </div>
+                      </div>
+                    </section>
+
+                    <section>
+                      <div className="flex items-center justify-between gap-3">
                         <div className="font-800 text-gray-900">Waypoints</div>
                         <Badge className="bg-gray-100 text-gray-700">{namedWaypoints.length}</Badge>
                       </div>
@@ -2212,16 +3349,19 @@ function DashboardPage({
                                   'w-full rounded-lg border-(solid 1px gray-200) bg-white/85 p-3 text-left transition hover:border-orange-300 hover:bg-orange-50/60',
                                   selectedWaypointKey === item.key && 'border-orange-400 bg-orange-50',
                                 )}
-                                onClick={() => {
-                                  setSelectedWaypointKey(item.key)
-                                  setSelectedRobotKey('')
-                                }}>
+	                                onClick={() => {
+	                                  setSelectedGraphName(item.graphName)
+	                                  setSelectedWaypointKey(item.key)
+	                                  setSelectedRobotKey('')
+	                                }}>
                                 <div className="flex items-center justify-between gap-3">
                                   <div className="min-w-0 truncate font-800 text-gray-900">{item.vertex.name}</div>
                                   <Badge className={getWaypointToneClass(item.vertex)}>{getWaypointKind(item.vertex)}</Badge>
                                 </div>
-                                <div className="mt-1 text-xs text-gray-500">x {formatNumber(item.vertex.x)} · y {formatNumber(item.vertex.y)}</div>
-                              </button>
+	                                <div className="mt-1 text-xs text-gray-500">
+	                                  {item.graphName} · x {formatNumber(item.vertex.x)} · y {formatNumber(item.vertex.y)}
+	                                </div>
+	                              </button>
                             ))
                           : <div className="rounded-lg bg-gray-50 px-3 py-6 text-center text-sm text-gray-500">No named waypoints on this graph</div>}
                       </div>
@@ -2233,24 +3373,137 @@ function DashboardPage({
                         <Badge className="bg-gray-100 text-gray-700">{selectedLevel.doors.length + levelLifts.length}</Badge>
                       </div>
                       <div className="mt-2 space-y-2">
-                        {selectedLevel.doors.slice(0, 8).map(door => (
-                          <div key={door.name} className="rounded-lg border-(solid 1px gray-200) bg-white/85 p-3">
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="min-w-0 truncate font-800 text-gray-900">{door.name}</div>
-                              <Badge className="bg-amber-50 text-amber-700">Door</Badge>
+                        {selectedLevel.doors.slice(0, 8).map((door) => {
+                          const doorState = getRmfDoorState(door.name, rmfStates)
+                          const draft = getDoorRequestDraft(door)
+                          const feedback = doorRequestFeedback[door.name]
+                          return (
+                            <div key={door.name} className="rounded-lg border-(solid 1px gray-200) bg-white/85 p-3">
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="min-w-0 truncate font-800 text-gray-900">{door.name}</div>
+                                <Badge className={getDoorStateToneClass(doorState)}>{getDoorModeLabel(doorState?.currentMode)}</Badge>
+                              </div>
+                              <div className="mt-1 text-xs text-gray-500">
+                                range {formatNumber(door.motionRange)} · direction {formatInteger(door.motionDirection)} · updated {doorState ? formatAge(doorState.updatedAt) : '--'}
+                              </div>
+                              <div className="mt-3 text-xs">
+                                <label className="block min-w-0">
+                                  <span className="font-700 uppercase text-gray-500">Requester</span>
+                                  <input
+                                    className="mt-1 h-8 w-full rounded-md border-(solid 1px gray-300) bg-white px-2 outline-none focus:border-emerald-600"
+                                    value={draft.requesterId}
+                                    onChange={event => updateDoorRequestDraft(door, { requesterId: event.target.value })}
+                                  />
+                                </label>
+                              </div>
+                              <div className="mt-3 flex items-center justify-between gap-2">
+                                <div className={classNames('min-w-0 truncate text-xs', feedback?.status === 'failed' ? 'text-red-700' : feedback?.status === 'sent' ? 'text-emerald-700' : 'text-gray-500')}>
+                                  {feedback ? `${feedback.message} · ${formatTime(feedback.updatedAt)}` : doorRequestTopic}
+                                </div>
+                                <div className="flex shrink-0 items-center gap-1">
+                                  {doorRequestModeOptions.map(option => (
+                                    <Button
+                                      key={option.value}
+                                      className="h-8 px-2 text-xs"
+                                      icon={option.icon}
+                                      disabled={feedback?.status === 'pending' || !host}
+                                      onClick={() => publishDoorRequest(door, option.value)}
+                                    >
+                                      {option.label}
+                                    </Button>
+                                  ))}
+                                </div>
+                              </div>
                             </div>
-                            <div className="mt-1 text-xs text-gray-500">range {formatNumber(door.motionRange)} · direction {formatInteger(door.motionDirection)}</div>
-                          </div>
-                        ))}
-                        {levelLifts.slice(0, 8).map(lift => (
-                          <div key={lift.name} className="rounded-lg border-(solid 1px gray-200) bg-white/85 p-3">
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="min-w-0 truncate font-800 text-gray-900">{lift.name}</div>
-                              <Badge className="bg-violet-50 text-violet-700">Lift</Badge>
+                          )
+                        })}
+                        {levelLifts.slice(0, 8).map((lift) => {
+                          const liftState = getRmfLiftState(lift.name, rmfStates)
+                          const floorOptions = getLiftFloorOptions(lift, liftState)
+                          const draft = getLiftRequestDraft(lift, liftState)
+                          const feedback = liftRequestFeedback[lift.name]
+                          return (
+                            <div key={lift.name} className="rounded-lg border-(solid 1px gray-200) bg-white/85 p-3">
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="min-w-0 truncate font-800 text-gray-900">{lift.name}</div>
+                                <Badge className={getLiftStateToneClass(liftState)}>{getLiftModeLabel(liftState?.currentMode)}</Badge>
+                              </div>
+                              <div className="mt-1 text-xs text-gray-500">
+                                {liftState
+                                  ? `floor ${liftState.currentFloor || '--'} -> ${liftState.destinationFloor || '--'} · door ${getLiftDoorStateLabel(liftState.doorState)} · motion ${getLiftMotionStateLabel(liftState.motionState)}`
+                                  : `levels ${lift.levels.join(', ') || '--'}`}
+                              </div>
+                              {liftState?.sessionId && <div className="mt-1 truncate text-xs text-gray-400">session {liftState.sessionId}</div>}
+                              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                                <label className="block min-w-0">
+                                  <span className="font-700 uppercase text-gray-500">Mode</span>
+                                  <select
+                                    className="mt-1 h-8 w-full rounded-md border-(solid 1px gray-300) bg-white px-2 outline-none focus:border-emerald-600"
+                                    value={draft.requestType}
+                                    onChange={event => updateLiftRequestDraft(lift, liftState, { requestType: Number(event.target.value) })}
+                                  >
+                                    {liftRequestTypeOptions.map(option => (
+                                      <option key={option.value} value={option.value}>{option.label}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label className="block min-w-0">
+                                  <span className="font-700 uppercase text-gray-500">Door</span>
+                                  <select
+                                    className="mt-1 h-8 w-full rounded-md border-(solid 1px gray-300) bg-white px-2 outline-none focus:border-emerald-600"
+                                    value={draft.doorState}
+                                    onChange={event => updateLiftRequestDraft(lift, liftState, { doorState: Number(event.target.value) })}
+                                  >
+                                    {liftDoorRequestOptions.map(option => (
+                                      <option key={option.value} value={option.value}>{option.label}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label className="block min-w-0">
+                                  <span className="font-700 uppercase text-gray-500">Floor</span>
+                                  {floorOptions.length > 0
+                                    ? (
+                                        <select
+                                          className="mt-1 h-8 w-full rounded-md border-(solid 1px gray-300) bg-white px-2 outline-none focus:border-emerald-600"
+                                          value={draft.destinationFloor}
+                                          onChange={event => updateLiftRequestDraft(lift, liftState, { destinationFloor: event.target.value })}
+                                        >
+                                          {floorOptions.map(floor => <option key={floor} value={floor}>{floor}</option>)}
+                                        </select>
+                                      )
+                                    : (
+                                        <input
+                                          className="mt-1 h-8 w-full rounded-md border-(solid 1px gray-300) bg-white px-2 outline-none focus:border-emerald-600"
+                                          value={draft.destinationFloor}
+                                          onChange={event => updateLiftRequestDraft(lift, liftState, { destinationFloor: event.target.value })}
+                                        />
+                                      )}
+                                </label>
+                                <label className="block min-w-0">
+                                  <span className="font-700 uppercase text-gray-500">Session</span>
+                                  <input
+                                    className="mt-1 h-8 w-full rounded-md border-(solid 1px gray-300) bg-white px-2 outline-none focus:border-emerald-600"
+                                    value={draft.sessionId}
+                                    onChange={event => updateLiftRequestDraft(lift, liftState, { sessionId: event.target.value })}
+                                  />
+                                </label>
+                              </div>
+                              <div className="mt-3 flex items-center justify-between gap-2">
+                                <div className={classNames('min-w-0 truncate text-xs', feedback?.status === 'failed' ? 'text-red-700' : feedback?.status === 'sent' ? 'text-emerald-700' : 'text-gray-500')}>
+                                  {feedback ? `${feedback.message} · ${formatTime(feedback.updatedAt)}` : liftRequestTopic}
+                                </div>
+                                <Button
+                                  className="h-8 shrink-0 px-2 text-xs"
+                                  icon="i-material-symbols-publish-rounded"
+                                  disabled={feedback?.status === 'pending' || !host}
+                                  onClick={() => publishLiftRequest(lift, liftState)}
+                                >
+                                  Send
+                                </Button>
+                              </div>
                             </div>
-                            <div className="mt-1 text-xs text-gray-500">levels {lift.levels.join(', ') || '--'}</div>
-                          </div>
-                        ))}
+                          )
+                        })}
                         {selectedLevel.doors.length + levelLifts.length === 0 && (
                           <div className="rounded-lg bg-gray-50 px-3 py-6 text-center text-sm text-gray-500">No doors or lifts on this level</div>
                         )}
@@ -2261,7 +3514,7 @@ function DashboardPage({
               </div>
             )
           : (
-              <div className="px-4 py-16 text-center text-sm text-gray-500">Waiting for BuildingMap from Zenoh /map</div>
+              <div className="px-4 py-16 text-center text-sm text-gray-500">Waiting for BuildingMap from Zenoh {buildingMapKey || buildingMapTopic}</div>
             )}
       </Surface>
     </div>
@@ -2560,6 +3813,119 @@ function PeripheralStatePanel({
   )
 }
 
+function WheelStatesPanel({
+  robot,
+  wheelState,
+  stream,
+  now,
+}: {
+  robot: FleetRobotDataMessage | null
+  wheelState?: WheelStateValue
+  stream: FleetWheelStatesZenohState
+  now: number
+}) {
+  return (
+    <Surface className="mt-4">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-(b-solid 1px gray-200) px-4 py-3">
+        <div>
+          <div className="font-800 text-gray-900">Wheel State</div>
+          <div className="text-xs text-gray-500">
+            {robot ? getRobotName(robot) : 'Select a robot'} · Updated {wheelState ? formatAge(wheelState.updatedAt, now) : '--'}
+          </div>
+        </div>
+        <Badge className={getWheelStateToneClass(wheelState)}>
+          {getWheelStateSummary(wheelState)}
+        </Badge>
+      </div>
+
+      <div className="space-y-3 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-gray-500">
+          <span>{formatStatus(stream.status, stream.connected)}</span>
+          {stream.error && <span className="text-red-700">{stream.error}</span>}
+        </div>
+
+        {!robot && (
+          <div className="rounded-lg bg-gray-50 px-3 py-8 text-center text-sm text-gray-500">
+            Select a robot to inspect wheel motors.
+          </div>
+        )}
+
+        {robot && !wheelState && (
+          <div className="rounded-lg bg-gray-50 px-3 py-8 text-center text-sm text-gray-500">
+            Waiting for wheel state.
+          </div>
+        )}
+
+        {robot && wheelState && wheelState.motorStates.length === 0 && (
+          <div className="rounded-lg bg-gray-50 px-3 py-8 text-center text-sm text-gray-500">
+            No wheel motors reported.
+          </div>
+        )}
+
+        {robot && wheelState && wheelState.motorStates.length > 0 && (
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            {wheelState.motorStates.map(motor => (
+              <section key={`${motor.id}-${motor.name}`} className="rounded-lg border-(solid 1px gray-200) bg-white/75 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate font-800 text-gray-900">{motor.name || `Motor ${motor.id}`}</div>
+                    <div className="mt-0.5 text-xs text-gray-500">ID {motor.id}</div>
+                  </div>
+                  <Badge className={motor.isFaulted ? 'bg-red-50 text-red-700' : motor.isConnected ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}>
+                    {motor.isFaulted ? 'Fault' : motor.isConnected ? 'Connected' : 'Disconnected'}
+                  </Badge>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Badge className={motor.isEnabled ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-600'}>
+                    {motor.isEnabled ? 'Enabled' : 'Disabled'}
+                  </Badge>
+                  <Badge className={motor.isPowered ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-600'}>
+                    {motor.isPowered ? 'Powered' : 'Unpowered'}
+                  </Badge>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
+                  <div className="rounded bg-gray-50 px-2 py-1">
+                    <div className="text-gray-500">Voltage</div>
+                    <div className="font-800 tabular-nums text-gray-900">{formatNumber(motor.voltage, 2)} V</div>
+                  </div>
+                  <div className="rounded bg-gray-50 px-2 py-1">
+                    <div className="text-gray-500">Speed</div>
+                    <div className="font-800 tabular-nums text-gray-900">{formatNumber(motor.speed, 0)}</div>
+                  </div>
+                  <div className="rounded bg-gray-50 px-2 py-1">
+                    <div className="text-gray-500">Position</div>
+                    <div className="font-800 tabular-nums text-gray-900">{formatNumber(motor.position, 0)}</div>
+                  </div>
+                  <div className="rounded bg-gray-50 px-2 py-1">
+                    <div className="text-gray-500">Temp</div>
+                    <div className="font-800 tabular-nums text-gray-900">{formatNumber(motor.temperature, 0)} C</div>
+                  </div>
+                  <div className="rounded bg-gray-50 px-2 py-1">
+                    <div className="text-gray-500">Payload</div>
+                    <div className="font-800 tabular-nums text-gray-900">{formatNumber(motor.payload, 0)}</div>
+                  </div>
+                  <div className="rounded bg-gray-50 px-2 py-1">
+                    <div className="text-gray-500">Error</div>
+                    <div className="font-800 tabular-nums text-gray-900">{motor.errorCode}</div>
+                  </div>
+                </div>
+
+                {(motor.errorMessage || motor.isFaulted) && (
+                  <div className="mt-3 rounded-lg border-(solid 1px red-100) bg-red-50 px-3 py-2 text-xs text-red-700">
+                    {motor.errorMessage || 'Motor fault reported'}
+                  </div>
+                )}
+              </section>
+            ))}
+          </div>
+        )}
+      </div>
+    </Surface>
+  )
+}
+
 function HardwareDiagnosticsPanel({
   robot,
   diagnostics,
@@ -2671,6 +4037,152 @@ function HardwareDiagnosticsPanel({
           </div>
         )}
       </div>
+    </Surface>
+  )
+}
+
+function formatBondDuration(nanoseconds: number) {
+  if (!Number.isFinite(nanoseconds) || nanoseconds <= 0)
+    return '--'
+
+  const milliseconds = nanoseconds / 1_000_000
+  if (milliseconds < 1000)
+    return `${formatNumber(milliseconds, 0)} ms`
+
+  return `${formatNumber(milliseconds / 1000, 1)} s`
+}
+
+function getBondHealth(bond: FleetBondValue, now: number) {
+  const health = getFleetBondHealth(bond, now)
+  if (health === 'inactive')
+    return { label: 'Inactive', className: 'bg-red-50 text-red-700' }
+
+  if (health === 'stale')
+    return { label: 'Stale', className: 'bg-amber-50 text-amber-700' }
+
+  return { label: 'Healthy', className: 'bg-emerald-50 text-emerald-700' }
+}
+
+function Ros2NodeHealthPanel({
+  robot,
+  nodeBonds,
+  stream,
+  now,
+}: {
+  robot: FleetRobotDataMessage | null
+  nodeBonds?: Record<string, FleetBondValue>
+  stream: FleetBondsZenohState
+  now: number
+}) {
+  const nodes = Object.values(nodeBonds ?? {}).sort((left, right) => left.id.localeCompare(right.id))
+  const healthyCount = nodes.filter(node => getBondHealth(node, now).label === 'Healthy').length
+  const hasRobotNamespace = Boolean(robot && (getRobotDidoNamespace(robot) || stream.fallbackNamespace))
+
+  return (
+    <Surface className="mt-4 overflow-hidden">
+      <details>
+        <summary className="cursor-pointer select-none list-none px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="i-material-symbols-chevron-right-rounded text-5 text-gray-500" />
+              <div className="min-w-0">
+                <div className="font-800 text-gray-900">Node Health</div>
+                <div className="truncate text-xs text-gray-500">
+                  {robot ? getRobotName(robot) : 'Select a robot'} · {healthyCount} healthy / {nodes.length} reported
+                </div>
+              </div>
+            </div>
+            <Badge className={nodes.length === 0
+              ? 'bg-gray-100 text-gray-600'
+              : healthyCount > 0
+                ? 'bg-emerald-50 text-emerald-700'
+                : 'bg-amber-50 text-amber-700'}>
+              {nodes.length === 0 ? 'Unknown' : healthyCount > 0 ? 'Healthy' : 'Attention'}
+            </Badge>
+          </div>
+        </summary>
+
+        <div className="space-y-3 border-(t-solid 1px gray-200) p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-gray-500">
+            <span>
+              {stream.connected ? `Monitoring active · Stale after ${FLEET_BOND_STALE_MS / 1000}s` : 'Monitoring unavailable'}
+            </span>
+            {stream.error && <span className="text-red-700">Node health updates are unavailable</span>}
+          </div>
+
+          {!robot && (
+            <div className="rounded-lg bg-gray-50 px-3 py-8 text-center text-sm text-gray-500">
+              Select a robot to inspect node health.
+            </div>
+          )}
+
+          {robot && !hasRobotNamespace && (
+            <div className="rounded-lg border-(solid 1px amber-200) bg-amber-50 px-3 py-6 text-center text-sm text-amber-700">
+              This robot has no namespace configured, so node health cannot be monitored.
+            </div>
+          )}
+
+          {robot && hasRobotNamespace && nodes.length === 0 && (
+            <div className="rounded-lg bg-gray-50 px-3 py-8 text-center text-sm text-gray-500">
+              Waiting for node health updates.
+            </div>
+          )}
+
+          {robot && nodes.length > 0 && (
+            <div className="space-y-2">
+              {nodes.map((node) => {
+                const health = getBondHealth(node, now)
+                return (
+                  <details key={node.id} className="overflow-hidden rounded-lg border-(solid 1px gray-200) bg-white/75">
+                    <summary className="cursor-pointer select-none list-none px-3 py-2.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="i-material-symbols-chevron-right-rounded text-4.5 text-gray-400" />
+                          <div className="min-w-0">
+                            <div className="truncate font-800 text-gray-900">{node.id}</div>
+                            <div className="text-xs text-gray-500">Updated {formatAge(node.updatedAt, now)}</div>
+                          </div>
+                        </div>
+                        <Badge className={health.className}>{health.label}</Badge>
+                      </div>
+                    </summary>
+                    <div className="grid grid-cols-1 gap-2 border-(t-solid 1px gray-100) p-3 text-xs sm:grid-cols-3">
+                      <div className="rounded bg-gray-50 px-2 py-1.5 sm:col-span-3">
+                        <div className="text-gray-500">Instance</div>
+                        <div className="break-all font-700 text-gray-900">{node.instanceId || '--'}</div>
+                      </div>
+                      <div className="rounded bg-gray-50 px-2 py-1.5">
+                        <div className="text-gray-500">Active</div>
+                        <div className="font-700 text-gray-900">{node.active ? 'Yes' : 'No'}</div>
+                      </div>
+                      <div className="rounded bg-gray-50 px-2 py-1.5">
+                        <div className="text-gray-500">Heartbeat period</div>
+                        <div className="font-700 text-gray-900">{formatBondDuration(node.heartbeatPeriod)}</div>
+                      </div>
+                      <div className="rounded bg-gray-50 px-2 py-1.5">
+                        <div className="text-gray-500">Heartbeat timeout</div>
+                        <div className="font-700 text-gray-900">{formatBondDuration(node.heartbeatTimeout)}</div>
+                      </div>
+                      <div className="rounded bg-gray-50 px-2 py-1.5">
+                        <div className="text-gray-500">Stamp seconds</div>
+                        <div className="font-700 tabular-nums text-gray-900">{node.header.stamp.sec}</div>
+                      </div>
+                      <div className="rounded bg-gray-50 px-2 py-1.5">
+                        <div className="text-gray-500">Stamp nanoseconds</div>
+                        <div className="font-700 tabular-nums text-gray-900">{node.header.stamp.nanosec}</div>
+                      </div>
+                      <div className="rounded bg-gray-50 px-2 py-1.5">
+                        <div className="text-gray-500">Frame</div>
+                        <div className="break-all font-700 text-gray-900">{node.header.frameId || '--'}</div>
+                      </div>
+                    </div>
+                  </details>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </details>
     </Surface>
   )
 }
@@ -2906,6 +4418,7 @@ function RobotRow({
   robot,
   pending = false,
   dido,
+  wheelState,
   hardwareDiagnostics,
   now,
   selected = false,
@@ -2914,6 +4427,7 @@ function RobotRow({
   robot: FleetRobotDataMessage
   pending?: boolean
   dido?: RobotDidoValues
+  wheelState?: WheelStateValue
   hardwareDiagnostics?: HardwareDiagnosticsValue
   now: number
   selected?: boolean
@@ -2962,7 +4476,11 @@ function RobotRow({
           {robot.hasBatteryCurrent ? `${formatNumber(robot.batteryCurrent, 2)} A` : robot.hasBattery ? `${formatNumber(robot.battery, 2)}` : '--'}
         </div>
       </td>
-      <td className="px-3 py-2 align-top">{getWheelSummary(robot)}</td>
+      <td className="px-3 py-2 align-top">
+        <Badge className={getWheelStateToneClass(wheelState)}>
+          {getWheelStateSummary(wheelState)}
+        </Badge>
+      </td>
       <td className="px-3 py-2 align-top">
         <Badge className={getHardwareDiagnosticsToneClass(diagnosticsSummary.state)}>
           {diagnosticsSummary.label}
@@ -2999,7 +4517,9 @@ function RobotsPage({
   fleetType,
   error,
   dido,
+  wheelStates,
   hardwareDiagnostics,
+  bonds,
   host,
   selectedRobotId,
   setSelectedRobotId,
@@ -3012,7 +4532,9 @@ function RobotsPage({
   fleetType: string
   error: string | null
   dido: FleetDidoZenohState
+  wheelStates: FleetWheelStatesZenohState
   hardwareDiagnostics: FleetHardwareDiagnosticsZenohState
+  bonds: FleetBondsZenohState
   host: string
   selectedRobotId: string
   setSelectedRobotId: (value: string) => void
@@ -3056,7 +4578,9 @@ function RobotsPage({
     ?? visiblePendingRobots[0]
     ?? null
   const selectedDido = selectedRobot ? getRobotDidoValues(selectedRobot, dido, didoRobots) : undefined
+  const selectedWheelState = selectedRobot ? getRobotWheelStateValue(selectedRobot, wheelStates, didoRobots) : undefined
   const selectedHardwareDiagnostics = selectedRobot ? getRobotHardwareDiagnosticsValue(selectedRobot, hardwareDiagnostics, didoRobots) : undefined
+  const selectedBonds = selectedRobot ? getRobotBondValues(selectedRobot, bonds, didoRobots) : undefined
   const selectedNamespace = selectedRobot ? getRobotCommandNamespace(selectedRobot, dido, didoRobots) : ''
 
   return (
@@ -3071,10 +4595,17 @@ function RobotsPage({
           <div className={classNames('text-xs font-700', dido.connected ? 'text-emerald-700' : 'text-gray-500')}>
             I/O {formatStatus(dido.status, dido.connected)}
           </div>
+          <div className={classNames('text-xs font-700', wheelStates.connected ? 'text-emerald-700' : 'text-gray-500')}>
+            Wheels {formatStatus(wheelStates.status, wheelStates.connected)}
+          </div>
           <div className={classNames('text-xs font-700', hardwareDiagnostics.connected ? 'text-emerald-700' : 'text-gray-500')}>
             Hardware {formatStatus(hardwareDiagnostics.status, hardwareDiagnostics.connected)}
           </div>
+          <div className={classNames('text-xs font-700', bonds.connected ? 'text-emerald-700' : 'text-gray-500')}>
+            Nodes {bonds.connected ? 'monitoring' : 'unavailable'}
+          </div>
           {dido.error && <div className="text-sm text-red-700">{dido.error}</div>}
+          {wheelStates.error && <div className="text-sm text-red-700">{wheelStates.error}</div>}
           {hardwareDiagnostics.error && <div className="text-sm text-red-700">{hardwareDiagnostics.error}</div>}
           {error && <div className="text-sm text-red-700">{error}</div>}
           <label className="relative block">
@@ -3113,6 +4644,7 @@ function RobotsPage({
                       key={`robot-${robot.robot || robot.name || index}`}
                       robot={robot}
                       dido={getRobotDidoValues(robot, dido, didoRobots)}
+                      wheelState={getRobotWheelStateValue(robot, wheelStates, didoRobots)}
                       hardwareDiagnostics={getRobotHardwareDiagnosticsValue(robot, hardwareDiagnostics, didoRobots)}
                       now={now}
                       selected={selectedRobot === robot}
@@ -3125,6 +4657,7 @@ function RobotsPage({
                       robot={robot}
                       pending
                       dido={getRobotDidoValues(robot, dido, didoRobots)}
+                      wheelState={getRobotWheelStateValue(robot, wheelStates, didoRobots)}
                       hardwareDiagnostics={getRobotHardwareDiagnosticsValue(robot, hardwareDiagnostics, didoRobots)}
                       now={now}
                       selected={selectedRobot === robot}
@@ -3148,13 +4681,510 @@ function RobotsPage({
         namespace={selectedNamespace}
         host={host}
       />
+      <WheelStatesPanel
+        robot={selectedRobot}
+        wheelState={selectedWheelState}
+        stream={wheelStates}
+        now={now}
+      />
       <HardwareDiagnosticsPanel
         robot={selectedRobot}
         diagnostics={selectedHardwareDiagnostics}
         stream={hardwareDiagnostics}
         now={now}
       />
+      <Ros2NodeHealthPanel
+        robot={selectedRobot}
+        nodeBonds={selectedBonds}
+        stream={bonds}
+        now={now}
+      />
     </div>
+  )
+}
+
+function TaskManagerDetailField({ label, value, title }: { label: string; value: string; title?: string }) {
+  return (
+    <div className="rounded-lg bg-gray-50 px-3 py-2 text-xs">
+      <div className="font-700 text-gray-500">{label}</div>
+      <div className="mt-1 min-w-0 break-all leading-4 text-gray-800" title={title || value}>
+        {value || '--'}
+      </div>
+    </div>
+  )
+}
+
+function TaskManagerUnitTaskRow({ unitTask }: { unitTask: TaskManagerUnitTaskInfo }) {
+  return (
+    <div className="border-(t-solid 1px gray-100) px-3 py-3 text-sm">
+      <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="font-800 text-gray-900">
+            <span className="mr-2 tabular-nums text-gray-500">#{unitTask.seq}</span>
+            <span className="break-words">{unitTask.waypoint || unitTask.unit_id || '--'}</span>
+          </div>
+          <div className="mt-0.5 break-words text-xs text-gray-500">{unitTask.action_name || '--'}</div>
+        </div>
+        <Badge className={getTaskManagerStatusClass(unitTask.status)}>{unitTask.status || '--'}</Badge>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs font-700 text-gray-500">
+        <span>Attempts {unitTask.attempts}</span>
+        <span title={unitTask.unit_id}>Unit {shortIdentifier(unitTask.unit_id)}</span>
+      </div>
+      {unitTask.last_error && <div className="mt-2 break-words text-xs text-red-700">{unitTask.last_error}</div>}
+    </div>
+  )
+}
+
+function TaskManagerDetail({
+  detail,
+  isRunning,
+  isCanceling,
+  isDeleting,
+  onRun,
+  onCancel,
+  onDelete,
+}: {
+  detail: TaskManagerTaskDetail
+  isRunning: boolean
+  isCanceling: boolean
+  isDeleting: boolean
+  onRun: (taskId: string) => void
+  onCancel: (task: TaskManagerTaskInfo) => void
+  onDelete: (task: TaskManagerTaskInfo) => void
+}) {
+  if (!detail.found) {
+    return (
+      <div className="rounded-lg bg-gray-50 px-3 py-8 text-center text-sm text-gray-500">
+        {detail.message || 'Task not found'}
+      </div>
+    )
+  }
+
+  const task = detail.task
+  const taskDefinitionId = getTaskManagerDefinitionId(task)
+  const isExecuting = isTaskManagerTaskExecuting(task)
+  return (
+    <div className="space-y-4">
+      <section className="rounded-lg border-(solid 1px gray-200) bg-white/75 p-3">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="min-w-0">
+            <div className="truncate font-800 text-gray-900">{getTaskManagerTaskName(task)}</div>
+            <div className="mt-0.5 text-xs text-gray-500">{task.robot_name || '--'} · {task.fleet_name || '--'}</div>
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <Badge className={getTaskManagerStatusClass(task.status)}>{task.status || '--'}</Badge>
+            {isExecuting && (
+              <Button
+                type="button"
+                tone="danger"
+                icon={isCanceling ? 'i-material-symbols-progress-activity' : 'i-material-symbols-cancel-rounded'}
+                disabled={isCanceling || isDeleting || !taskDefinitionId}
+                onClick={() => onCancel(task)}>
+                Cancel
+              </Button>
+            )}
+            <Button
+              type="button"
+              tone="primary"
+              icon={isRunning ? 'i-material-symbols-progress-activity' : 'i-material-symbols-play-arrow-rounded'}
+              disabled={isRunning || isCanceling || isDeleting || isExecuting || !taskDefinitionId}
+              onClick={() => onRun(taskDefinitionId)}>
+              Run
+            </Button>
+            <IconButton
+              icon={isDeleting ? 'i-material-symbols-progress-activity' : 'i-material-symbols-delete-outline-rounded'}
+              title={isExecuting ? 'Cancel current execution before deleting' : 'Delete task'}
+              tone="danger"
+              disabled={isRunning || isCanceling || isDeleting || isExecuting || !taskDefinitionId}
+              onClick={() => onDelete(task)}
+            />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 gap-2 2xl:grid-cols-2">
+          <TaskManagerDetailField label="Task ID" value={shortIdentifier(task.task_id)} title={task.task_id} />
+          <TaskManagerDetailField label="Definition ID" value={shortIdentifier(task.task_definition_id)} title={task.task_definition_id} />
+          <TaskManagerDetailField label="Latest execution" value={shortIdentifier(task.latest_task_execution_id)} title={task.latest_task_execution_id} />
+          <TaskManagerDetailField label="Active execution" value={shortIdentifier(task.active_task_execution_id)} title={task.active_task_execution_id} />
+          <TaskManagerDetailField label="Created" value={formatUnixMilliseconds(task.created_at_unix_ms)} />
+          <TaskManagerDetailField label="Updated" value={formatUnixMilliseconds(task.updated_at_unix_ms)} />
+          <TaskManagerDetailField label="Execution created" value={formatUnixMilliseconds(task.execution_created_at_unix_ms)} />
+          <TaskManagerDetailField label="Execution updated" value={formatUnixMilliseconds(task.execution_updated_at_unix_ms)} />
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-lg border-(solid 1px gray-200) bg-white/75">
+        <div className="flex items-center justify-between px-3 py-2">
+          <div className="font-800 text-gray-900">Unit tasks</div>
+          <div className="text-xs font-700 text-gray-500">{detail.unit_tasks.length} total</div>
+        </div>
+        {detail.unit_tasks.length > 0
+          ? detail.unit_tasks.map(unitTask => (
+              <TaskManagerUnitTaskRow
+                key={`${unitTask.unit_task_execution_id || unitTask.unit_id}:${unitTask.seq}`}
+                unitTask={unitTask}
+              />
+          ))
+          : <div className="border-(t-solid 1px gray-100) px-3 py-8 text-center text-sm text-gray-500">No unit tasks</div>}
+      </section>
+    </div>
+  )
+}
+
+function TaskManagerPanel() {
+  const fleetSiteNamespace = useFleetSiteNamespace()
+  const taskListServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.list)
+  const taskGetServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.get)
+  const taskRunServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.run)
+  const taskCancelServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.cancel)
+  const taskDeleteServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.delete)
+  const taskManagerServiceLabel = taskListServicePath && taskGetServicePath
+    ? `${taskListServicePath} / ${taskGetServicePath}`
+    : 'Waiting for site name'
+  const [taskManagerTasks, setTaskManagerTasks] = useState<TaskManagerTaskInfo[]>([])
+  const [selectedTaskId, setSelectedTaskId] = useState('')
+  const [taskDetail, setTaskDetail] = useState<TaskManagerTaskDetail | null>(null)
+  const [isRefreshingTasks, setIsRefreshingTasks] = useState(false)
+  const [isLoadingTaskDetail, setIsLoadingTaskDetail] = useState(false)
+  const [runningTaskId, setRunningTaskId] = useState('')
+  const [cancelingTaskId, setCancelingTaskId] = useState('')
+  const [deletingTaskId, setDeletingTaskId] = useState('')
+  const [taskManagerError, setTaskManagerError] = useState('')
+  const detailRequestId = useRef(0)
+
+  function taskManagerSiteNamespaceError(servicePath: string) {
+    if (fleetSiteNamespace.status === 'idle' || fleetSiteNamespace.status === 'loading')
+      return 'Loading site name'
+    if (!servicePath)
+      return fleetSiteNamespace.error || 'Missing site name'
+
+    return ''
+  }
+
+  function requireTaskManagerServicePath(servicePath: string, showToast = true) {
+    const message = taskManagerSiteNamespaceError(servicePath)
+    if (!message)
+      return true
+
+    setTaskManagerError(message)
+    if (showToast)
+      toast.error(message)
+    return false
+  }
+
+  useEffect(() => {
+    setTaskManagerTasks([])
+    setSelectedTaskId('')
+    setTaskDetail(null)
+    setTaskManagerError('')
+  }, [fleetSiteNamespace.namespace])
+
+  async function refreshTaskManagerTasks(showToast = true) {
+    if (!requireTaskManagerServicePath(taskListServicePath, showToast))
+      return
+
+    setIsRefreshingTasks(true)
+    setTaskManagerError('')
+    try {
+      const tasks = await apiServer.listTasks({ servicePath: taskListServicePath })
+      setTaskManagerTasks(tasks)
+      if (selectedTaskId && !tasks.some(task => getTaskManagerDefinitionId(task) === selectedTaskId)) {
+        setSelectedTaskId('')
+        setTaskDetail(null)
+      }
+      if (showToast)
+        toast.success(`Loaded ${tasks.length} tasks`)
+    }
+    catch (error) {
+      const message = errorMessage(error)
+      setTaskManagerError(message)
+      if (showToast)
+        toast.error(`Failed to load task list: ${message}`)
+    }
+    finally {
+      setIsRefreshingTasks(false)
+    }
+  }
+
+  async function selectTaskManagerTask(task: TaskManagerTaskInfo) {
+    const taskId = getTaskManagerDefinitionId(task)
+    if (!taskId)
+      return
+
+    const requestId = detailRequestId.current + 1
+    detailRequestId.current = requestId
+    setSelectedTaskId(taskId)
+    setTaskDetail(null)
+    setIsLoadingTaskDetail(true)
+    setTaskManagerError('')
+
+    try {
+      if (!requireTaskManagerServicePath(taskGetServicePath))
+        return
+
+      const detail = await apiServer.getTask(taskId, { servicePath: taskGetServicePath })
+      if (detailRequestId.current !== requestId)
+        return
+
+      setTaskDetail(detail)
+      if (!detail.found)
+        toast.error(detail.message || 'Task not found')
+    }
+    catch (error) {
+      if (detailRequestId.current !== requestId)
+        return
+
+      const message = errorMessage(error)
+      setTaskManagerError(message)
+      toast.error(`Failed to load task detail: ${message}`)
+    }
+    finally {
+      if (detailRequestId.current === requestId)
+        setIsLoadingTaskDetail(false)
+    }
+  }
+
+  async function refreshTaskManagerStateAfterMutation(taskId: string) {
+    if (!requireTaskManagerServicePath(taskListServicePath, false) || !requireTaskManagerServicePath(taskGetServicePath, false))
+      return
+
+    const tasks = await apiServer.listTasks({ servicePath: taskListServicePath })
+    setTaskManagerTasks(tasks)
+
+    if (!selectedTaskId)
+      return
+
+    if (!tasks.some(task => getTaskManagerDefinitionId(task) === selectedTaskId)) {
+      setSelectedTaskId('')
+      setTaskDetail(null)
+      return
+    }
+
+    if (selectedTaskId === taskId) {
+      const detail = await apiServer.getTask(taskId, { servicePath: taskGetServicePath })
+      setTaskDetail(detail)
+    }
+  }
+
+  async function runTaskManagerTask(taskId: string) {
+    if (!taskId)
+      return
+
+    setRunningTaskId(taskId)
+    setTaskManagerError('')
+    try {
+      if (!requireTaskManagerServicePath(taskRunServicePath))
+        return
+
+      const response = await apiServer.runTask(taskId, { servicePath: taskRunServicePath })
+      const executionLabel = response.task_execution_id
+        ? `Execution ${shortIdentifier(response.task_execution_id)} accepted`
+        : 'Task accepted'
+      toast.success(response.message || executionLabel)
+
+      setTaskManagerTasks(current => current.map(task => (
+        getTaskManagerDefinitionId(task) === taskId && response.task_execution_id
+          ? { ...task, status: 'PENDING', active_task_execution_id: response.task_execution_id, latest_task_execution_id: response.task_execution_id }
+          : task
+      )))
+      if (selectedTaskId === taskId) {
+        try {
+          const detail = await apiServer.getTask(taskId, { servicePath: taskGetServicePath })
+          setTaskDetail(detail)
+        }
+        catch (error) {
+          console.warn('Failed to refresh task detail after run', error)
+        }
+      }
+    }
+    catch (error) {
+      const message = errorMessage(error)
+      setTaskManagerError(message)
+      toast.error(`Failed to run task: ${message}`)
+    }
+    finally {
+      setRunningTaskId('')
+    }
+  }
+
+  async function cancelTaskManagerTask(task: TaskManagerTaskInfo) {
+    const taskId = getTaskManagerDefinitionId(task)
+    if (!taskId)
+      return
+
+    setCancelingTaskId(task.task_id || taskId)
+    setTaskManagerError('')
+    try {
+      if (!requireTaskManagerServicePath(taskCancelServicePath))
+        return
+
+      const response = await apiServer.cancelTaskExecution(taskId, { servicePath: taskCancelServicePath })
+      toast.success(response.message || 'Task execution canceled')
+      await refreshTaskManagerStateAfterMutation(taskId)
+    }
+    catch (error) {
+      const message = errorMessage(error)
+      setTaskManagerError(message)
+      toast.error(`Failed to cancel task: ${message}`)
+    }
+    finally {
+      setCancelingTaskId('')
+    }
+  }
+
+  async function deleteTaskManagerTask(task: TaskManagerTaskInfo) {
+    const taskId = getTaskManagerDefinitionId(task)
+    if (!taskId)
+      return
+
+    const name = getTaskManagerTaskName(task)
+    if (!window.confirm(`Permanently delete task "${name}" from the database?`))
+      return
+
+    setDeletingTaskId(task.task_id || taskId)
+    setTaskManagerError('')
+    try {
+      if (!requireTaskManagerServicePath(taskDeleteServicePath))
+        return
+
+      const response = await apiServer.deleteTaskDefinition(taskId, true, { servicePath: taskDeleteServicePath })
+      toast.success(response.message || 'Task deleted')
+      await refreshTaskManagerStateAfterMutation(taskId)
+    }
+    catch (error) {
+      const message = errorMessage(error)
+      setTaskManagerError(message)
+      toast.error(`Failed to delete task: ${message}`)
+    }
+    finally {
+      setDeletingTaskId('')
+    }
+  }
+
+  return (
+    <Surface>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-(b-solid 1px gray-200) px-4 py-3">
+        <div>
+          <div className="font-800">Task Manager</div>
+          <div className="text-xs text-gray-500">{taskManagerServiceLabel}</div>
+        </div>
+        <Button
+          type="button"
+          tone="primary"
+          icon={isRefreshingTasks ? 'i-material-symbols-progress-activity' : 'i-material-symbols-refresh-rounded'}
+          disabled={isRefreshingTasks || !taskListServicePath}
+          onClick={() => { refreshTaskManagerTasks() }}>
+          Refresh
+        </Button>
+      </div>
+
+      {taskManagerError && (
+        <div className="border-(b-solid 1px red-100) bg-red-50 px-4 py-2 text-sm text-red-700">
+          {taskManagerError}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-0 2xl:grid-cols-[minmax(0,1fr)_minmax(22rem,26rem)]">
+        <div className="min-w-0 border-(b-solid 1px gray-200) 2xl:border-(b-0 r-solid 1px gray-200)">
+          {taskManagerTasks.length > 0
+            ? (
+                <div className="grid grid-cols-1 gap-3 p-3 xl:grid-cols-2 2xl:grid-cols-1">
+                  {taskManagerTasks.map((task) => {
+                    const isExecuting = isTaskManagerTaskExecuting(task)
+                    const taskDefinitionId = getTaskManagerDefinitionId(task)
+                    const taskStateId = task.task_id || taskDefinitionId
+                    const isTaskRunning = runningTaskId === taskDefinitionId
+                    const isTaskCanceling = cancelingTaskId === taskStateId
+                    const isTaskDeleting = deletingTaskId === taskStateId
+                    return (
+                      <div
+                        key={task.task_id || `${task.task_definition_id}:${task.created_at_unix_ms}`}
+                        className={classNames(
+                          'rounded-lg border-(solid 1px gray-200) bg-white/80 p-3 transition hover:border-emerald-300 hover:bg-emerald-50/35',
+                          selectedTaskId === taskDefinitionId && 'border-emerald-500 bg-emerald-50/70 shadow-sm',
+                        )}
+                      >
+                        <button
+                          type="button"
+                          className="w-full text-left"
+                          title={task.task_id}
+                          onClick={() => selectTaskManagerTask(task)}
+                        >
+                          <div className="flex min-w-0 items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="break-words font-800 leading-5 text-gray-900">{getTaskManagerTaskName(task)}</div>
+                              <div className="mt-1 break-all font-mono text-[11px] leading-4 text-gray-500">{task.task_id || '--'}</div>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-2">
+                              <Badge className={getTaskManagerStatusClass(task.status)}>{task.status || '--'}</Badge>
+                              <span
+                                className={classNames(
+                                  'h-5 w-5 text-gray-400',
+                                  isLoadingTaskDetail && selectedTaskId === taskDefinitionId
+                                    ? 'i-material-symbols-progress-activity animate-spin'
+                                    : 'i-material-symbols-chevron-right-rounded',
+                                )}
+                              />
+                            </div>
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2">
+                            <TaskManagerSummaryField label="Robot" value={task.robot_name || '--'} />
+                            <TaskManagerSummaryField label="Fleet" value={task.fleet_name || '--'} />
+                            <TaskManagerSummaryField label="Updated" value={formatUnixMilliseconds(task.updated_at_unix_ms)} />
+                          </div>
+                        </button>
+                        <div className="mt-3 flex flex-wrap items-center justify-end gap-2 border-(t-solid 1px gray-100) pt-3">
+                          {isExecuting && (
+                            <Button
+                              type="button"
+                              tone="danger"
+                              icon={isTaskCanceling ? 'i-material-symbols-progress-activity' : 'i-material-symbols-cancel-rounded'}
+                              disabled={isTaskCanceling || isTaskDeleting || !taskDefinitionId}
+                              onClick={() => { cancelTaskManagerTask(task) }}>
+                              Cancel
+                            </Button>
+                          )}
+                          <IconButton
+                            icon={isTaskDeleting ? 'i-material-symbols-progress-activity' : 'i-material-symbols-delete-outline-rounded'}
+                            title={isExecuting ? 'Cancel current execution before deleting' : 'Delete task'}
+                            tone="danger"
+                            disabled={isTaskRunning || isTaskCanceling || isTaskDeleting || isExecuting || !taskDefinitionId}
+                            onClick={() => { deleteTaskManagerTask(task) }}
+                          />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            : (
+                <div className="px-4 py-14 text-center text-sm text-gray-500">
+                  {isRefreshingTasks ? 'Loading tasks...' : 'Press Refresh to load runtime tasks'}
+                </div>
+              )}
+        </div>
+
+        <div className="min-w-0 p-4">
+          {isLoadingTaskDetail && !taskDetail && (
+            <div className="rounded-lg bg-gray-50 px-3 py-8 text-center text-sm text-gray-500">Loading task detail...</div>
+          )}
+          {!isLoadingTaskDetail && !taskDetail && (
+            <div className="rounded-lg bg-gray-50 px-3 py-8 text-center text-sm text-gray-500">Select a task to view details</div>
+          )}
+          {taskDetail && (
+            <TaskManagerDetail
+              detail={taskDetail}
+              isRunning={runningTaskId === getTaskManagerDefinitionId(taskDetail.task)}
+              isCanceling={cancelingTaskId === (taskDetail.task.task_id || getTaskManagerDefinitionId(taskDetail.task))}
+              isDeleting={deletingTaskId === (taskDetail.task.task_id || getTaskManagerDefinitionId(taskDetail.task))}
+              onRun={runTaskManagerTask}
+              onCancel={cancelTaskManagerTask}
+              onDelete={deleteTaskManagerTask}
+            />
+          )}
+        </div>
+      </div>
+    </Surface>
   )
 }
 
@@ -3168,6 +5198,8 @@ function TasksPage({
   deleteTask,
   robotOptions,
   mapOptions,
+  buildingMap,
+  fleetName,
 }: {
   tasks: FleetTask[]
   taskDraft: TaskDraft
@@ -3178,7 +5210,47 @@ function TasksPage({
   deleteTask: (id: string) => void
   robotOptions: string[]
   mapOptions: string[]
+  buildingMap: BuildingMapMessage | null
+  fleetName: string
 }) {
+  const [goToChargerDraft, setGoToChargerDraft] = useState<GoToChargerTaskDraft>({
+    robot: '',
+    chargerWaypoint: '',
+  })
+  const [goToWaypointDraft, setGoToWaypointDraft] = useState<GoToWaypointTaskDraft>({
+    robot: '',
+    waypoint: '',
+  })
+  const [isCreatingGoToChargerTask, setIsCreatingGoToChargerTask] = useState(false)
+  const [isCreatingGoToWaypointTask, setIsCreatingGoToWaypointTask] = useState(false)
+  const [goToChargerFeedback, setGoToChargerFeedback] = useState<GoToChargerFeedback | null>(null)
+  const [goToWaypointFeedback, setGoToWaypointFeedback] = useState<GoToChargerFeedback | null>(null)
+  const waypointOptions = useMemo(() => getNavWaypointOptions(buildingMap), [buildingMap])
+  const waypointNames = useMemo(() => waypointOptions.map(option => option.name), [waypointOptions])
+  const chargerWaypointOptions = useMemo(() => getChargerWaypointOptions(buildingMap), [buildingMap])
+  const chargerWaypointNames = useMemo(() => chargerWaypointOptions.map(option => option.name), [chargerWaypointOptions])
+  const normalizedFleetName = fleetName.trim()
+  const fleetSiteNamespace = useFleetSiteNamespace()
+  const taskCreateServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.create)
+  const taskCreateServiceError = fleetSiteNamespace.status === 'idle' || fleetSiteNamespace.status === 'loading'
+    ? 'Loading site name'
+    : taskCreateServicePath
+      ? ''
+      : fleetSiteNamespace.error || 'Missing site name'
+  const selectedChargerOption = chargerWaypointOptions.find(option => option.name === goToChargerDraft.chargerWaypoint) ?? null
+  const selectedWaypointOption = waypointOptions.find(option => option.name === goToWaypointDraft.waypoint.trim()) ?? null
+  const canCreateGoToChargerTask = Boolean(
+    normalizedFleetName
+    && !taskCreateServiceError
+    && goToChargerDraft.robot
+    && goToChargerDraft.chargerWaypoint,
+  )
+  const canCreateGoToWaypointTask = Boolean(
+    normalizedFleetName
+    && !taskCreateServiceError
+    && goToWaypointDraft.robot
+    && goToWaypointDraft.waypoint.trim(),
+  )
   const sortedTasks = [...tasks].sort((a, b) => {
     if (a.status === b.status)
       return new Date(a.scheduleAt).getTime() - new Date(b.scheduleAt).getTime()
@@ -3189,151 +5261,470 @@ function TasksPage({
     return a.createdAt - b.createdAt
   })
 
+  useEffect(() => {
+    setGoToChargerDraft((current) => {
+      if (robotOptions.length === 0)
+        return current.robot ? { ...current, robot: '' } : current
+      return robotOptions.includes(current.robot) ? current : { ...current, robot: robotOptions[0] }
+    })
+    setGoToWaypointDraft((current) => {
+      if (robotOptions.length === 0)
+        return current.robot ? { ...current, robot: '' } : current
+      return robotOptions.includes(current.robot) ? current : { ...current, robot: robotOptions[0] }
+    })
+  }, [robotOptions])
+
+  useEffect(() => {
+    setGoToWaypointDraft((current) => {
+      if (waypointNames.length === 0)
+        return current
+      return waypointNames.includes(current.waypoint) ? current : { ...current, waypoint: waypointNames[0] }
+    })
+  }, [waypointNames])
+
+  useEffect(() => {
+    setGoToChargerDraft((current) => {
+      if (chargerWaypointNames.length === 0)
+        return current.chargerWaypoint ? { ...current, chargerWaypoint: '' } : current
+      return chargerWaypointNames.includes(current.chargerWaypoint)
+        ? current
+        : { ...current, chargerWaypoint: chargerWaypointNames[0] }
+    })
+  }, [chargerWaypointNames])
+
+  function requireTaskCreateService(setFeedback: React.Dispatch<React.SetStateAction<GoToChargerFeedback | null>>) {
+    if (!taskCreateServiceError)
+      return true
+
+    setFeedback({ tone: 'error', message: taskCreateServiceError })
+    toast.error(taskCreateServiceError)
+    return false
+  }
+
+  async function createGoToChargerTask(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const robot = goToChargerDraft.robot.trim()
+    const chargerWaypoint = goToChargerDraft.chargerWaypoint.trim()
+
+    if (!robot) {
+      setGoToChargerFeedback({ tone: 'error', message: 'Select a robot before creating the task.' })
+      return
+    }
+    if (!normalizedFleetName) {
+      setGoToChargerFeedback({ tone: 'error', message: 'Waiting for fleet state before creating the task.' })
+      return
+    }
+    if (!chargerWaypoint) {
+      setGoToChargerFeedback({ tone: 'error', message: 'No charger waypoint is selected.' })
+      return
+    }
+    if (!requireTaskCreateService(setGoToChargerFeedback))
+      return
+
+    setIsCreatingGoToChargerTask(true)
+    setGoToChargerFeedback(null)
+    try {
+      const response = await apiServer.createTask({
+        name: goToChargerTaskName,
+        robot_name: robot,
+        fleet_name: normalizedFleetName,
+        unit_tasks: [
+          {
+            seq: 0,
+            waypoint: chargerWaypoint,
+            action_name: '',
+            action_params_json: '{}',
+          },
+          {
+            seq: 1,
+            waypoint: '',
+            action_name: goToChargerActionName,
+            action_params_json: '{}',
+          },
+        ],
+      }, {
+        servicePath: taskCreateServicePath,
+      })
+      const taskLabel = response.task_id ? `Task ${shortIdentifier(response.task_id)} created` : 'Task created'
+      setGoToChargerFeedback({ tone: 'success', message: response.message || taskLabel })
+      toast.success(taskLabel)
+    }
+    catch (error) {
+      const message = errorMessage(error)
+      setGoToChargerFeedback({ tone: 'error', message })
+      toast.error(`Failed to create task: ${message}`)
+    }
+    finally {
+      setIsCreatingGoToChargerTask(false)
+    }
+  }
+
+  async function createGoToWaypointTask(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const robot = goToWaypointDraft.robot.trim()
+    const waypoint = goToWaypointDraft.waypoint.trim()
+
+    if (!robot) {
+      setGoToWaypointFeedback({ tone: 'error', message: 'Select a robot before creating the task.' })
+      return
+    }
+    if (!normalizedFleetName) {
+      setGoToWaypointFeedback({ tone: 'error', message: 'Waiting for fleet state before creating the task.' })
+      return
+    }
+    if (!waypoint) {
+      setGoToWaypointFeedback({ tone: 'error', message: 'Enter a waypoint before creating the task.' })
+      return
+    }
+    if (!requireTaskCreateService(setGoToWaypointFeedback))
+      return
+
+    setIsCreatingGoToWaypointTask(true)
+    setGoToWaypointFeedback(null)
+    try {
+      const response = await apiServer.createTask({
+        name: goToWaypointTaskName,
+        robot_name: robot,
+        fleet_name: normalizedFleetName,
+        unit_tasks: [{
+          seq: 1,
+          waypoint,
+          action_name: '',
+          action_params_json: '{}',
+        }],
+      }, {
+        servicePath: taskCreateServicePath,
+      })
+      const taskLabel = response.task_id ? `Task ${shortIdentifier(response.task_id)} created` : 'Task created'
+      setGoToWaypointFeedback({ tone: 'success', message: response.message || taskLabel })
+      toast.success(taskLabel)
+    }
+    catch (error) {
+      const message = errorMessage(error)
+      setGoToWaypointFeedback({ tone: 'error', message })
+      toast.error(`Failed to create task: ${message}`)
+    }
+    finally {
+      setIsCreatingGoToWaypointTask(false)
+    }
+  }
+
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[22rem_1fr]">
       <Surface className="p-4">
-        <form className="space-y-4" onSubmit={createTask}>
-          <div>
-            <div className="text-4 font-800">Create task</div>
-            <div className="text-xs text-gray-500">Local queue</div>
-          </div>
-
-          <div className="space-y-2">
-            <FieldLabel>Task name</FieldLabel>
-            <input
-              className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
-              value={taskDraft.title}
-              onChange={event => setTaskDraft(current => ({ ...current, title: event.target.value }))}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <FieldLabel>Robot</FieldLabel>
-            <select
-              className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
-              value={taskDraft.robot}
-              onChange={event => setTaskDraft(current => ({ ...current, robot: event.target.value }))}>
-              <option value="">Auto assign</option>
-              {robotOptions.map(robot => <option key={robot} value={robot}>{robot}</option>)}
-            </select>
-          </div>
-
-          <div className="space-y-2">
-            <FieldLabel>Map</FieldLabel>
-            <select
-              className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
-              value={taskDraft.map}
-              onChange={event => setTaskDraft(current => ({ ...current, map: event.target.value }))}>
-              <option value="">Default map</option>
-              {mapOptions.map(map => <option key={map} value={map}>{map}</option>)}
-            </select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <FieldLabel>Timer</FieldLabel>
-              <input
-                className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
-                type="datetime-local"
-                value={taskDraft.scheduleAt}
-                onChange={event => setTaskDraft(current => ({ ...current, scheduleAt: event.target.value }))}
-              />
+        <div className="space-y-6">
+          <form className="space-y-4" onSubmit={createGoToChargerTask}>
+            <div>
+              <div className="text-4 font-800">Go to charger</div>
+              <div className="text-xs text-gray-500">Create a Task Manager task</div>
             </div>
+
             <div className="space-y-2">
-              <FieldLabel>Priority</FieldLabel>
+              <FieldLabel>Robot</FieldLabel>
               <select
                 className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
-                value={taskDraft.priority}
-                onChange={event => setTaskDraft(current => ({ ...current, priority: event.target.value as FleetTaskPriority }))}>
-                <option value="low">Low</option>
-                <option value="normal">Normal</option>
-                <option value="high">High</option>
+                value={goToChargerDraft.robot}
+                onChange={event => setGoToChargerDraft(current => ({ ...current, robot: event.target.value }))}>
+                {robotOptions.map(robot => <option key={robot} value={robot}>{robot}</option>)}
+                {robotOptions.length === 0 && <option value="">No robots</option>}
               </select>
             </div>
-          </div>
 
-          <Button type="submit" tone="primary" icon="i-material-symbols-add-rounded" className="w-full">
-            Add task
-          </Button>
-        </form>
-      </Surface>
-
-      <Surface>
-        <div className="flex items-center justify-between border-(b-solid 1px gray-200) px-4 py-3">
-          <div>
-            <div className="font-800">Tasks</div>
-            <div className="text-xs text-gray-500">{tasks.length} total</div>
-          </div>
-          <Badge className="bg-white text-gray-700">{tasks.filter(task => task.status === 'active').length} active</Badge>
-        </div>
-
-        {sortedTasks.length > 0
-          ? (
-              <div className="divide-y divide-gray-200">
-                {sortedTasks.map(task => (
-                  <div key={task.id} className="grid grid-cols-1 gap-3 px-4 py-3 lg:grid-cols-[1fr_15rem_12rem]">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <div className="truncate font-800 text-gray-900">{task.title}</div>
-                        <Badge className={getTaskStatusClass(task.status)}>{task.status}</Badge>
-                        <Badge className={getPriorityClass(task.priority)}>{task.priority}</Badge>
-                      </div>
-                      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
-                        <span>Robot {task.robot || 'Auto'}</span>
-                        <span>Map {task.map || 'Default'}</span>
-                        <span>{formatDateTime(task.scheduleAt)}</span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span className="i-material-symbols-timer-outline-rounded text-5 text-gray-500" />
-                      <input
-                        className="h-8 min-w-0 flex-1 rounded-lg border-(solid 1px gray-300) bg-white/80 px-2 text-xs outline-none focus:border-emerald-600"
-                        type="datetime-local"
-                        value={task.scheduleAt}
-                        onChange={event => updateTaskSchedule(task.id, event.target.value)}
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-end gap-2">
-                      <span className="mr-auto text-xs font-700 text-gray-500">{formatTimer(task.scheduleAt, task.status)}</span>
-                      {task.status !== 'active' && task.status !== 'done' && (
-                        <IconButton
-                          icon="i-material-symbols-play-arrow-rounded"
-                          title="Start"
-                          tone="primary"
-                          onClick={() => updateTaskStatus(task.id, 'active')}
-                        />
-                      )}
-                      {task.status === 'active' && (
-                        <IconButton
-                          icon="i-material-symbols-pause-rounded"
-                          title="Pause"
-                          onClick={() => updateTaskStatus(task.id, 'paused')}
-                        />
-                      )}
-                      {task.status !== 'done' && (
-                        <IconButton
-                          icon="i-material-symbols-check-rounded"
-                          title="Complete"
-                          onClick={() => updateTaskStatus(task.id, 'done')}
-                        />
-                      )}
-                      <IconButton
-                        icon="i-material-symbols-delete-outline-rounded"
-                        title="Delete"
-                        tone="danger"
-                        onClick={() => deleteTask(task.id)}
-                      />
-                    </div>
-                  </div>
+            <div className="space-y-2">
+              <FieldLabel>Charger</FieldLabel>
+              <select
+                className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
+                value={goToChargerDraft.chargerWaypoint}
+                onChange={event => setGoToChargerDraft(current => ({ ...current, chargerWaypoint: event.target.value }))}>
+                {chargerWaypointOptions.map(option => (
+                  <option key={`${option.name}:${option.levelName}:${option.graphName}`} value={option.name}>
+                    {option.name} ({option.levelName})
+                  </option>
                 ))}
+                {chargerWaypointOptions.length === 0 && <option value="">No charger waypoints</option>}
+              </select>
+            </div>
+
+            <div className="rounded-lg bg-gray-50 px-3 py-2">
+              <div className="text-[11px] font-700 uppercase text-gray-400">Fleet</div>
+              <div className="mt-0.5 min-w-0 break-words text-sm font-700 text-gray-800">
+                {normalizedFleetName || 'Waiting for fleet state'}
               </div>
-            )
-          : (
-              <div className="px-4 py-14 text-center text-sm text-gray-500">No tasks</div>
+            </div>
+
+            <div className="rounded-lg border-(solid 1px gray-200) bg-white/70 px-3 py-2">
+              <div className="text-[11px] font-700 uppercase text-gray-400">Unit tasks</div>
+              <div className="mt-1 space-y-1 text-sm">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <Badge className="bg-emerald-50 text-emerald-700">#0</Badge>
+                  <span className="font-800 text-gray-900">{goToChargerDraft.chargerWaypoint || '--'}</span>
+                  <span className="text-gray-500">Go to charger</span>
+                  {selectedChargerOption && (
+                    <span className="text-xs text-gray-400">{selectedChargerOption.levelName}</span>
+                  )}
+                </div>
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <Badge className="bg-sky-50 text-sky-700">#1</Badge>
+                  <span className="font-800 text-gray-900">{goToChargerActionName}</span>
+                  <span className="text-gray-500">Dock at charger</span>
+                </div>
+              </div>
+            </div>
+
+            {goToChargerFeedback && (
+              <div
+                className={classNames(
+                  'rounded-lg px-3 py-2 text-sm',
+                  goToChargerFeedback.tone === 'success'
+                    ? 'bg-emerald-50 text-emerald-700'
+                    : 'bg-red-50 text-red-700',
+                )}
+              >
+                {goToChargerFeedback.message}
+              </div>
             )}
+
+            <Button
+              type="submit"
+              tone="primary"
+              icon={isCreatingGoToChargerTask ? 'i-material-symbols-progress-activity' : 'i-material-symbols-battery-charging-full-rounded'}
+              className="w-full"
+              disabled={isCreatingGoToChargerTask || !canCreateGoToChargerTask}>
+              Create task
+            </Button>
+          </form>
+
+          <form className="space-y-4 border-(t-solid 1px gray-200) pt-5" onSubmit={createGoToWaypointTask}>
+            <div>
+              <div className="text-4 font-800">Go to waypoint</div>
+              <div className="text-xs text-gray-500">Create a Task Manager task</div>
+            </div>
+
+            <div className="space-y-2">
+              <FieldLabel>Robot</FieldLabel>
+              <select
+                className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
+                value={goToWaypointDraft.robot}
+                onChange={event => setGoToWaypointDraft(current => ({ ...current, robot: event.target.value }))}>
+                {robotOptions.map(robot => <option key={robot} value={robot}>{robot}</option>)}
+                {robotOptions.length === 0 && <option value="">No robots</option>}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <FieldLabel>Waypoint</FieldLabel>
+              {waypointOptions.length > 0
+                ? (
+                    <select
+                      className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
+                      value={goToWaypointDraft.waypoint}
+                      onChange={event => setGoToWaypointDraft(current => ({ ...current, waypoint: event.target.value }))}>
+                      {waypointOptions.map(option => (
+                        <option key={`${option.name}:${option.levelName}:${option.graphName}`} value={option.name}>
+                          {option.name} ({option.levelName})
+                        </option>
+                      ))}
+                    </select>
+                  )
+                : (
+                    <input
+                      className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
+                      placeholder="WP_001"
+                      value={goToWaypointDraft.waypoint}
+                      onChange={event => setGoToWaypointDraft(current => ({ ...current, waypoint: event.target.value }))}
+                    />
+                  )}
+            </div>
+
+            <div className="rounded-lg bg-gray-50 px-3 py-2">
+              <div className="text-[11px] font-700 uppercase text-gray-400">Fleet</div>
+              <div className="mt-0.5 min-w-0 break-words text-sm font-700 text-gray-800">
+                {normalizedFleetName || 'Waiting for fleet state'}
+              </div>
+            </div>
+
+            <div className="rounded-lg border-(solid 1px gray-200) bg-white/70 px-3 py-2">
+              <div className="text-[11px] font-700 uppercase text-gray-400">Unit task</div>
+              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-sm">
+                <Badge className="bg-blue-50 text-blue-700">#1</Badge>
+                <span className="font-800 text-gray-900">{goToWaypointDraft.waypoint.trim() || '--'}</span>
+                <span className="text-gray-500">Navigate</span>
+                <span className="text-xs text-gray-400">
+                  {selectedWaypointOption ? selectedWaypointOption.levelName : 'Manual waypoint'}
+                </span>
+              </div>
+            </div>
+
+            {goToWaypointFeedback && (
+              <div
+                className={classNames(
+                  'rounded-lg px-3 py-2 text-sm',
+                  goToWaypointFeedback.tone === 'success'
+                    ? 'bg-emerald-50 text-emerald-700'
+                    : 'bg-red-50 text-red-700',
+                )}
+              >
+                {goToWaypointFeedback.message}
+              </div>
+            )}
+
+            <Button
+              type="submit"
+              tone="primary"
+              icon={isCreatingGoToWaypointTask ? 'i-material-symbols-progress-activity' : 'i-material-symbols-route-rounded'}
+              className="w-full"
+              disabled={isCreatingGoToWaypointTask || !canCreateGoToWaypointTask}>
+              Create task
+            </Button>
+          </form>
+
+          <form className="space-y-4 border-(t-solid 1px gray-200) pt-5" onSubmit={createTask}>
+            <div>
+              <div className="text-4 font-800">Local queue</div>
+              <div className="text-xs text-gray-500">Local queue</div>
+            </div>
+
+            <div className="space-y-2">
+              <FieldLabel>Task name</FieldLabel>
+              <input
+                className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
+                value={taskDraft.title}
+                onChange={event => setTaskDraft(current => ({ ...current, title: event.target.value }))}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <FieldLabel>Robot</FieldLabel>
+              <select
+                className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
+                value={taskDraft.robot}
+                onChange={event => setTaskDraft(current => ({ ...current, robot: event.target.value }))}>
+                <option value="">Auto assign</option>
+                {robotOptions.map(robot => <option key={robot} value={robot}>{robot}</option>)}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <FieldLabel>Map</FieldLabel>
+              <select
+                className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
+                value={taskDraft.map}
+                onChange={event => setTaskDraft(current => ({ ...current, map: event.target.value }))}>
+                <option value="">Default map</option>
+                {mapOptions.map(map => <option key={map} value={map}>{map}</option>)}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <FieldLabel>Timer</FieldLabel>
+                <input
+                  className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
+                  type="datetime-local"
+                  value={taskDraft.scheduleAt}
+                  onChange={event => setTaskDraft(current => ({ ...current, scheduleAt: event.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <FieldLabel>Priority</FieldLabel>
+                <select
+                  className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
+                  value={taskDraft.priority}
+                  onChange={event => setTaskDraft(current => ({ ...current, priority: event.target.value as FleetTaskPriority }))}>
+                  <option value="low">Low</option>
+                  <option value="normal">Normal</option>
+                  <option value="high">High</option>
+                </select>
+              </div>
+            </div>
+
+            <Button type="submit" tone="primary" icon="i-material-symbols-add-rounded" className="w-full">
+              Add task
+            </Button>
+          </form>
+        </div>
       </Surface>
+
+      <div className="space-y-4">
+        <TaskManagerPanel />
+
+        <Surface>
+          <div className="flex items-center justify-between border-(b-solid 1px gray-200) px-4 py-3">
+            <div>
+              <div className="font-800">Local Queue</div>
+              <div className="text-xs text-gray-500">{tasks.length} total</div>
+            </div>
+            <Badge className="bg-white text-gray-700">{tasks.filter(task => task.status === 'active').length} active</Badge>
+          </div>
+
+          {sortedTasks.length > 0
+            ? (
+                <div className="divide-y divide-gray-200">
+                  {sortedTasks.map(task => (
+                    <div key={task.id} className="grid grid-cols-1 gap-3 px-4 py-3 lg:grid-cols-[1fr_15rem_12rem]">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="truncate font-800 text-gray-900">{task.title}</div>
+                          <Badge className={getTaskStatusClass(task.status)}>{task.status}</Badge>
+                          <Badge className={getPriorityClass(task.priority)}>{task.priority}</Badge>
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                          <span>Robot {task.robot || 'Auto'}</span>
+                          <span>Map {task.map || 'Default'}</span>
+                          <span>{formatDateTime(task.scheduleAt)}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="i-material-symbols-timer-outline-rounded text-5 text-gray-500" />
+                        <input
+                          className="h-8 min-w-0 flex-1 rounded-lg border-(solid 1px gray-300) bg-white/80 px-2 text-xs outline-none focus:border-emerald-600"
+                          type="datetime-local"
+                          value={task.scheduleAt}
+                          onChange={event => updateTaskSchedule(task.id, event.target.value)}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2">
+                        <span className="mr-auto text-xs font-700 text-gray-500">{formatTimer(task.scheduleAt, task.status)}</span>
+                        {task.status !== 'active' && task.status !== 'done' && (
+                          <IconButton
+                            icon="i-material-symbols-play-arrow-rounded"
+                            title="Start"
+                            tone="primary"
+                            onClick={() => updateTaskStatus(task.id, 'active')}
+                          />
+                        )}
+                        {task.status === 'active' && (
+                          <IconButton
+                            icon="i-material-symbols-pause-rounded"
+                            title="Pause"
+                            onClick={() => updateTaskStatus(task.id, 'paused')}
+                          />
+                        )}
+                        {task.status !== 'done' && (
+                          <IconButton
+                            icon="i-material-symbols-check-rounded"
+                            title="Complete"
+                            onClick={() => updateTaskStatus(task.id, 'done')}
+                          />
+                        )}
+                        <IconButton
+                          icon="i-material-symbols-delete-outline-rounded"
+                          title="Delete"
+                          tone="danger"
+                          onClick={() => deleteTask(task.id)}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
+            : (
+                <div className="px-4 py-14 text-center text-sm text-gray-500">No local tasks</div>
+              )}
+        </Surface>
+      </div>
     </div>
   )
 }
@@ -3346,6 +5737,12 @@ function StoragePage({
   updateStorageArea,
   deleteStorageArea,
   mapOptions,
+  storageState,
+  storageStatus,
+  storageError,
+  storageUpdatedAt,
+  buildingMap,
+  host,
 }: {
   areas: StorageArea[]
   storageDraft: StorageDraft
@@ -3354,103 +5751,1136 @@ function StoragePage({
   updateStorageArea: (id: string, patch: Partial<StorageArea>) => void
   deleteStorageArea: (id: string) => void
   mapOptions: string[]
+  storageState: StorageStateValue | null
+  storageStatus: string
+  storageError: string | null
+  storageUpdatedAt: number | null
+  buildingMap: BuildingMapMessage | null
+  host: string
 }) {
+  const [isReinitializingStorage, setIsReinitializingStorage] = useState(false)
+  const [storageReinitFeedback, setStorageReinitFeedback] = useState<StorageFeedback | null>(null)
+  const [storageReinitLayerDrafts, setStorageReinitLayerDrafts] = useState<StorageReinitLayerDraft[] | null>(null)
+  const [storageReinitLayerError, setStorageReinitLayerError] = useState<string | null>(null)
+  const [editingStorageAreaIndex, setEditingStorageAreaIndex] = useState<number | null>(null)
+  const [storageAreaNameDraft, setStorageAreaNameDraft] = useState('')
+  const [savingStorageAreaIndex, setSavingStorageAreaIndex] = useState<number | null>(null)
+  const [storageAreaNameFeedback, setStorageAreaNameFeedback] = useState<Record<number, StorageFeedback>>({})
+  const fleetSiteNamespace = useFleetSiteNamespace()
+  const storageStateKey = prefixFleetSiteTopic(fleetSiteNamespace.namespace, storageStateTopic)
+  const storageAreaDisplayNameServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, storageAreaDisplayNameServiceTopic)
+  const storageReinitServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, storageReinitServiceTopic)
+  const storageReinitServiceError = fleetSiteNamespace.status === 'idle' || fleetSiteNamespace.status === 'loading'
+    ? 'Loading site name'
+    : storageReinitServicePath
+      ? ''
+      : fleetSiteNamespace.error || 'Missing site name'
+  const storageAreaDisplayNameServiceError = fleetSiteNamespace.status === 'idle' || fleetSiteNamespace.status === 'loading'
+    ? 'Loading site name'
+    : storageAreaDisplayNameServicePath
+      ? ''
+      : fleetSiteNamespace.error || 'Missing site name'
+  const storageCellsById = useMemo(() => {
+    const cells = new Map<string, StorageCellStockMessage>()
+    for (const cell of storageState?.cells ?? [])
+      cells.set(cell.cellId, cell)
+    return cells
+  }, [storageState])
+  const generatedStorage = useMemo(
+    () => buildStorageReinitLayout(buildingMap, storageState),
+    [buildingMap, storageState],
+  )
+  const statusClass = storageState
+    ? 'bg-emerald-50 text-emerald-700'
+    : storageError
+      ? 'bg-red-50 text-red-700'
+      : 'bg-gray-100 text-gray-600'
+  const storageStatusLabel = storageState
+    ? formatStatus('subscribed', true)
+    : storageError
+      ? formatStatus(storageStatus, false)
+      : '等待数据'
+  const canReinitializeStorage = Boolean(host && generatedStorage.layout.areas.length > 0 && !storageReinitServiceError && !isReinitializingStorage)
+
+  function openStorageReinitLayerDialog() {
+    if (!window.zcDesktop?.isDesktop) {
+      setStorageReinitFeedback({ tone: 'error', message: 'Desktop app required' })
+      return
+    }
+    if (!host) {
+      setStorageReinitFeedback({ tone: 'error', message: 'Missing controller' })
+      return
+    }
+    if (generatedStorage.layout.areas.length === 0) {
+      setStorageReinitFeedback({ tone: 'error', message: 'No storage waypoints found' })
+      return
+    }
+    if (storageReinitServiceError) {
+      setStorageReinitFeedback({ tone: 'error', message: storageReinitServiceError })
+      return
+    }
+
+    setStorageReinitFeedback(null)
+    setStorageReinitLayerError(null)
+    setStorageReinitLayerDrafts(buildStorageReinitLayerDrafts(generatedStorage.layout))
+  }
+
+  function updateStorageReinitLayerDraft(index: number, rows: string) {
+    setStorageReinitLayerDrafts(current => current?.map((draft, draftIndex) => (
+      draftIndex === index ? { ...draft, rows } : draft
+    )) ?? null)
+  }
+
+  function closeStorageReinitLayerDialog() {
+    if (isReinitializingStorage)
+      return
+
+    setStorageReinitLayerDrafts(null)
+    setStorageReinitLayerError(null)
+  }
+
+  function editStorageAreaDisplayName(area: StorageAreaLayoutMessage) {
+    setEditingStorageAreaIndex(area.areaIndex)
+    setStorageAreaNameDraft(area.displayName || '')
+    setStorageAreaNameFeedback(current => ({
+      ...current,
+      [area.areaIndex]: { tone: 'success', message: '' },
+    }))
+  }
+
+  function cancelStorageAreaDisplayNameEdit() {
+    if (savingStorageAreaIndex != null)
+      return
+
+    setEditingStorageAreaIndex(null)
+    setStorageAreaNameDraft('')
+  }
+
+  async function saveStorageAreaDisplayName(areaIndex: number) {
+    if (!window.zcDesktop?.isDesktop || !window.zcDesktop.setZenohStorageAreaDisplayName) {
+      setStorageAreaNameFeedback(current => ({
+        ...current,
+        [areaIndex]: { tone: 'error', message: 'Desktop app required' },
+      }))
+      return
+    }
+    if (!host) {
+      setStorageAreaNameFeedback(current => ({
+        ...current,
+        [areaIndex]: { tone: 'error', message: 'Missing controller' },
+      }))
+      return
+    }
+    if (storageAreaDisplayNameServiceError) {
+      setStorageAreaNameFeedback(current => ({
+        ...current,
+        [areaIndex]: { tone: 'error', message: storageAreaDisplayNameServiceError },
+      }))
+      return
+    }
+
+    setSavingStorageAreaIndex(areaIndex)
+    setStorageAreaNameFeedback(current => ({
+      ...current,
+      [areaIndex]: { tone: 'success', message: '' },
+    }))
+    try {
+      const response = await window.zcDesktop.setZenohStorageAreaDisplayName({
+        host,
+        servicePath: storageAreaDisplayNameServicePath,
+        areaIndex,
+        displayName: storageAreaNameDraft,
+        timeoutMs: 10000,
+      })
+      if (response.success) {
+        setEditingStorageAreaIndex(null)
+        setStorageAreaNameDraft('')
+        setStorageAreaNameFeedback(current => ({
+          ...current,
+          [areaIndex]: { tone: 'success', message: response.message || 'Display name updated' },
+        }))
+      }
+      else {
+        const message = response.error_code ? `${response.error_code}: ${response.message}` : response.message || 'Display name update rejected'
+        setStorageAreaNameFeedback(current => ({
+          ...current,
+          [areaIndex]: { tone: 'error', message },
+        }))
+      }
+    }
+    catch (error) {
+      const message = errorMessage(error)
+      setStorageAreaNameFeedback(current => ({
+        ...current,
+        [areaIndex]: { tone: 'error', message },
+      }))
+      console.warn('Failed to update storage area display name', error)
+    }
+    finally {
+      setSavingStorageAreaIndex(null)
+    }
+  }
+
+  async function reinitializeStorageFromWaypoints(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (!storageReinitLayerDrafts)
+      return
+
+    const invalidDraft = storageReinitLayerDrafts.find((draft) => {
+      const rows = Number(draft.rows.trim() || '1')
+      return !Number.isInteger(rows) || rows <= 0
+    })
+    if (invalidDraft) {
+      setStorageReinitLayerError(`Area ${invalidDraft.areaIndex}, shelf ${invalidDraft.shelfIndex} needs a positive whole number of layers.`)
+      return
+    }
+    if (!window.zcDesktop?.isDesktop || !window.zcDesktop.reinitZenohStorage) {
+      const message = 'Desktop app required'
+      setStorageReinitLayerError(message)
+      setStorageReinitFeedback({ tone: 'error', message })
+      return
+    }
+    if (!host) {
+      const message = 'Missing controller'
+      setStorageReinitLayerError(message)
+      setStorageReinitFeedback({ tone: 'error', message })
+      return
+    }
+    if (storageReinitServiceError) {
+      setStorageReinitLayerError(storageReinitServiceError)
+      setStorageReinitFeedback({ tone: 'error', message: storageReinitServiceError })
+      return
+    }
+
+    const zcDesktop = window.zcDesktop
+    const layout = buildStorageReinitLayoutFromLayerDrafts(storageReinitLayerDrafts)
+    const requestId = `app-reinit-${Date.now()}`
+    setIsReinitializingStorage(true)
+    setStorageReinitLayerError(null)
+    setStorageReinitFeedback(null)
+    try {
+      const response = await zcDesktop.reinitZenohStorage({
+        host,
+        servicePath: storageReinitServicePath,
+        timeoutMs: 20000,
+        request: {
+          request_id: requestId,
+          confirm_reinitialize: true,
+          caller_id: 'operator-app',
+          reason: 'reset storage layout from site waypoints',
+          layout,
+        },
+      })
+      if (response.success) {
+        setStorageReinitLayerDrafts(null)
+        setStorageReinitFeedback({
+          tone: 'success',
+          message: `Reinitialized storage ${response.old_revision} -> ${response.new_revision}`,
+        })
+      }
+      else {
+        const message = response.error_code ? `${response.error_code}: ${response.message}` : response.message || 'Storage reinit rejected'
+        setStorageReinitLayerError(message)
+        setStorageReinitFeedback({
+          tone: 'error',
+          message,
+        })
+      }
+    }
+    catch (error) {
+      const message = errorMessage(error)
+      setStorageReinitLayerError(message)
+      setStorageReinitFeedback({ tone: 'error', message })
+      console.warn('Failed to reinitialize storage', error)
+    }
+    finally {
+      setIsReinitializingStorage(false)
+    }
+  }
+
+  function renderStorageCell(areaIndex: number, shelf: StorageShelfMessage, columnIndex: number, rowIndex: number) {
+    const cellId = getStorageCellId(areaIndex, shelf.shelfIndex, columnIndex, rowIndex)
+    const cell = storageCellsById.get(cellId)
+    const status = cell ? getStorageCellStatus(cell.stock) : 'blocked'
+
+    return (
+      <div
+        key={cellId}
+        className={classNames(
+          'min-h-13 min-w-0 rounded-md border p-2 text-xs leading-4',
+          getStorageCellClass(status),
+        )}
+        title={cellId}>
+        <div className="truncate font-800">{`C${columnIndex} R${rowIndex}`}</div>
+        <div className="truncate">{formatStorageCellStock(cell)}</div>
+      </div>
+    )
+  }
+
+  function renderStorageShelf(areaIndex: number, shelf: StorageShelfMessage) {
+    const cellIds = Array.from({ length: shelf.rows }, (_, rowIndex) => (
+      Array.from({ length: shelf.columns }, (_column, columnIndex) => (
+        getStorageCellId(areaIndex, shelf.shelfIndex, columnIndex + 1, rowIndex + 1)
+      ))
+    )).flat()
+    const shelfCells = cellIds.map(cellId => storageCellsById.get(cellId)).filter((cell): cell is StorageCellStockMessage => Boolean(cell))
+    const disabled = shelfCells.filter(cell => cell.stock < 0).length
+    const withStock = shelfCells.filter(cell => cell.stock > 0).length
+    const available = shelfCells.filter(cell => cell.stock === 0).length
+
+    return (
+      <div key={shelf.shelfIndex} className="mt-4 rounded-lg border-(solid 1px gray-200) bg-white/60 p-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="font-800 text-gray-900">Shelf {shelf.shelfIndex}</div>
+            <div className="text-xs text-gray-500">
+              {shelf.columns} columns x {shelf.rows} rows · {shelf.shelfSide || 'side not set'}
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs">
+            <span className="rounded-full bg-emerald-50 px-2 py-1 font-700 text-emerald-700">{available} available</span>
+            <span className="rounded-full bg-amber-50 px-2 py-1 font-700 text-amber-700">{withStock} occupied</span>
+            <span className="rounded-full bg-red-50 px-2 py-1 font-700 text-red-700">{disabled} disabled</span>
+          </div>
+        </div>
+        <div
+          className="mt-3 grid gap-2"
+          style={{ gridTemplateColumns: `repeat(${Math.max(1, shelf.columns)}, minmax(4.75rem, 1fr))` }}>
+          {Array.from({ length: shelf.rows }, (_row, rowIndex) => (
+            Array.from({ length: shelf.columns }, (_column, columnIndex) => (
+              renderStorageCell(areaIndex, shelf, columnIndex + 1, rowIndex + 1)
+            ))
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
       <Surface className="p-4">
-        <form className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_12rem_8rem_auto]" onSubmit={createStorageArea}>
-          <div className="space-y-2">
-            <FieldLabel>Storage area</FieldLabel>
-            <input
-              className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
-              value={storageDraft.name}
-              onChange={event => setStorageDraft(current => ({ ...current, name: event.target.value }))}
-            />
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="font-800 text-gray-900">Storage State</div>
+            <div className="text-xs text-gray-500">
+              {storageState ? `${storageState.key || storageStateKey || storageStateTopic} · updated ${formatTime(storageUpdatedAt)}` : 'Waiting for live storage snapshot'}
+            </div>
           </div>
-          <div className="space-y-2">
-            <FieldLabel>Map</FieldLabel>
-            <select
-              className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
-              value={storageDraft.map}
-              onChange={event => setStorageDraft(current => ({ ...current, map: event.target.value }))}>
-              {mapOptions.map(map => <option key={map} value={map}>{map}</option>)}
-              {mapOptions.length === 0 && <option value="">No site files loaded</option>}
-            </select>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              tone="primary"
+              icon={isReinitializingStorage ? 'i-material-symbols-progress-activity' : 'i-material-symbols-sync-rounded'}
+              disabled={!canReinitializeStorage}
+              onClick={openStorageReinitLayerDialog}>
+              Reinit from waypoints
+            </Button>
+            <Badge className={statusClass}>{storageStatusLabel}</Badge>
           </div>
-          <div className="space-y-2">
-            <FieldLabel>Capacity</FieldLabel>
-            <input
-              className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
-              min={1}
-              type="number"
-              value={storageDraft.capacity}
-              onChange={event => setStorageDraft(current => ({ ...current, capacity: Math.max(1, Number(event.target.value) || 1) }))}
-            />
+        </div>
+
+        {storageError && <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-700 text-red-700">{storageError}</div>}
+        {storageReinitFeedback && (
+          <div className={classNames(
+            'mt-3 rounded-lg px-3 py-2 text-sm font-700',
+            storageReinitFeedback.tone === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700',
+          )}>
+            {storageReinitFeedback.message}
           </div>
-          <div className="flex items-end">
-            <Button type="submit" tone="primary" icon="i-material-symbols-add-rounded">Add</Button>
+        )}
+
+        {storageState && (
+          <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5">
+            <div>
+              <FieldLabel>Revision</FieldLabel>
+              <div className="mt-1 text-5 font-800">{storageState.layoutRevision}</div>
+            </div>
+            <div>
+              <FieldLabel>Total</FieldLabel>
+              <div className="mt-1 text-5 font-800">{storageState.total}</div>
+            </div>
+            <div>
+              <FieldLabel>With Stock</FieldLabel>
+              <div className="mt-1 text-5 font-800">{storageState.withStock}</div>
+            </div>
+            <div>
+              <FieldLabel>Disabled</FieldLabel>
+              <div className="mt-1 text-5 font-800">{storageState.disabled}</div>
+            </div>
+            <div>
+              <FieldLabel>Areas</FieldLabel>
+              <div className="mt-1 text-5 font-800">{storageState.layout.areas.length}</div>
+            </div>
           </div>
-        </form>
+        )}
+        <div className="mt-4 rounded-lg border-(solid 1px gray-200) bg-white/60 px-3 py-2 text-sm text-gray-700">
+          Generated layout: {generatedStorage.layout.areas.length} areas, {generatedStorage.shelfCount} shelves, {generatedStorage.waypointCount} storage waypoints.
+        </div>
       </Surface>
 
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-        {areas.map((area) => {
-          const fill = area.capacity > 0 ? Math.min(100, Math.round((area.occupied / area.capacity) * 100)) : 0
-          return (
-            <Surface key={area.id} className="p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate font-800 text-gray-900">{area.name}</div>
-                  <div className="text-xs text-gray-500">{area.map}</div>
-                </div>
-                <Badge className={getStorageStatusClass(area.status)}>{area.status}</Badge>
-              </div>
+      {storageState
+        ? (
+            storageState.layout.areas.length > 0
+              ? (
+                  <div className="space-y-3">
+                    {storageState.layout.areas.map((area) => {
+                      const displayName = area.displayName.trim()
+                      const areaTitle = displayName || `Area ${area.areaIndex}`
+                      const isEditingAreaName = editingStorageAreaIndex === area.areaIndex
+                      const isSavingAreaName = savingStorageAreaIndex === area.areaIndex
+                      const areaNameFeedback = storageAreaNameFeedback[area.areaIndex]
 
-              <div className="mt-4">
-                <div className="mb-2 flex items-center justify-between text-sm">
-                  <span className="font-700">{area.occupied}/{area.capacity}</span>
-                  <span className="text-gray-500">{fill}%</span>
-                </div>
-                <div className="h-2 overflow-hidden rounded-full bg-gray-200">
-                  <div
-                    className={classNames('h-full rounded-full', fill >= 90 ? 'bg-red-500' : fill >= 60 ? 'bg-amber-500' : 'bg-emerald-500')}
-                    style={{ width: `${fill}%` }}
-                  />
-                </div>
-              </div>
+                      return (
+                        <Surface key={area.areaIndex} className="p-4">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate font-800 text-gray-900">{areaTitle}</div>
+                              <div className="text-xs text-gray-500">
+                                {displayName ? `Area ${area.areaIndex} · ${area.shelves.length} shelves` : `${area.shelves.length} shelves`}
+                              </div>
+                            </div>
+                            {!isEditingAreaName && (
+                              <IconButton
+                                type="button"
+                                icon="i-material-symbols-edit-outline-rounded"
+                                title="Edit display name"
+                                disabled={savingStorageAreaIndex != null}
+                                onClick={() => editStorageAreaDisplayName(area)}
+                              />
+                            )}
+                          </div>
 
-              <div className="mt-4 grid grid-cols-[1fr_auto] gap-3">
-                <select
-                  className="h-8 rounded-lg border-(solid 1px gray-300) bg-white/80 px-2 text-sm outline-none focus:border-emerald-600"
-                  value={area.status}
-                  onChange={event => updateStorageArea(area.id, { status: event.target.value as StorageStatus })}>
-                  <option value="available">available</option>
-                  <option value="reserved">reserved</option>
-                  <option value="occupied">occupied</option>
-                  <option value="blocked">blocked</option>
-                </select>
-                <div className="flex gap-2">
-                  <IconButton
-                    icon="i-material-symbols-remove-rounded"
-                    title="Decrease occupied"
-                    onClick={() => updateStorageArea(area.id, { occupied: Math.max(0, area.occupied - 1) })}
-                  />
-                  <IconButton
-                    icon="i-material-symbols-add-rounded"
-                    title="Increase occupied"
-                    onClick={() => updateStorageArea(area.id, { occupied: Math.min(area.capacity, area.occupied + 1) })}
-                  />
-                  <IconButton
-                    icon="i-material-symbols-delete-outline-rounded"
-                    title="Delete storage area"
-                    tone="danger"
-                    onClick={() => deleteStorageArea(area.id)}
-                  />
-                </div>
-              </div>
-            </Surface>
+                          {isEditingAreaName && (
+                            <form
+                              className="mt-3 flex flex-wrap items-end gap-2"
+                              onSubmit={(event) => {
+                                event.preventDefault()
+                                void saveStorageAreaDisplayName(area.areaIndex)
+                              }}>
+                              <div className="min-w-60 flex-1 space-y-2">
+                                <FieldLabel>Display name</FieldLabel>
+                                <input
+                                  className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white px-3 text-sm outline-none focus:border-emerald-600"
+                                  maxLength={64}
+                                  placeholder={`Area ${area.areaIndex}`}
+                                  value={storageAreaNameDraft}
+                                  disabled={isSavingAreaName}
+                                  onChange={event => setStorageAreaNameDraft(event.target.value)}
+                                />
+                              </div>
+                              <IconButton
+                                type="submit"
+                                icon={isSavingAreaName ? 'i-material-symbols-progress-activity' : 'i-material-symbols-check-rounded'}
+                                title="Save display name"
+                                tone="primary"
+                                disabled={isSavingAreaName}
+                              />
+                              <IconButton
+                                type="button"
+                                icon="i-material-symbols-backspace-outline-rounded"
+                                title="Clear display name"
+                                disabled={isSavingAreaName || storageAreaNameDraft.length === 0}
+                                onClick={() => setStorageAreaNameDraft('')}
+                              />
+                              <IconButton
+                                type="button"
+                                icon="i-material-symbols-close-rounded"
+                                title="Cancel"
+                                disabled={isSavingAreaName}
+                                onClick={cancelStorageAreaDisplayNameEdit}
+                              />
+                            </form>
+                          )}
+
+                          {areaNameFeedback?.message && (
+                            <div className={classNames(
+                              'mt-3 rounded-lg px-3 py-2 text-sm font-700',
+                              areaNameFeedback.tone === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700',
+                            )}>
+                              {areaNameFeedback.message}
+                            </div>
+                          )}
+
+                          {area.shelves.map(shelf => renderStorageShelf(area.areaIndex, shelf))}
+                        </Surface>
+                      )
+                    })}
+                  </div>
+                )
+              : (
+                  <Surface className="px-4 py-14 text-center text-sm text-gray-500">
+                    No storage layout configured.
+                  </Surface>
+                )
           )
-        })}
+        : (
+            <>
+              <Surface className="p-4">
+                <form className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_12rem_8rem_auto]" onSubmit={createStorageArea}>
+                  <div className="space-y-2">
+                    <FieldLabel>Storage area</FieldLabel>
+                    <input
+                      className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
+                      value={storageDraft.name}
+                      onChange={event => setStorageDraft(current => ({ ...current, name: event.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <FieldLabel>Map</FieldLabel>
+                    <select
+                      className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
+                      value={storageDraft.map}
+                      onChange={event => setStorageDraft(current => ({ ...current, map: event.target.value }))}>
+                      {mapOptions.map(map => <option key={map} value={map}>{map}</option>)}
+                      {mapOptions.length === 0 && <option value="">No site files loaded</option>}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <FieldLabel>Capacity</FieldLabel>
+                    <input
+                      className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
+                      min={1}
+                      type="number"
+                      value={storageDraft.capacity}
+                      onChange={event => setStorageDraft(current => ({ ...current, capacity: Math.max(1, Number(event.target.value) || 1) }))}
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <Button type="submit" tone="primary" icon="i-material-symbols-add-rounded">Add</Button>
+                  </div>
+                </form>
+              </Surface>
+
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                {areas.map((area) => {
+                  const fill = area.capacity > 0 ? Math.min(100, Math.round((area.occupied / area.capacity) * 100)) : 0
+                  return (
+                    <Surface key={area.id} className="p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate font-800 text-gray-900">{area.name}</div>
+                          <div className="text-xs text-gray-500">{area.map}</div>
+                        </div>
+                        <Badge className={getStorageStatusClass(area.status)}>{area.status}</Badge>
+                      </div>
+
+                      <div className="mt-4">
+                        <div className="mb-2 flex items-center justify-between text-sm">
+                          <span className="font-700">{area.occupied}/{area.capacity}</span>
+                          <span className="text-gray-500">{fill}%</span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-gray-200">
+                          <div
+                            className={classNames('h-full rounded-full', fill >= 90 ? 'bg-red-500' : fill >= 60 ? 'bg-amber-500' : 'bg-emerald-500')}
+                            style={{ width: `${fill}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-[1fr_auto] gap-3">
+                        <select
+                          className="h-8 rounded-lg border-(solid 1px gray-300) bg-white/80 px-2 text-sm outline-none focus:border-emerald-600"
+                          value={area.status}
+                          onChange={event => updateStorageArea(area.id, { status: event.target.value as StorageStatus })}>
+                          <option value="available">available</option>
+                          <option value="reserved">reserved</option>
+                          <option value="occupied">occupied</option>
+                          <option value="blocked">blocked</option>
+                        </select>
+                        <div className="flex gap-2">
+                          <IconButton
+                            icon="i-material-symbols-remove-rounded"
+                            title="Decrease occupied"
+                            onClick={() => updateStorageArea(area.id, { occupied: Math.max(0, area.occupied - 1) })}
+                          />
+                          <IconButton
+                            icon="i-material-symbols-add-rounded"
+                            title="Increase occupied"
+                            onClick={() => updateStorageArea(area.id, { occupied: Math.min(area.capacity, area.occupied + 1) })}
+                          />
+                          <IconButton
+                            icon="i-material-symbols-delete-outline-rounded"
+                            title="Delete storage area"
+                            tone="danger"
+                            onClick={() => deleteStorageArea(area.id)}
+                          />
+                        </div>
+                      </div>
+                    </Surface>
+                  )
+                })}
+              </div>
+            </>
+          )}
+      {storageReinitLayerDrafts && (
+        <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/35 px-4 py-6">
+          <form
+            className="max-h-[88vh] w-full max-w-2xl overflow-hidden rounded-lg bg-white shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="storage-reinit-layers-title"
+            onSubmit={event => void reinitializeStorageFromWaypoints(event)}>
+            <div className="flex items-start justify-between gap-3 border-(b-solid 1px gray-200) px-4 py-3">
+              <div>
+                <div id="storage-reinit-layers-title" className="font-800 text-gray-900">Storage layers</div>
+                <div className="text-xs text-gray-500">
+                  {generatedStorage.shelfCount} shelves · {generatedStorage.waypointCount} waypoints
+                </div>
+              </div>
+              <IconButton
+                type="button"
+                icon="i-material-symbols-close-rounded"
+                title="Close"
+                disabled={isReinitializingStorage}
+                onClick={closeStorageReinitLayerDialog}
+              />
+            </div>
+
+            <div className="max-h-[56vh] overflow-auto p-4">
+              <div className="grid grid-cols-[1fr_7rem_9rem] gap-3 border-(b-solid 1px gray-100) pb-2 text-xs font-700 uppercase text-gray-500">
+                <div>Shelf</div>
+                <div>Columns</div>
+                <div>Layers</div>
+              </div>
+              <div className="divide-y divide-gray-100">
+                {storageReinitLayerDrafts.map((draft, index) => (
+                  <div key={`${draft.areaIndex}:${draft.shelfIndex}`} className="grid grid-cols-[1fr_7rem_9rem] items-center gap-3 py-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-800 text-gray-900">
+                        {draft.displayName.trim() ? `${draft.displayName.trim()} / Shelf ${draft.shelfIndex}` : `Area ${draft.areaIndex} / Shelf ${draft.shelfIndex}`}
+                      </div>
+                      <div className="truncate text-xs text-gray-500">
+                        {draft.displayName.trim() ? `Area ${draft.areaIndex} · ${draft.shelfSide || 'side not set'}` : draft.shelfSide || 'side not set'}
+                      </div>
+                    </div>
+                    <div className="text-sm font-700 text-gray-700">{draft.columns}</div>
+                    <input
+                      className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white px-3 text-sm outline-none focus:border-emerald-600"
+                      min={1}
+                      step={1}
+                      type="number"
+                      value={draft.rows}
+                      disabled={isReinitializingStorage}
+                      onChange={event => updateStorageReinitLayerDraft(index, event.target.value)}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              {storageReinitLayerError && (
+                <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-700 text-red-700">
+                  {storageReinitLayerError}
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2 border-(t-solid 1px gray-200) px-4 py-3">
+              <Button
+                type="button"
+                disabled={isReinitializingStorage}
+                onClick={closeStorageReinitLayerDialog}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                tone="danger"
+                icon={isReinitializingStorage ? 'i-material-symbols-progress-activity' : 'i-material-symbols-sync-rounded'}
+                disabled={isReinitializingStorage}>
+                {isReinitializingStorage ? 'Reinitializing...' : 'Reinitialize'}
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ComposeControlPage({ host }: { host: string }) {
+  const [composeFiles, setComposeFiles] = useState<string[]>([])
+  const [selectedFile, setSelectedFile] = useState('')
+  const [project, setProject] = useState('')
+  const [serviceDraft, setServiceDraft] = useState('')
+  const [detach, setDetach] = useState(true)
+  const [build, setBuild] = useState(false)
+  const [pull, setPull] = useState(false)
+  const [removeOrphans, setRemoveOrphans] = useState(true)
+  const [volumes, setVolumes] = useState(false)
+  const [logService, setLogService] = useState('')
+  const [logTail, setLogTail] = useState(200)
+  const [logTimestamps, setLogTimestamps] = useState(false)
+  const [composeStatus, setComposeStatus] = useState<ComposeControlStatusResponse | null>(null)
+  const [composeLogs, setComposeLogs] = useState('')
+  const [composeConfig, setComposeConfig] = useState('')
+  const [lastCommand, setLastCommand] = useState<ComposeControlCommandResponse | null>(null)
+  const [lastCommandAt, setLastCommandAt] = useState(0)
+  const [isLoadingFiles, setIsLoadingFiles] = useState(false)
+  const [isLoadingStatus, setIsLoadingStatus] = useState(false)
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false)
+  const [isLoadingConfig, setIsLoadingConfig] = useState(false)
+  const [runningAction, setRunningAction] = useState<ComposeControlAction | ''>('')
+  const [composeError, setComposeError] = useState('')
+  const selectedServices = useMemo(() => parseComposeServices(serviceDraft), [serviceDraft])
+  const serviceOptions = useMemo(() => {
+    const names = composeStatus?.services.map(getComposeServiceName).filter(name => name !== '--') ?? []
+    return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b))
+  }, [composeStatus])
+  const commandOutput = composeOutputText(lastCommand)
+  const canControl = Boolean(host && !runningAction)
+
+  useEffect(() => {
+    if (!host) {
+      setComposeFiles([])
+      setComposeStatus(null)
+      setComposeError('Controller host is not configured.')
+      return
+    }
+
+    void loadComposeFiles()
+  }, [host])
+
+  useEffect(() => {
+    if (!host)
+      return
+
+    void refreshComposeStatus(false)
+  }, [host, selectedFile])
+
+  useEffect(() => {
+    if (logService && !serviceOptions.includes(logService))
+      setLogService('')
+  }, [logService, serviceOptions])
+
+  useInterval(() => {
+    if (!host || isLoadingStatus || runningAction)
+      return
+
+    void refreshComposeStatus(false)
+  }, host ? 5000 : undefined)
+
+  async function loadComposeFiles() {
+    if (!host)
+      return
+
+    setIsLoadingFiles(true)
+    setComposeError('')
+    try {
+      const files = await apiServer.fetchComposeAllowedFiles()
+      setComposeFiles(files)
+      setSelectedFile(current => files.includes(current) ? current : files[0] ?? '')
+    }
+    catch (error) {
+      const message = errorMessage(error)
+      setComposeError(message)
+      toast.error(`Failed to load compose files: ${message}`)
+    }
+    finally {
+      setIsLoadingFiles(false)
+    }
+  }
+
+  async function refreshComposeStatus(showToast = true) {
+    if (!host)
+      return
+
+    setIsLoadingStatus(true)
+    setComposeError('')
+    try {
+      const status = await apiServer.fetchComposeStatus(selectedFile.trim(), project.trim())
+      setComposeStatus(status)
+      if (showToast)
+        toast.success(`Compose status: ${status.status}`)
+    }
+    catch (error) {
+      const message = errorMessage(error)
+      setComposeError(message)
+      if (showToast)
+        toast.error(`Failed to refresh compose status: ${message}`)
+    }
+    finally {
+      setIsLoadingStatus(false)
+    }
+  }
+
+  async function loadComposeLogs(showToast = true) {
+    if (!host)
+      return
+
+    setIsLoadingLogs(true)
+    setComposeError('')
+    try {
+      const response = await apiServer.fetchComposeLogs({
+        file: selectedFile.trim(),
+        project: project.trim(),
+        service: logService,
+        tail: logTail,
+        timestamps: logTimestamps,
+      })
+      setComposeLogs(response.stdout || '')
+      if (showToast)
+        toast.success('Compose logs loaded')
+    }
+    catch (error) {
+      const message = errorMessage(error)
+      setComposeError(message)
+      if (showToast)
+        toast.error(`Failed to load compose logs: ${message}`)
+    }
+    finally {
+      setIsLoadingLogs(false)
+    }
+  }
+
+  async function loadComposeConfig() {
+    if (!host)
+      return
+
+    setIsLoadingConfig(true)
+    setComposeError('')
+    try {
+      const response = await apiServer.fetchComposeConfig(selectedFile.trim(), project.trim())
+      setComposeConfig(response.stdout || '')
+      toast.success('Compose config loaded')
+    }
+    catch (error) {
+      const message = errorMessage(error)
+      setComposeError(message)
+      toast.error(`Failed to load compose config: ${message}`)
+    }
+    finally {
+      setIsLoadingConfig(false)
+    }
+  }
+
+  async function runComposeAction(action: ComposeControlAction) {
+    if (!canControl)
+      return
+
+    if (action === 'down') {
+      const message = volumes
+        ? 'Stop and remove this Compose project, including volumes?'
+        : 'Stop and remove this Compose project?'
+      if (!window.confirm(message))
+        return
+    }
+
+    setRunningAction(action)
+    setComposeError('')
+    try {
+      const response = await apiServer.runComposeCommand(action, {
+        file: selectedFile.trim() || undefined,
+        project: project.trim() || undefined,
+        services: action === 'down' ? undefined : selectedServices,
+        detach: action === 'up' ? detach : undefined,
+        build: action === 'up' ? build : undefined,
+        pull: action === 'up' ? pull : undefined,
+        remove_orphans: action === 'up' || action === 'down' ? removeOrphans : undefined,
+        volumes: action === 'down' ? volumes : undefined,
+      })
+      setLastCommand(response)
+      setLastCommandAt(Date.now())
+      toast.success(`Compose ${composeControlActionLabels[action].toLowerCase()} completed`)
+      await refreshComposeStatus(false)
+      await loadComposeLogs(false)
+    }
+    catch (error) {
+      const message = errorMessage(error)
+      setComposeError(message)
+      toast.error(`Compose ${composeControlActionLabels[action].toLowerCase()} failed: ${message}`)
+    }
+    finally {
+      setRunningAction('')
+    }
+  }
+
+  return (
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[21rem_1fr]">
+      <div className="space-y-4">
+        <Surface className="p-4">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <div className="text-4 font-800">Docker Compose</div>
+              <div className="text-xs text-gray-500">{host ? `${host}:4999` : 'Controller not set'}</div>
+            </div>
+            <IconButton
+              icon={isLoadingFiles ? 'i-material-symbols-progress-activity' : 'i-material-symbols-refresh-rounded'}
+              title="Reload compose files"
+              disabled={!host || isLoadingFiles}
+              onClick={() => void loadComposeFiles()}
+            />
+          </div>
+
+          {composeError && <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{composeError}</div>}
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <FieldLabel>Compose file</FieldLabel>
+              <select
+                className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
+                value={selectedFile}
+                disabled={!host || isLoadingFiles}
+                onChange={event => setSelectedFile(event.target.value)}>
+                {composeFiles.map(file => <option key={file} value={file}>{file}</option>)}
+                {composeFiles.length === 0 && <option value="">Default compose file</option>}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <FieldLabel>Project</FieldLabel>
+              <input
+                className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
+                value={project}
+                placeholder="Default"
+                onBlur={() => void refreshComposeStatus(false)}
+                onChange={event => setProject(event.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <FieldLabel>Services</FieldLabel>
+              <input
+                className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
+                value={serviceDraft}
+                placeholder="All services"
+                onChange={event => setServiceDraft(event.target.value)}
+              />
+              <div className="text-xs text-gray-500">
+                {selectedServices.length > 0 ? `${selectedServices.length} selected` : 'All services'}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-sm text-gray-700">
+              <label className="flex items-center gap-2 rounded-lg bg-white/65 px-3 py-2">
+                <input type="checkbox" checked={detach} onChange={event => setDetach(event.target.checked)} />
+                <span>Detach</span>
+              </label>
+              <label className="flex items-center gap-2 rounded-lg bg-white/65 px-3 py-2">
+                <input type="checkbox" checked={build} onChange={event => setBuild(event.target.checked)} />
+                <span>Build</span>
+              </label>
+              <label className="flex items-center gap-2 rounded-lg bg-white/65 px-3 py-2">
+                <input type="checkbox" checked={pull} onChange={event => setPull(event.target.checked)} />
+                <span>Pull</span>
+              </label>
+              <label className="flex items-center gap-2 rounded-lg bg-white/65 px-3 py-2">
+                <input type="checkbox" checked={removeOrphans} onChange={event => setRemoveOrphans(event.target.checked)} />
+                <span>Orphans</span>
+              </label>
+              <label className="col-span-2 flex items-center gap-2 rounded-lg bg-white/65 px-3 py-2">
+                <input type="checkbox" checked={volumes} onChange={event => setVolumes(event.target.checked)} />
+                <span>Remove volumes on down</span>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                tone="primary"
+                icon={runningAction === 'up' ? 'i-material-symbols-progress-activity' : 'i-material-symbols-play-arrow-rounded'}
+                disabled={!canControl}
+                onClick={() => void runComposeAction('up')}>
+                Start
+              </Button>
+              <Button
+                type="button"
+                icon={runningAction === 'restart' ? 'i-material-symbols-progress-activity' : 'i-material-symbols-refresh-rounded'}
+                disabled={!canControl}
+                onClick={() => void runComposeAction('restart')}>
+                Restart
+              </Button>
+              <Button
+                type="button"
+                icon={runningAction === 'stop' ? 'i-material-symbols-progress-activity' : 'i-material-symbols-stop-rounded'}
+                disabled={!canControl}
+                onClick={() => void runComposeAction('stop')}>
+                Stop
+              </Button>
+              <Button
+                type="button"
+                tone="danger"
+                icon={runningAction === 'down' ? 'i-material-symbols-progress-activity' : 'i-material-symbols-power-settings-new-rounded'}
+                disabled={!canControl}
+                onClick={() => void runComposeAction('down')}>
+                Down
+              </Button>
+            </div>
+          </div>
+        </Surface>
+
+        <Surface className="p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <div className="font-800">Logs</div>
+              <div className="text-xs text-gray-500">docker compose logs</div>
+            </div>
+            <IconButton
+              icon={isLoadingLogs ? 'i-material-symbols-progress-activity' : 'i-material-symbols-terminal-rounded'}
+              title="Load logs"
+              disabled={!host || isLoadingLogs}
+              onClick={() => void loadComposeLogs()}
+            />
+          </div>
+
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <FieldLabel>Service</FieldLabel>
+              <select
+                className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
+                value={logService}
+                onChange={event => setLogService(event.target.value)}>
+                <option value="">All services</option>
+                {serviceOptions.map(service => <option key={service} value={service}>{service}</option>)}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-[1fr_auto] gap-3">
+              <div className="space-y-2">
+                <FieldLabel>Tail</FieldLabel>
+                <input
+                  className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
+                  type="number"
+                  min={1}
+                  max={5000}
+                  value={logTail}
+                  onChange={event => setLogTail(Math.max(1, Number(event.target.value) || 1))}
+                />
+              </div>
+              <label className="mt-6 flex h-9 items-center gap-2 rounded-lg bg-white/65 px-3 text-sm text-gray-700">
+                <input type="checkbox" checked={logTimestamps} onChange={event => setLogTimestamps(event.target.checked)} />
+                <span>Time</span>
+              </label>
+            </div>
+          </div>
+        </Surface>
+      </div>
+
+      <div className="space-y-4">
+        <Surface className="overflow-hidden">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-(b-solid 1px gray-200) px-4 py-3">
+            <div>
+              <div className="font-800">Runtime status</div>
+              <div className="text-xs text-gray-500">{composeStatus?.file || selectedFile || '/data/rmf_data/docker-rmf-compose.yaml'}</div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge className={getComposeStatusClass(composeStatus?.status || 'unknown')}>
+                {composeStatus?.status || 'unknown'}
+              </Badge>
+              <Button
+                type="button"
+                icon={isLoadingStatus ? 'i-material-symbols-progress-activity' : 'i-material-symbols-refresh-rounded'}
+                disabled={!host || isLoadingStatus}
+                onClick={() => void refreshComposeStatus()}>
+                Refresh
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 p-4 md:grid-cols-3">
+            <div className="rounded-lg bg-gray-50 px-3 py-2">
+              <div className="text-xs font-700 text-gray-500">Services</div>
+              <div className="mt-1 text-6 font-800">{composeStatus?.total ?? '--'}</div>
+            </div>
+            <div className="rounded-lg bg-gray-50 px-3 py-2">
+              <div className="text-xs font-700 text-gray-500">Running</div>
+              <div className="mt-1 text-6 font-800 text-emerald-700">{composeStatus?.running_count ?? '--'}</div>
+            </div>
+            <div className="rounded-lg bg-gray-50 px-3 py-2">
+              <div className="text-xs font-700 text-gray-500">Return code</div>
+              <div className="mt-1 text-6 font-800">{composeStatus?.returncode ?? '--'}</div>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto border-(t-solid 1px gray-200)">
+            {composeStatus?.services.length
+              ? (
+                  <table className="w-full min-w-[52rem] text-sm">
+                    <thead className="bg-gray-50 text-left text-xs font-700 uppercase text-gray-500">
+                      <tr>
+                        <th className="px-4 py-2">Service</th>
+                        <th className="px-4 py-2">State</th>
+                        <th className="px-4 py-2">Health</th>
+                        <th className="px-4 py-2">Status</th>
+                        <th className="px-4 py-2">Image</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {composeStatus.services.map(service => (
+                        <tr key={service.id || `${service.project}:${service.service}:${service.name}`}>
+                          <td className="max-w-[14rem] px-4 py-3">
+                            <div className="truncate font-800 text-gray-900">{getComposeServiceName(service)}</div>
+                            <div className="truncate text-xs text-gray-500">{service.name || service.id || '--'}</div>
+                          </td>
+                          <td className="px-4 py-3"><Badge className={getComposeStatusClass(service.state || 'unknown')}>{service.state || '--'}</Badge></td>
+                          <td className="px-4 py-3"><Badge className={getComposeStatusClass(service.health || 'unknown')}>{service.health || '--'}</Badge></td>
+                          <td className="max-w-[18rem] px-4 py-3 text-xs text-gray-600"><div className="truncate">{service.status || '--'}</div></td>
+                          <td className="max-w-[18rem] px-4 py-3 text-xs text-gray-600"><div className="truncate">{service.image || '--'}</div></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )
+              : (
+                  <div className="px-4 py-10 text-center text-sm text-gray-500">
+                    {isLoadingStatus ? 'Loading compose status...' : 'No compose services'}
+                  </div>
+                )}
+          </div>
+        </Surface>
+
+        <Surface className="overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-(b-solid 1px gray-200) px-4 py-3">
+            <div>
+              <div className="font-800">Last command</div>
+              <div className="text-xs text-gray-500">{lastCommandAt ? formatTime(lastCommandAt) : 'No command run'}</div>
+            </div>
+            {lastCommand?.returncode !== undefined && <Badge className={lastCommand.returncode === 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}>exit {lastCommand.returncode}</Badge>}
+          </div>
+          <div className="p-4">
+            {lastCommand?.command && <div className="mb-2 break-all font-mono text-xs text-gray-500">{lastCommand.command}</div>}
+            <pre className="max-h-[16rem] overflow-auto whitespace-pre-wrap rounded-lg bg-zinc-950 p-3 text-[11px] leading-5 text-zinc-100">
+              {commandOutput || 'No output'}
+            </pre>
+          </div>
+        </Surface>
+
+        <Surface className="overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-(b-solid 1px gray-200) px-4 py-3">
+            <div>
+              <div className="font-800">Recent logs</div>
+              <div className="text-xs text-gray-500">{logService || 'All services'} · tail {logTail}</div>
+            </div>
+            <Button
+              type="button"
+              icon={isLoadingLogs ? 'i-material-symbols-progress-activity' : 'i-material-symbols-terminal-rounded'}
+              disabled={!host || isLoadingLogs}
+              onClick={() => void loadComposeLogs()}>
+              Load logs
+            </Button>
+          </div>
+          <pre className="max-h-[24rem] overflow-auto whitespace-pre-wrap bg-zinc-950 p-4 text-[11px] leading-5 text-zinc-100">
+            {composeLogs || (isLoadingLogs ? 'Loading logs...' : 'No logs loaded')}
+          </pre>
+        </Surface>
+
+        <Surface className="overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-(b-solid 1px gray-200) px-4 py-3">
+            <div>
+              <div className="font-800">Resolved config</div>
+              <div className="text-xs text-gray-500">docker compose config</div>
+            </div>
+            <Button
+              type="button"
+              icon={isLoadingConfig ? 'i-material-symbols-progress-activity' : 'i-material-symbols-description-outline-rounded'}
+              disabled={!host || isLoadingConfig}
+              onClick={() => void loadComposeConfig()}>
+              Load config
+            </Button>
+          </div>
+          <pre className="max-h-[24rem] overflow-auto whitespace-pre-wrap bg-gray-950 p-4 text-[11px] leading-5 text-gray-100">
+            {composeConfig || (isLoadingConfig ? 'Loading config...' : 'No config loaded')}
+          </pre>
+        </Surface>
       </div>
     </div>
   )
@@ -3463,6 +6893,17 @@ function SitesPage({
   refreshSites,
   isLoadingSites,
   siteError,
+  fleetSiteConfig,
+  siteNameDraft,
+  setSiteNameDraft,
+  isLoadingFleetSiteConfig,
+  isSavingFleetSiteConfig,
+  fleetSiteConfigError,
+  fleetSiteConfigStatus,
+  isSiteNameDirty,
+  reloadFleetSiteConfig,
+  dryRunFleetSiteConfig,
+  saveFleetSiteConfig,
   fleetConfig,
   fleetConfigDraft,
   setFleetConfigDraft,
@@ -3481,6 +6922,17 @@ function SitesPage({
   refreshSites: () => void
   isLoadingSites: boolean
   siteError: string | null
+  fleetSiteConfig: FleetConfigNamespaceData | null
+  siteNameDraft: string
+  setSiteNameDraft: (value: string) => void
+  isLoadingFleetSiteConfig: boolean
+  isSavingFleetSiteConfig: boolean
+  fleetSiteConfigError: string | null
+  fleetSiteConfigStatus: string | null
+  isSiteNameDirty: boolean
+  reloadFleetSiteConfig: () => void
+  dryRunFleetSiteConfig: () => void
+  saveFleetSiteConfig: () => void
   fleetConfig: FleetConfigResponse | null
   fleetConfigDraft: string
   setFleetConfigDraft: (value: string) => void
@@ -3494,6 +6946,8 @@ function SitesPage({
   saveFleetConfig: () => void
 }) {
   const activeSite = sites.find(site => site.site === selectedSite) ?? sites[0]
+  const normalizedSiteNameDraft = normalizeFleetSiteName(siteNameDraft)
+  const siteNameActionDisabled = !normalizedSiteNameDraft || isLoadingFleetSiteConfig || isSavingFleetSiteConfig
 
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-[18rem_1fr]">
@@ -3545,6 +6999,69 @@ function SitesPage({
       </div>
 
       <div className="space-y-4">
+        <Surface className="p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-4 font-800">Current Site Name</div>
+              <div className="text-xs text-gray-500">{fleetSiteConfig?.path || '/data/rmf_data/params/rmf.yaml'}</div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {fleetSiteConfigStatus && <span className="text-xs font-700 text-emerald-700">{fleetSiteConfigStatus}</span>}
+              {fleetSiteConfigError && <span className="text-xs font-700 text-red-700">{fleetSiteConfigError}</span>}
+              <IconButton
+                icon="i-material-symbols-refresh-rounded"
+                title="Reload site name"
+                disabled={isLoadingFleetSiteConfig || isSavingFleetSiteConfig}
+                onClick={reloadFleetSiteConfig}
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-[1fr_auto]">
+            <div className="min-w-0">
+              <FieldLabel>Site name</FieldLabel>
+              <input
+                value={siteNameDraft}
+                disabled={isLoadingFleetSiteConfig || isSavingFleetSiteConfig}
+                placeholder="zhencang_office"
+                className="mt-1 h-10 w-full rounded-lg border border-gray-300 bg-white/80 px-3 text-sm font-700 outline-none transition focus:border-emerald-400"
+                onChange={event => setSiteNameDraft(event.target.value)}
+              />
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                <span>Current: {fleetSiteConfig?.namespace || fleetSiteConfig?.site_id || '--'}</span>
+                <span>ROS: {formatRosNamespace(siteNameDraft)}</span>
+                {fleetSiteConfig?.valid === false && (
+                  <span className="font-700 text-red-700">{fleetSiteConfig.validation_error || 'Invalid site name'}</span>
+                )}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <Button
+                type="button"
+                icon="i-material-symbols-content-copy-outline-rounded"
+                disabled={!activeSite || isLoadingFleetSiteConfig || isSavingFleetSiteConfig}
+                onClick={() => activeSite && setSiteNameDraft(activeSite.site)}>
+                Use selected
+              </Button>
+              <Button
+                type="button"
+                icon="i-material-symbols-fact-check-outline-rounded"
+                disabled={siteNameActionDisabled}
+                onClick={dryRunFleetSiteConfig}>
+                Dry run
+              </Button>
+              <Button
+                type="button"
+                tone="primary"
+                icon="i-material-symbols-save-outline-rounded"
+                disabled={!isSiteNameDirty || siteNameActionDisabled}
+                onClick={saveFleetSiteConfig}>
+                Save
+              </Button>
+            </div>
+          </div>
+        </Surface>
+
         <Surface className="p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -3626,13 +7143,18 @@ function SitesPage({
 const FleetView: React.FC = () => {
   const fleet = useFleetDataZenoh()
   const buildingMap = useBuildingMapZenoh()
+  const fleetSiteNamespace = useFleetSiteNamespace()
+  const fleetDataKey = prefixFleetSiteTopic(fleetSiteNamespace.namespace, fleetDataTopic)
   const nestControllerIp = useParamsStore(state => state.nestControllerIp)
   const changeNestController = useParamsStore(state => state.changeNestController)
   const robots = fleet.data?.robots ?? []
   const pendingRobots = fleet.data?.pendingRobots ?? []
   const allRobots = useMemo(() => [...robots, ...pendingRobots], [robots, pendingRobots])
   const dido = useFleetDidoZenoh(allRobots)
+  const wheelStates = useFleetWheelStatesZenoh(allRobots)
   const hardwareDiagnostics = useFleetHardwareDiagnosticsZenoh(allRobots)
+  const bonds = useFleetBondsZenoh(allRobots)
+  const rmfStates = useFleetRmfStatesZenoh()
   const robotOptions = useMemo(() => allRobots.map(getRobotName).filter(name => name !== '--'), [allRobots])
   const [activePage, setActivePage] = useState<FleetPage>('dashboard')
   const [robotSearch, setRobotSearch] = useState('')
@@ -3662,6 +7184,12 @@ const FleetView: React.FC = () => {
   const [isSavingFleetConfig, setIsSavingFleetConfig] = useState(false)
   const [fleetConfigError, setFleetConfigError] = useState<string | null>(null)
   const [fleetConfigStatus, setFleetConfigStatus] = useState<string | null>(null)
+  const [fleetSiteConfig, setFleetSiteConfig] = useState<FleetConfigNamespaceData | null>(null)
+  const [siteNameDraft, setSiteNameDraft] = useState('')
+  const [isLoadingFleetSiteConfig, setIsLoadingFleetSiteConfig] = useState(false)
+  const [isSavingFleetSiteConfig, setIsSavingFleetSiteConfig] = useState(false)
+  const [fleetSiteConfigError, setFleetSiteConfigError] = useState<string | null>(null)
+  const [fleetSiteConfigStatus, setFleetSiteConfigStatus] = useState<string | null>(null)
   const mapOptions = useMemo(() => {
     const options = siteFiles
       .filter(file => file.status !== 'archived')
@@ -3699,11 +7227,13 @@ const FleetView: React.FC = () => {
     })).sort((a, b) => a.site.localeCompare(b.site))
   }, [siteFiles, allRobots])
   const isFleetConfigDirty = fleetConfig != null && fleetConfigDraft !== fleetConfig.content
+  const isSiteNameDirty = fleetSiteConfig != null && normalizeFleetSiteName(siteNameDraft) !== normalizeFleetSiteName(fleetSiteConfig.namespace || fleetSiteConfig.site_id || '')
   const faultedMotorCount = allRobots.reduce((sum, robot) => (
     sum + (robot.hasWheelState ? robot.wheels.motors.filter(motor => motor.isFaulted).length : 0)
   ), 0)
   const activeTaskCount = tasks.filter(task => task.status === 'active').length
-  const occupiedStorageCount = storageAreas.reduce((sum, area) => sum + area.occupied, 0)
+  const occupiedStorageCount = rmfStates.storageState?.withStock ?? storageAreas.reduce((sum, area) => sum + area.occupied, 0)
+  const storageUseLabel = rmfStates.storageState ? `${rmfStates.storageState.withStock}/${rmfStates.storageState.total}` : `${occupiedStorageCount}`
 
   async function loadComposeSites() {
     if (!nestControllerIp)
@@ -3749,6 +7279,7 @@ const FleetView: React.FC = () => {
 
   useEffect(() => {
     void loadComposeSites()
+    void loadFleetSiteConfig()
     void loadFleetConfig()
   }, [nestControllerIp])
 
@@ -3793,6 +7324,83 @@ const FleetView: React.FC = () => {
     if (!allRobots.some(robot => getRobotName(robot) === selectedRobotId))
       setSelectedRobotId(getRobotName(allRobots[0]))
   }, [allRobots, selectedRobotId])
+
+  async function loadFleetSiteConfig() {
+    if (!nestControllerIp) {
+      setFleetSiteConfig(null)
+      setSiteNameDraft('')
+      setFleetSiteConfigError(null)
+      setFleetSiteConfigStatus(null)
+      return
+    }
+
+    setIsLoadingFleetSiteConfig(true)
+    setFleetSiteConfigError(null)
+    setFleetSiteConfigStatus(null)
+    try {
+      const response = await apiServer.fetchFleetConfigNamespace()
+      setFleetSiteConfig(response.data)
+      setSiteNameDraft(response.data.namespace || response.data.site_id || '')
+      setFleetSiteConfigStatus('Loaded')
+    }
+    catch (error) {
+      setFleetSiteConfigError(errorMessage(error))
+    }
+    finally {
+      setIsLoadingFleetSiteConfig(false)
+    }
+  }
+
+  function applyFleetSiteConfigWrite(response: { data: FleetConfigNamespaceData }) {
+    setFleetSiteConfig(response.data)
+    setSiteNameDraft(response.data.namespace || response.data.site_id || '')
+  }
+
+  async function dryRunFleetSiteConfig() {
+    const namespace = normalizeFleetSiteName(siteNameDraft)
+    if (!namespace)
+      return
+
+    setIsSavingFleetSiteConfig(true)
+    setFleetSiteConfigError(null)
+    setFleetSiteConfigStatus(null)
+    try {
+      await apiServer.updateFleetConfigNamespace(namespace, fleetSiteConfig?.modified_time, true)
+      setFleetSiteConfigStatus('Dry run passed')
+    }
+    catch (error) {
+      setFleetSiteConfigError(errorMessage(error))
+    }
+    finally {
+      setIsSavingFleetSiteConfig(false)
+    }
+  }
+
+  async function saveFleetSiteConfig() {
+    const namespace = normalizeFleetSiteName(siteNameDraft)
+    if (!namespace)
+      return
+
+    setIsSavingFleetSiteConfig(true)
+    setFleetSiteConfigError(null)
+    setFleetSiteConfigStatus(null)
+    try {
+      const response = await apiServer.updateFleetConfigNamespace(namespace, fleetSiteConfig?.modified_time, false)
+      applyFleetSiteConfigWrite(response)
+      notifyFleetSiteNamespaceUpdated(response.data.namespace || response.data.site_id || namespace)
+      setFleetSiteConfigStatus(response.data.backup_path ? 'Saved, backup created' : 'Saved')
+      if (!isFleetConfigDirty)
+        void loadFleetConfig()
+      else
+        setFleetConfigStatus('Site name saved; reload rmf.yaml to sync')
+    }
+    catch (error) {
+      setFleetSiteConfigError(errorMessage(error))
+    }
+    finally {
+      setIsSavingFleetSiteConfig(false)
+    }
+  }
 
   async function loadFleetConfig() {
     if (!nestControllerIp)
@@ -3940,10 +7548,12 @@ const FleetView: React.FC = () => {
       return (
         <DashboardPage
           buildingMap={buildingMap.data}
+          host={nestControllerIp}
           mapStatus={buildingMap.status}
           mapConnected={buildingMap.connected}
           mapUpdatedAt={buildingMap.updatedAt}
           mapError={buildingMap.error}
+          rmfStates={rmfStates}
           robots={allRobots}
         />
       )
@@ -3961,6 +7571,8 @@ const FleetView: React.FC = () => {
           deleteTask={deleteTask}
           robotOptions={robotOptions}
           mapOptions={mapOptions}
+          buildingMap={buildingMap.data}
+          fleetName={fleet.data?.name || ''}
         />
       )
     }
@@ -3975,6 +7587,12 @@ const FleetView: React.FC = () => {
           updateStorageArea={updateStorageArea}
           deleteStorageArea={deleteStorageArea}
           mapOptions={mapOptions}
+          storageState={rmfStates.storageState}
+          storageStatus={rmfStates.storageState ? 'subscribed' : rmfStates.status}
+          storageError={rmfStates.error}
+          storageUpdatedAt={rmfStates.storageUpdatedAt}
+          buildingMap={buildingMap.data}
+          host={nestControllerIp}
         />
       )
     }
@@ -3988,6 +7606,17 @@ const FleetView: React.FC = () => {
           refreshSites={() => void loadComposeSites()}
           isLoadingSites={isLoadingSites}
           siteError={siteListError}
+          fleetSiteConfig={fleetSiteConfig}
+          siteNameDraft={siteNameDraft}
+          setSiteNameDraft={setSiteNameDraft}
+          isLoadingFleetSiteConfig={isLoadingFleetSiteConfig}
+          isSavingFleetSiteConfig={isSavingFleetSiteConfig}
+          fleetSiteConfigError={fleetSiteConfigError}
+          fleetSiteConfigStatus={fleetSiteConfigStatus}
+          isSiteNameDirty={isSiteNameDirty}
+          reloadFleetSiteConfig={() => void loadFleetSiteConfig()}
+          dryRunFleetSiteConfig={() => void dryRunFleetSiteConfig()}
+          saveFleetSiteConfig={() => void saveFleetSiteConfig()}
           fleetConfig={fleetConfig}
           fleetConfigDraft={fleetConfigDraft}
           setFleetConfigDraft={setFleetConfigDraft}
@@ -4003,6 +7632,9 @@ const FleetView: React.FC = () => {
       )
     }
 
+    if (activePage === 'compose')
+      return <ComposeControlPage host={nestControllerIp} />
+
     return (
       <RobotsPage
         robots={robots}
@@ -4013,7 +7645,9 @@ const FleetView: React.FC = () => {
         fleetType={fleet.data?.fleetType || ''}
         error={fleet.error}
         dido={dido}
+        wheelStates={wheelStates}
         hardwareDiagnostics={hardwareDiagnostics}
+        bonds={bonds}
         host={nestControllerIp}
         selectedRobotId={selectedRobotId}
         setSelectedRobotId={setSelectedRobotId}
@@ -4033,7 +7667,7 @@ const FleetView: React.FC = () => {
             <div className={fleet.connected ? 'font-700 text-emerald-700' : 'font-700 text-gray-500'}>
               {formatStatus(fleet.status, fleet.connected)}
             </div>
-            <div className="text-xs text-gray-500">{fleet.key || 'fleet_data'}</div>
+            <div className="text-xs text-gray-500">{fleet.key || fleetDataKey || fleetDataTopic}</div>
           </div>
           <Button
             type="button"
@@ -4078,7 +7712,7 @@ const FleetView: React.FC = () => {
             </Surface>
             <Surface className="p-3">
               <div className="text-xs text-gray-500">Storage use</div>
-              <div className="mt-1 text-6 font-800">{occupiedStorageCount}</div>
+              <div className="mt-1 text-6 font-800">{storageUseLabel}</div>
             </Surface>
           </div>
 

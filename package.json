@@ -72,8 +72,11 @@
       "desktop/zenoh-motor-state-bridge.py",
       "desktop/zenoh-fleet-data-bridge.py",
       "desktop/zenoh-building-map-bridge.py",
+      "desktop/zenoh-rmf-state-bridge.py",
       "desktop/zenoh-dido-bridge.py",
       "desktop/zenoh-hardware-diagnostics-bridge.py",
+      "desktop/zenoh-bond-bridge.py",
+      "desktop/zenoh-lifecycle-transition-bridge.py",
       "desktop/zenoh-command-bridge.py",
       "desktop/vendor/**/*"
     ],

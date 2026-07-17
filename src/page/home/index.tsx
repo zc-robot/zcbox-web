@@ -42,9 +42,8 @@ const Home: React.FC = () => {
   useRobotPoseZenoh()
   usePointCloudZenoh()
 
-  const { maps, setMaps, setMapsNew, isScanVisible, selectedLidarScanTopics } = useGridStore(state => ({
-    maps: state.maps,
-    setMaps: state.setMaps,
+  const { mapsNew, setMapsNew, isScanVisible, selectedLidarScanTopics } = useGridStore(state => ({
+    mapsNew: state.mapsNew,
     setMapsNew: state.setMapsNew,
     isScanVisible: state.isScanVisible,
     selectedLidarScanTopics: state.selectedLidarScanTopics,
@@ -68,12 +67,10 @@ const Home: React.FC = () => {
   const [showDiagnostics, setShowDiagnostics] = useState(false)
 
   const initMapData = useCallback(async () => {
-    const maps = await apiServer.fetchMapList()
     const mapsNew = await apiServer.fetchMapListNew()
 
-    setMaps(maps)
     setMapsNew(mapsNew)
-  }, [setMaps, setMapsNew])
+  }, [setMapsNew])
 
   useEffect(() => {
     // 只有当apiDomain不为空时才获取地图数据
@@ -103,7 +100,7 @@ const Home: React.FC = () => {
   const openRenameMapDialog = useCallback((id: number) => {
     setMenuState(null)
 
-    const map = maps.find(item => item.id === id)
+    const map = mapsNew.find(item => item.id === id)
     const currentName = map?.name ?? ''
     setRenameDialog({
       id,
@@ -111,7 +108,7 @@ const Home: React.FC = () => {
       draftName: currentName,
       error: null,
     })
-  }, [maps])
+  }, [mapsNew])
 
   const handleRenameMap = useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -242,7 +239,7 @@ const Home: React.FC = () => {
             to="/mapping">
             <div className="bg-white hover:bg-gray-2 rounded border-(solid 1px gray-5) px-4 py-1 text-gray-5">建图</div>
           </Link>
-          {maps.map((m) => {
+          {mapsNew.map((m) => {
             const isSelected = location.pathname === `/deployment/${m.id}`
             return (
               <div

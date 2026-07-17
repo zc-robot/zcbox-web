@@ -23,6 +23,11 @@ export interface RmfMapImageAlignmentTransform {
   rotation: number
 }
 
+export interface RmfMapImageDimensions {
+  width: number
+  height: number
+}
+
 export interface RmfPixelTransform {
   translateX: number
   translateY: number
@@ -72,6 +77,8 @@ export interface RmfVisualLiftAlignmentOptions {
 export interface RmfVisualMapAlignmentLevel {
   levelName: string
   liftUid: string
+  imageWidth?: number
+  imageHeight?: number
   imageTransform?: RmfMapImageAlignmentTransform
   measurementVertices: [PixelPoint, PixelPoint]
   fiducials: [PixelPoint, PixelPoint, PixelPoint, PixelPoint]
@@ -159,6 +166,17 @@ function normalizeDimension(value: number) {
   return Math.max(1, Math.ceil(Number.isFinite(value) ? value : 1))
 }
 
+export function createGridInfoWithImageDimensions(
+  gridInfo: GridInfoMessage,
+  dimensions?: Partial<RmfMapImageDimensions>,
+): GridInfoMessage {
+  return {
+    ...gridInfo,
+    width: dimensions?.width != null ? normalizeDimension(dimensions.width) : gridInfo.width,
+    height: dimensions?.height != null ? normalizeDimension(dimensions.height) : gridInfo.height,
+  }
+}
+
 function normalizeImageAlignmentTransform(transform?: RmfMapImageAlignmentTransform): RmfMapImageAlignmentTransform {
   const x = transform?.x
   const y = transform?.y
@@ -187,17 +205,51 @@ export function applyRmfPixelTransform(point: PixelPoint, transform?: RmfPixelTr
   }
 }
 
-function createRawPixelTransform(source: RmfAlignedMapImageSource): RmfPixelTransform {
-  const transform = normalizeImageAlignmentTransform(source.transform)
-  const width = normalizeDimension(source.width)
-  const height = normalizeDimension(source.height)
+function createMapImagePixelTransform(dimensions: RmfMapImageDimensions, transform?: RmfMapImageAlignmentTransform): RmfPixelTransform {
+  const normalizedTransform = normalizeImageAlignmentTransform(transform)
+  const width = normalizeDimension(dimensions.width)
+  const height = normalizeDimension(dimensions.height)
 
   return {
-    translateX: transform.x,
-    translateY: transform.y,
-    rotation: transform.rotation,
+    translateX: normalizedTransform.x,
+    translateY: normalizedTransform.y,
+    rotation: normalizedTransform.rotation,
     centerX: width / 2,
     centerY: height / 2,
+  }
+}
+
+function createRawPixelTransform(source: RmfAlignedMapImageSource): RmfPixelTransform {
+  return createMapImagePixelTransform(source, source.transform)
+}
+
+export function transformRmfMapImageAlignmentPoint(
+  point: PixelPoint,
+  dimensions: RmfMapImageDimensions,
+  transform?: RmfMapImageAlignmentTransform,
+) {
+  return applyRmfPixelTransform(point, createMapImagePixelTransform(dimensions, transform))
+}
+
+export function updateRmfMapImageAlignmentRotation(
+  transform: RmfMapImageAlignmentTransform,
+  dimensions: RmfMapImageDimensions,
+  pivot: PixelPoint,
+  rotation: number,
+): RmfMapImageAlignmentTransform {
+  const normalizedTransform = normalizeImageAlignmentTransform(transform)
+  const nextRotation = Number.isFinite(rotation) ? rotation : normalizedTransform.rotation
+  const anchoredPivot = transformRmfMapImageAlignmentPoint(pivot, dimensions, normalizedTransform)
+  const rotatedPivot = transformRmfMapImageAlignmentPoint(pivot, dimensions, {
+    x: 0,
+    y: 0,
+    rotation: nextRotation,
+  })
+
+  return {
+    x: anchoredPivot.x - rotatedPivot.x,
+    y: anchoredPivot.y - rotatedPivot.y,
+    rotation: nextRotation,
   }
 }
 
@@ -266,6 +318,99 @@ export function mapToPixel(point: PixelPoint, gridInfo: GridInfoMessage): PixelP
   return {
     x: (point.x - gridInfo.origin.position.x) / gridInfo.resolution,
     y: (point.y - topLeftY) / gridInfo.resolution,
+  }
+}
+
+export function pixelToMap(point: PixelPoint, gridInfo: GridInfoMessage): PixelPoint {
+  const topLeftY = -(gridInfo.origin.position.y + gridInfo.height * gridInfo.resolution)
+
+  return {
+    x: point.x * gridInfo.resolution + gridInfo.origin.position.x,
+    y: point.y * gridInfo.resolution + topLeftY,
+  }
+}
+
+function rotateMapObjectDegrees(rotation: number, transform: RmfPixelTransform) {
+  if (!Number.isFinite(rotation) || !Number.isFinite(transform.rotation))
+    return rotation
+
+  return rotation + transform.rotation
+}
+
+function transformMapCoordinateToAlignedFrame(
+  point: PixelPoint,
+  sourceGridInfo: GridInfoMessage,
+  targetGridInfo: GridInfoMessage,
+  pixelTransform: RmfPixelTransform,
+) {
+  return pixelToMap(applyRmfPixelTransform(mapToPixel(point, sourceGridInfo), pixelTransform), targetGridInfo)
+}
+
+export function transformNavProfileToAlignedMapFrame(
+  profile: NavProfile,
+  sourceGridInfo: GridInfoMessage,
+  targetGridInfo: GridInfoMessage,
+  pixelTransform: RmfPixelTransform,
+): NavProfile {
+  const transformPoint = (point: PixelPoint) =>
+    transformMapCoordinateToAlignedFrame(point, sourceGridInfo, targetGridInfo, pixelTransform)
+  const transformRotation = (rotation: number) => rotateMapObjectDegrees(rotation, pixelTransform)
+
+  return {
+    ...profile,
+    data: {
+      ...profile.data,
+      waypoints: (profile.data.waypoints ?? []).map((point) => {
+        const nextPoint = transformPoint(point)
+        const nextLineConstraint = point.line_constraint
+          ? {
+              ...point.line_constraint,
+              start: transformPoint(point.line_constraint.start),
+              end: transformPoint(point.line_constraint.end),
+            }
+          : point.line_constraint
+
+        return {
+          ...point,
+          x: nextPoint.x,
+          y: nextPoint.y,
+          rotation: transformRotation(point.rotation),
+          line_constraint: nextLineConstraint,
+        }
+      }),
+      paths: (profile.data.paths ?? []).map(path => ({
+        ...path,
+        start: {
+          ...path.start,
+          ...transformPoint(path.start),
+        },
+        end: {
+          ...path.end,
+          ...transformPoint(path.end),
+        },
+        controls: path.controls.map(control => transformPoint(control)),
+      })),
+      doors: (profile.data.doors ?? []).map((door) => {
+        const nextPoint = transformPoint(door)
+
+        return {
+          ...door,
+          x: nextPoint.x,
+          y: nextPoint.y,
+          rotation: transformRotation(door.rotation),
+        }
+      }),
+      lifts: (profile.data.lifts ?? []).map((lift) => {
+        const nextPoint = transformPoint(lift)
+
+        return {
+          ...lift,
+          x: nextPoint.x,
+          y: nextPoint.y,
+          rotation: transformRotation(lift.rotation),
+        }
+      }),
+    },
   }
 }
 

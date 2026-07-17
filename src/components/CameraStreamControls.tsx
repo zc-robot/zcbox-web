@@ -2,6 +2,41 @@ import { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'reac
 import toast from 'react-hot-toast'
 import apiServer from '@/service/apiServer'
 import type { CameraSource, CameraSourcesResponse } from '@/service/apiServer'
+import { useGridStore, useParamsStore } from '@/store'
+
+const defaultPointCloudRoiRequest: ZenohPointCloudRoiRequest = {
+  min_x: 0,
+  max_x: 3,
+  min_y: -0.5,
+  max_y: 0.5,
+  min_z: -0.2,
+  max_z: 1,
+  remove_ground: false,
+  ground_plane_a: 0,
+  ground_plane_b: 0,
+  ground_plane_c: 1,
+  ground_plane_d: 0,
+  ground_distance_threshold: 0.06,
+}
+
+type PointCloudRoiNumberKey = Exclude<keyof ZenohPointCloudRoiRequest, 'remove_ground'>
+
+const roiNumberFields: Array<{ key: keyof Pick<ZenohPointCloudRoiRequest, 'min_x' | 'max_x' | 'min_y' | 'max_y' | 'min_z' | 'max_z'>; label: string }> = [
+  { key: 'min_x', label: 'X 最小' },
+  { key: 'max_x', label: 'X 最大' },
+  { key: 'min_y', label: 'Y 最小' },
+  { key: 'max_y', label: 'Y 最大' },
+  { key: 'min_z', label: 'Z 最小' },
+  { key: 'max_z', label: 'Z 最大' },
+]
+
+interface PointCloudRoiResultState {
+  key: string
+  frameId: string
+  pointCount: number
+  sampledCount: number
+  message: string
+}
 
 function formatFrame(source: CameraSource | null) {
   const frame = source?.latest_frame
@@ -50,12 +85,22 @@ function isDepthSource(source: CameraSource | null) {
   return /depth/i.test(`${source.id} ${source.topic} ${source.ros_type}`)
 }
 
+function getDepthCameraName(source: CameraSource | null) {
+  if (!source)
+    return ''
+
+  const value = `${source.topic} ${source.id}`
+  const match = value.match(/(?:^|[/\s_-])(camera_[A-Za-z0-9]+)(?:$|[/\s_-])/i)
+  return match?.[1] ?? ''
+}
+
 function getErrorMessage(error: unknown) {
   if (!(error instanceof Error))
     return String(error)
 
   return error.message
     .replace(/^Error invoking remote method 'camera-gateway:request':\s*/, '')
+    .replace(/^Error invoking remote method 'zenoh-command:get-point-cloud-roi':\s*/, '')
     .replace(/^Error:\s*/, '')
 }
 
@@ -236,6 +281,9 @@ const ColorizedDepthPreview: FC<{ active: boolean; source: CameraSource; mediaCl
 }
 
 const CameraStreamModal: FC<{ onClose: () => void }> = ({ onClose }) => {
+  const nestControllerIp = useParamsStore(state => state.nestControllerIp)
+  const updatePointCloud = useGridStore(state => state.updatePointCloud)
+  const setPointCloudVisibility = useGridStore(state => state.setPointCloudVisibility)
   const [sourcesResponse, setSourcesResponse] = useState<CameraSourcesResponse | null>(null)
   const [selectedSourceId, setSelectedSourceId] = useState('')
   const [previewUrl, setPreviewUrl] = useState('')
@@ -244,7 +292,10 @@ const CameraStreamModal: FC<{ onClose: () => void }> = ({ onClose }) => {
   const [isLoadingSources, setLoadingSources] = useState(false)
   const [isStarting, setStarting] = useState(false)
   const [isStopping, setStopping] = useState(false)
+  const [isPointCloudLoading, setPointCloudLoading] = useState(false)
   const [isDepthColorEnabled, setDepthColorEnabled] = useState(true)
+  const [pointCloudRoiRequest, setPointCloudRoiRequest] = useState(defaultPointCloudRoiRequest)
+  const [pointCloudResult, setPointCloudResult] = useState<PointCloudRoiResultState | null>(null)
   const [error, setError] = useState('')
   const activeSourceRef = useRef<CameraSource | null>(null)
 
@@ -253,11 +304,27 @@ const CameraStreamModal: FC<{ onClose: () => void }> = ({ onClose }) => {
     return sources.find(source => source.id === selectedSourceId) ?? null
   }, [selectedSourceId, sources])
   const isStreaming = activeSourceId !== ''
-  const isBusy = isLoadingSources || isStarting || isStopping
+  const isBusy = isLoadingSources || isStarting || isStopping || isPointCloudLoading
   const selectedSourceIsDepth = isDepthSource(selectedSource)
+  const selectedDepthCameraName = getDepthCameraName(selectedSource)
   const shouldColorizeDepth = selectedSourceIsDepth && isDepthColorEnabled
   const mediaClassName = `block ${getMediaFitClass(selectedSource)}`
   const mediaStyle = getFrameStyle(selectedSource)
+  const canRequestPointCloudRoi = selectedSourceIsDepth
+    && !!selectedDepthCameraName
+    && !!nestControllerIp
+    && !!window.zcDesktop?.getZenohPointCloudRoi
+
+  const updatePointCloudRoiNumber = (key: PointCloudRoiNumberKey, value: number) => {
+    if (!Number.isFinite(value))
+      return
+
+    setPointCloudResult(null)
+    setPointCloudRoiRequest(current => ({
+      ...current,
+      [key]: value,
+    }))
+  }
 
   const loadSources = useCallback(async () => {
     setLoadingSources(true)
@@ -361,11 +428,71 @@ const CameraStreamModal: FC<{ onClose: () => void }> = ({ onClose }) => {
     }
   }
 
+  const requestPointCloudRoi = async () => {
+    if (!selectedSource || !selectedSourceIsDepth) {
+      toast.error('请选择深度相机')
+      return
+    }
+
+    if (!selectedDepthCameraName) {
+      toast.error('未识别到深度相机名称')
+      return
+    }
+
+    if (!nestControllerIp) {
+      toast.error('未连接机器人控制器')
+      return
+    }
+
+    if (!window.zcDesktop?.getZenohPointCloudRoi) {
+      toast.error('点云 ROI 仅支持桌面应用')
+      return
+    }
+
+    setPointCloudLoading(true)
+    setPointCloudResult(null)
+    setError('')
+    try {
+      const namespace = await apiServer.fetchZenohNamespace()
+      const response = await window.zcDesktop.getZenohPointCloudRoi({
+        host: nestControllerIp,
+        namespace,
+        cameraName: selectedDepthCameraName,
+        request: pointCloudRoiRequest,
+        timeoutMs: 10000,
+        maxPoints: 12000,
+      })
+
+      updatePointCloud(response.pointCloud)
+      setPointCloudResult({
+        key: response.key,
+        frameId: response.pointCloud.frameId,
+        pointCount: response.pointCloud.pointCount,
+        sampledCount: response.pointCloud.sampledCount,
+        message: response.message,
+      })
+      toast.success(`点云已获取 ${response.pointCloud.sampledCount} 点`)
+    }
+    catch (error) {
+      const message = getErrorMessage(error)
+      setError(message)
+      toast.error(`获取点云失败 ${message}`)
+    }
+    finally {
+      setPointCloudLoading(false)
+    }
+  }
+
   const closeModal = async () => {
     if (isStreaming)
       await stopStream()
 
     onClose()
+  }
+
+  const openPointCloudView = async () => {
+    setPointCloudVisibility(true)
+    await closeModal()
   }
 
   const previewContent = (() => {
@@ -434,6 +561,7 @@ const CameraStreamModal: FC<{ onClose: () => void }> = ({ onClose }) => {
                 setSelectedSourceId(event.target.value)
                 setError('')
                 setDepthColorEnabled(true)
+                setPointCloudResult(null)
               }}>
               {sources.map(source => (
                 <option key={source.id} value={source.id}>
@@ -463,6 +591,90 @@ const CameraStreamModal: FC<{ onClose: () => void }> = ({ onClose }) => {
                   onChange={event => setDepthColorEnabled(event.target.checked)} />
                 <span>彩色深度</span>
               </label>
+            )}
+
+            {selectedSourceIsDepth && (
+              <div className="mt-3 rounded border-(solid 1px gray-200) p-2">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="text-sm font-600">点云 ROI</div>
+                  <div className="max-w-24 truncate font-mono text-xs text-gray-500">
+                    {selectedDepthCameraName || '--'}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  {roiNumberFields.map(field => (
+                    <label key={field.key} className="block text-xs text-gray-600">
+                      <span className="mb-1 block">{field.label}</span>
+                      <input
+                        className="h-8 w-full rounded border-(solid 1px gray-300) px-2 text-sm outline-none focus:border-blue-500"
+                        type="number"
+                        step="0.05"
+                        value={pointCloudRoiRequest[field.key]}
+                        onChange={event => updatePointCloudRoiNumber(field.key, event.currentTarget.valueAsNumber)} />
+                    </label>
+                  ))}
+                </div>
+
+                <label className="mt-2 flex items-center gap-2 text-xs text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={pointCloudRoiRequest.remove_ground}
+                    onChange={(event) => {
+                      setPointCloudResult(null)
+                      setPointCloudRoiRequest(current => ({
+                        ...current,
+                        remove_ground: event.target.checked,
+                      }))
+                    }} />
+                  <span>去除地面</span>
+                </label>
+
+                {pointCloudRoiRequest.remove_ground && (
+                  <label className="mt-2 block text-xs text-gray-600">
+                    <span className="mb-1 block">阈值</span>
+                    <input
+                      className="h-8 w-full rounded border-(solid 1px gray-300) px-2 text-sm outline-none focus:border-blue-500"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={pointCloudRoiRequest.ground_distance_threshold}
+                      onChange={event => updatePointCloudRoiNumber('ground_distance_threshold', event.currentTarget.valueAsNumber)} />
+                  </label>
+                )}
+
+                <button
+                  className="mt-3 h-9 w-full flex items-center justify-center gap-1 rounded bg-sky-600 px-3 text-white hover:bg-sky-700 disabled:opacity-45"
+                  type="button"
+                  disabled={isBusy || !canRequestPointCloudRoi}
+                  onClick={requestPointCloudRoi}>
+                  <div className={isPointCloudLoading ? 'i-material-symbols-refresh-rounded animate-spin text-4' : 'i-material-symbols-view-in-ar-outline-rounded text-4'} />
+                  <span>{isPointCloudLoading ? '获取中' : '获取点云'}</span>
+                </button>
+
+                {pointCloudResult && (
+                  <div className="mt-2 rounded bg-gray-50 p-2 text-xs text-gray-700">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-gray-500">点数</span>
+                      <span className="font-600">{pointCloudResult.sampledCount} / {pointCloudResult.pointCount}</span>
+                    </div>
+                    <div className="mt-1 flex items-center justify-between gap-2">
+                      <span className="text-gray-500">坐标系</span>
+                      <span className="max-w-36 truncate font-mono">{pointCloudResult.frameId || 'base_footprint'}</span>
+                    </div>
+                    {pointCloudResult.message && pointCloudResult.message !== 'success' && (
+                      <div className="mt-1 break-words text-gray-500">{pointCloudResult.message}</div>
+                    )}
+                    <button
+                      className="mt-2 h-8 w-full flex items-center justify-center gap-1 rounded border-(solid 1px gray-300) bg-white px-2 text-gray-700 hover:bg-gray-50"
+                      type="button"
+                      onClick={openPointCloudView}>
+                      <div className="i-material-symbols-open-in-full-rounded text-4" />
+                      <span>查看 3D</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
 
             <div className="mt-4 flex gap-2">

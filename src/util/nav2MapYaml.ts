@@ -37,11 +37,16 @@ function parseYamlNumber(value: string | undefined) {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+export function resolveAlignedNav2MapResolution(referenceYaml: string, fallbackResolution?: number) {
+  const referenceValues = parseYamlMappingValues(referenceYaml)
+  return parseYamlNumber(referenceValues.get('resolution'))
+    ?? fallbackResolution
+    ?? DEFAULT_NAV2_MAP_RESOLUTION
+}
+
 export function buildAlignedNav2MapYaml(options: BuildAlignedNav2MapYamlOptions) {
   const referenceValues = parseYamlMappingValues(options.referenceYaml)
-  const resolution = parseYamlNumber(referenceValues.get('resolution'))
-    ?? options.fallbackResolution
-    ?? DEFAULT_NAV2_MAP_RESOLUTION
+  const resolution = resolveAlignedNav2MapResolution(options.referenceYaml, options.fallbackResolution)
   const imageHeight = Math.max(1, Math.ceil(Number.isFinite(options.imageHeight) ? options.imageHeight : 1))
   const originY = -imageHeight * resolution
   const lines = [

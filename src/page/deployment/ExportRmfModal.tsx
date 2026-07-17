@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
-import type { MapListItem, NavLift, NavProfile } from '@/types'
+import type { GridInfoMessage, MapListItem, NavLift, NavProfile } from '@/types'
 import apiServer from '@/service/apiServer'
 import { useGridStore } from '@/store'
-import { getLiftRectangleCorners, mapToPixel } from '@/util/rmf'
+import { createGridInfoWithImageDimensions, getLiftRectangleCorners, mapToPixel, updateRmfMapImageAlignmentRotation } from '@/util/rmf'
 import type { PixelPoint, RmfAlignmentOptions, RmfVisualMapAlignmentOptions } from '@/util/rmf'
-import { convertMapRasterToPngBlob } from '@/util/transform'
+import { convertMapRasterToPngBlob, parseMapRaster } from '@/util/transform'
 
 export interface ExportRmfSelection {
   map: MapListItem
@@ -34,6 +34,7 @@ interface MapImagePreview {
   status: 'loading' | 'ready' | 'error'
   width: number
   height: number
+  gridInfo: GridInfoMessage
   url?: string
   error?: string
 }
@@ -102,7 +103,7 @@ function formatRmfUploadEndpoint(targetHost: string) {
   try {
     const url = new URL(/^https?:\/\//i.test(trimmedHost) ? trimmedHost : `http://${trimmedHost}`)
     if (!url.port)
-      url.port = '6080'
+      url.port = '4999'
     url.pathname = '/api/map/building_yaml'
     url.search = ''
     url.hash = ''
@@ -113,9 +114,10 @@ function formatRmfUploadEndpoint(targetHost: string) {
   }
 }
 
-function getLiftPixelCorners(lift: NavLift, map: MapListItem): [PixelPoint, PixelPoint, PixelPoint, PixelPoint] {
+function getLiftPixelCorners(lift: NavLift, map: MapListItem, image?: MapImagePreview): [PixelPoint, PixelPoint, PixelPoint, PixelPoint] {
+  const gridInfo = image?.gridInfo ?? map.info
   return getLiftRectangleCorners(lift)
-    .map(point => mapToPixel(point, map.info)) as [PixelPoint, PixelPoint, PixelPoint, PixelPoint]
+    .map(point => mapToPixel(point, gridInfo)) as [PixelPoint, PixelPoint, PixelPoint, PixelPoint]
 }
 
 function getPointCenter(points: PixelPoint[]) {
@@ -164,9 +166,16 @@ function buildPolygonPoints(points: PixelPoint[]) {
     .join(' ')
 }
 
-function getDefaultMapTransform(referenceMap: MapListItem, referenceLift: NavLift, targetMap: MapListItem, targetLift: NavLift, targetImage: MapImagePreview): MapTransform {
-  const referenceCorners = getLiftPixelCorners(referenceLift, referenceMap)
-  const targetCorners = getLiftPixelCorners(targetLift, targetMap)
+function getDefaultMapTransform(
+  referenceMap: MapListItem,
+  referenceLift: NavLift,
+  referenceImage: MapImagePreview,
+  targetMap: MapListItem,
+  targetLift: NavLift,
+  targetImage: MapImagePreview,
+): MapTransform {
+  const referenceCorners = getLiftPixelCorners(referenceLift, referenceMap, referenceImage)
+  const targetCorners = getLiftPixelCorners(targetLift, targetMap, targetImage)
   const referenceCenter = getPointCenter(referenceCorners)
   const targetCenter = getPointCenter(targetCorners)
   const rotation = getPointAngle(referenceCorners[0], referenceCorners[1]) - getPointAngle(targetCorners[0], targetCorners[1])
@@ -569,13 +578,17 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
           status: 'loading',
           width: map.info.width,
           height: map.info.height,
+          gridInfo: map.info,
         },
       }))
 
       void (async () => {
         try {
           const blob = await apiServer.downloadMap(mapImagePath)
-          const pngBlob = await convertMapRasterToPngBlob(new Uint8Array(await blob.arrayBuffer()))
+          const data = new Uint8Array(await blob.arrayBuffer())
+          const mapRaster = await parseMapRaster(data)
+          const gridInfo = createGridInfoWithImageDimensions(map.info, mapRaster)
+          const pngBlob = await convertMapRasterToPngBlob(data)
           const url = URL.createObjectURL(pngBlob)
           if (!isMountedRef.current || !selectedMapIdsRef.current.has(map.id)) {
             URL.revokeObjectURL(url)
@@ -591,8 +604,9 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
               ...prev,
               [map.id]: {
                 status: 'ready',
-                width: map.info.width,
-                height: map.info.height,
+                width: mapRaster.width,
+                height: mapRaster.height,
+                gridInfo,
                 url,
               },
             }
@@ -608,6 +622,7 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
               status: 'error',
               width: map.info.width,
               height: map.info.height,
+              gridInfo: map.info,
               error: `${error}`,
             },
           }))
@@ -666,29 +681,29 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
     const image = mapImagesById[map.id]
     return image?.status === 'ready' && image.url ? image : undefined
   }
+  const referenceImage = referenceMap ? getReadyMapImage(referenceMap) : undefined
   const getMapTransform = (map: MapListItem, lift: NavLift): MapTransform => {
     const existing = mapTransformsById[map.id]
     if (existing)
       return existing
 
     const targetImage = getReadyMapImage(map)
-    if (!referenceMap || !referenceLift || !targetImage)
+    if (!referenceMap || !referenceLift || !referenceImage || !targetImage)
       return { x: 0, y: 0, rotation: 0 }
 
-    return getDefaultMapTransform(referenceMap, referenceLift, map, lift, targetImage)
+    return getDefaultMapTransform(referenceMap, referenceLift, referenceImage, map, lift, targetImage)
   }
   const activeAlignmentMap = alignmentTargetMaps.find(map => map.id === activeAlignmentMapId)
   const activeAlignmentLift = activeAlignmentMap ? getSelectedLiftForMap(activeAlignmentMap) : undefined
-  const referenceImage = referenceMap ? getReadyMapImage(referenceMap) : undefined
   const activeAlignmentImage = activeAlignmentMap ? getReadyMapImage(activeAlignmentMap) : undefined
   const activeAlignmentTransform = activeAlignmentMap && activeAlignmentLift
     ? getMapTransform(activeAlignmentMap, activeAlignmentLift)
     : undefined
-  const referenceLiftCorners = referenceMap && referenceLift
-    ? getLiftPixelCorners(referenceLift, referenceMap)
+  const referenceLiftCorners = referenceMap && referenceLift && referenceImage
+    ? getLiftPixelCorners(referenceLift, referenceMap, referenceImage)
     : undefined
-  const activeLiftCorners = activeAlignmentMap && activeAlignmentLift
-    ? getLiftPixelCorners(activeAlignmentLift, activeAlignmentMap)
+  const activeLiftCorners = activeAlignmentMap && activeAlignmentLift && activeAlignmentImage
+    ? getLiftPixelCorners(activeAlignmentLift, activeAlignmentMap, activeAlignmentImage)
     : undefined
   const getAlignmentConfirmationSignature = (map: MapListItem) => {
     if (!referenceMap || !referenceLift || !referenceImage || map.id === referenceMap.id)
@@ -763,16 +778,21 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
     setAlignmentConfirmationsByMapId(prev => removeMapValue(prev, mapId))
   }
 
+  const updateMapRotation = (map: MapListItem, lift: NavLift, image: MapImagePreview, transform: MapTransform, rotation: number) => {
+    const liftCenter = getPointCenter(getLiftPixelCorners(lift, map, image))
+    updateMapTransform(map.id, updateRmfMapImageAlignmentRotation(transform, image, liftCenter, rotation))
+  }
+
   const resetMapTransform = (map: MapListItem, lift: NavLift) => {
     setMapTransformsById((prev) => {
       const next = { ...prev }
       const image = getReadyMapImage(map)
-      if (!referenceMap || !referenceLift || !image) {
+      if (!referenceMap || !referenceLift || !referenceImage || !image) {
         delete next[map.id]
         return next
       }
 
-      next[map.id] = getDefaultMapTransform(referenceMap, referenceLift, map, lift, image)
+      next[map.id] = getDefaultMapTransform(referenceMap, referenceLift, referenceImage, map, lift, image)
       return next
     })
     setAlignmentConfirmationsByMapId(prev => removeMapValue(prev, map.id))
@@ -888,6 +908,8 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
         return {
           levelName: map.name,
           liftUid: lift.uid,
+          imageWidth: image.width,
+          imageHeight: image.height,
           imageTransform: { x: 0, y: 0, rotation: 0 },
           fiducials: referenceLiftCorners,
           measurementVertices: [referenceLiftCorners[0], referenceLiftCorners[1]],
@@ -901,6 +923,8 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
       return {
         levelName: map.name,
         liftUid: lift.uid,
+        imageWidth: image.width,
+        imageHeight: image.height,
         imageTransform: transform,
         fiducials,
         measurementVertices: [fiducials[0], fiducials[1]],
@@ -1171,7 +1195,12 @@ const ExportRmfModal: React.FC<ExportRmfModalProps> = ({
                           value={activeAlignmentTransform.rotation}
                           step={1}
                           disabled={isSubmitting}
-                          onChange={value => updateMapTransform(activeAlignmentMap.id, { ...activeAlignmentTransform, rotation: value })} />
+                          onChange={(value) => {
+                            if (activeAlignmentImage)
+                              updateMapRotation(activeAlignmentMap, activeAlignmentLift, activeAlignmentImage, activeAlignmentTransform, value)
+                            else
+                              updateMapTransform(activeAlignmentMap.id, { ...activeAlignmentTransform, rotation: value })
+                          }} />
                       </div>
                       <button
                         className="mt-2 border-none bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded-md text-xs"

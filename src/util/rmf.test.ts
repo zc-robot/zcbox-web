@@ -5,9 +5,14 @@ import {
   applyRmfPixelTransform,
   buildRmfBuildingYaml,
   createAlignedMapImageLayout,
+  createGridInfoWithImageDimensions,
   createVisualLiftAlignmentGeometry,
   createVisualMapAlignmentGeometry,
   getLiftRectangleCorners,
+  mapToPixel,
+  transformNavProfileToAlignedMapFrame,
+  transformRmfMapImageAlignmentPoint,
+  updateRmfMapImageAlignmentRotation,
 } from './rmf.js'
 
 function gridInfo(): GridInfoMessage {
@@ -229,6 +234,97 @@ test('visual map alignment layout gives every level the same aligned canvas', ()
   const levelTwoLayout = layout.levels.find(level => level.levelName === 'L2')
   assert.ok(levelTwoLayout)
   assert.deepEqual(applyRmfPixelTransform({ x: 0, y: 0 }, levelTwoLayout.pixelTransform), { x: 20, y: 10 })
+})
+
+test('visual map rotation edits keep the selected lift center anchored', () => {
+  const image = { width: 100, height: 80 }
+  const selectedLiftCenter = { x: 20, y: 20 }
+  const initialTransform = { x: 30, y: 30, rotation: 0 }
+  const anchoredCenter = transformRmfMapImageAlignmentPoint(selectedLiftCenter, image, initialTransform)
+  const nextTransform = updateRmfMapImageAlignmentRotation(initialTransform, image, selectedLiftCenter, 90)
+  const nextCenter = transformRmfMapImageAlignmentPoint(selectedLiftCenter, image, nextTransform)
+
+  assert.deepEqual(anchoredCenter, { x: 50, y: 50 })
+  assert.ok(Math.abs(nextCenter.x - anchoredCenter.x) < 1e-9)
+  assert.ok(Math.abs(nextCenter.y - anchoredCenter.y) < 1e-9)
+  assert.notDeepEqual(nextTransform, { ...initialTransform, rotation: 90 })
+})
+
+test('visual map lift projection uses decoded image dimensions with the source origin preserved', () => {
+  const apiGridInfo = {
+    ...gridInfo(),
+    width: 502,
+    height: 1442,
+    origin: {
+      ...gridInfo().origin,
+      position: { x: 0, y: -204.55, z: 0 },
+    },
+  }
+  const previewGridInfo = createGridInfoWithImageDimensions(apiGridInfo, {
+    width: 1442,
+    height: 502,
+  })
+  const l5LiftCenter = { x: 69.26182151943331, y: 180.39773227914995 }
+  const staleProjection = mapToPixel(l5LiftCenter, apiGridInfo)
+  const previewProjection = mapToPixel(l5LiftCenter, previewGridInfo)
+
+  assert.equal(previewGridInfo.origin.position.y, apiGridInfo.origin.position.y)
+  assert.ok(staleProjection.y > previewGridInfo.height)
+  assert.ok(previewProjection.x > 0 && previewProjection.x < previewGridInfo.width)
+  assert.ok(previewProjection.y > 0 && previewProjection.y < previewGridInfo.height)
+})
+
+test('visual map alignment transforms saved lift locations into the aligned map frame', () => {
+  const sourceGridInfo = {
+    ...gridInfo(),
+    width: 100,
+    height: 80,
+    origin: {
+      ...gridInfo().origin,
+      position: { x: 0, y: -4, z: 0 },
+    },
+  }
+  const targetGridInfo = {
+    ...gridInfo(),
+    width: 140,
+    height: 120,
+    origin: {
+      ...gridInfo().origin,
+      position: { x: 0, y: -6, z: 0 },
+    },
+  }
+  const sourceProfile = profile('L2', lift({
+    uid: 'lift-l2',
+    level_name: 'L2',
+    x: 1,
+    y: 1,
+    rotation: 10,
+    width: 2,
+    depth: 3,
+  }))
+  const alignedProfile = transformNavProfileToAlignedMapFrame(sourceProfile, sourceGridInfo, targetGridInfo, {
+    translateX: 30,
+    translateY: 10,
+    rotation: 0,
+    centerX: 50,
+    centerY: 40,
+  })
+
+  assert.deepEqual(alignedProfile.data.lifts[0], {
+    ...sourceProfile.data.lifts[0],
+    x: 2.5,
+    y: 1.5,
+  })
+  assert.deepEqual(sourceProfile.data.lifts[0], {
+    uid: 'lift-l2',
+    name: 'Main Lift',
+    x: 1,
+    y: 1,
+    rotation: 10,
+    width: 2,
+    depth: 3,
+    level_name: 'L2',
+  })
 })
 
 test('RMF visual map export shifts fiducials into the shared aligned canvas frame', () => {

@@ -23,11 +23,6 @@ export interface MapListItem {
   info: GridInfoMessage
 }
   
-export interface MapData {
-  id: number,
-  name: string,
-}
-
 export interface CurrentMapData {
   map_id: number,
   map_name: string,
@@ -216,6 +211,15 @@ export interface FleetDiagnosticStateMessage {
   status: FleetDiagnosticStatusMessage[],
 }
 
+export interface BondStatusMessage {
+  header: FleetHeaderMessage,
+  id: string,
+  instanceId: string,
+  active: boolean,
+  heartbeatTimeout: number,
+  heartbeatPeriod: number,
+}
+
 export interface FleetPalletStateMessage {
   palletPresent: boolean,
   bufferPresent: boolean,
@@ -265,6 +269,243 @@ export interface FleetDataMessage {
   robots: FleetRobotDataMessage[],
   pendingRobots: FleetRobotDataMessage[],
 }
+
+export interface StorageShelfMessage {
+  shelfIndex: number,
+  columns: number,
+  rows: number,
+  shelfSide: string,
+}
+
+export interface StorageAreaLayoutMessage {
+  areaIndex: number,
+  displayName: string,
+  shelves: StorageShelfMessage[],
+}
+
+export interface StorageLayoutMessage {
+  areas: StorageAreaLayoutMessage[],
+}
+
+export interface StorageCellStockMessage {
+  cellId: string,
+  stock: number,
+}
+
+export interface StorageStateMessage {
+  key?: string,
+  header: FleetHeaderMessage,
+  layoutRevision: number,
+  layout: StorageLayoutMessage,
+  cells: StorageCellStockMessage[],
+  total: number,
+  disabled: number,
+  withStock: number,
+}
+
+export interface StorageReinitShelfSpec {
+  shelf_index: number,
+  columns: number,
+  rows: number,
+  shelf_side: string,
+}
+
+export interface StorageReinitAreaSpec {
+  area_index: number,
+  display_name: string,
+  shelves: StorageReinitShelfSpec[],
+}
+
+export interface StorageReinitLayoutSpec {
+  areas: StorageReinitAreaSpec[],
+}
+
+export interface StorageReinitRequestPayload {
+  request_id: string,
+  confirm_reinitialize: boolean,
+  caller_id: string,
+  reason: string,
+  layout: StorageReinitLayoutSpec,
+}
+
+export interface StorageReinitResult {
+  success: boolean,
+  error_code: string,
+  message: string,
+  old_revision: number,
+  new_revision: number,
+}
+
+export interface StorageAreaDisplayNameRequestPayload {
+  area_index: number,
+  display_name: string,
+}
+
+export interface StorageAreaDisplayNameResult {
+  success: boolean,
+  error_code: string,
+  message: string,
+  layout_revision: number,
+}
+
+export interface TaskManagerTaskInfo {
+  task_id: string,
+  task_definition_id: string,
+  latest_task_execution_id: string,
+  active_task_execution_id: string,
+  name: string,
+  robot_name: string,
+  fleet_name: string,
+  status: string,
+  created_at_unix_ms: number,
+  updated_at_unix_ms: number,
+  execution_created_at_unix_ms: number,
+  execution_updated_at_unix_ms: number,
+}
+
+export interface TaskManagerUnitTaskInfo {
+  unit_id: string,
+  seq: number,
+  waypoint: string,
+  action_name: string,
+  status: string,
+  attempts: number,
+  last_error: string,
+  task_definition_id: string,
+  task_execution_id: string,
+  unit_task_definition_id: string,
+  unit_task_execution_id: string,
+}
+
+export interface TaskManagerTaskDetail {
+  found: boolean,
+  task: TaskManagerTaskInfo,
+  unit_tasks: TaskManagerUnitTaskInfo[],
+  message: string,
+}
+
+export interface TaskManagerUnitTaskSpec {
+  seq: number,
+  waypoint: string,
+  action_name: string,
+  action_params_json: string,
+}
+
+export interface TaskManagerCreateTaskPayload {
+  name: string,
+  robot_name: string,
+  fleet_name: string,
+  unit_tasks: TaskManagerUnitTaskSpec[],
+}
+
+export interface TaskManagerCreateTaskResult {
+  ok: boolean,
+  task_id: string,
+  task_definition_id: string,
+  message: string,
+}
+
+export interface TaskManagerRunTaskResult {
+  accepted: boolean,
+  task_execution_id: string,
+  message: string,
+}
+
+export interface TaskManagerCancelTaskResult {
+  ok: boolean,
+  message: string,
+}
+
+export interface TaskManagerDeleteTaskResult {
+  ok: boolean,
+  message: string,
+}
+
+export interface RmfDoorStateMessage {
+  key?: string,
+  doorTime: FleetTimeMessage,
+  doorName: string,
+  currentMode: number,
+}
+
+export interface RmfDoorRequestMessage {
+  requestTime?: FleetTimeMessage,
+  requesterId: string,
+  doorName: string,
+  requestedMode: {
+    value: number,
+  },
+}
+
+export interface RmfLiftStateMessage {
+  key?: string,
+  liftTime: FleetTimeMessage,
+  liftName: string,
+  availableFloors: string[],
+  currentFloor: string,
+  destinationFloor: string,
+  doorState: number,
+  motionState: number,
+  availableModes: number[],
+  currentMode: number,
+  sessionId: string,
+}
+
+export interface RmfLiftRequestMessage {
+  liftName: string,
+  requestTime?: FleetTimeMessage,
+  sessionId: string,
+  requestType: number,
+  destinationFloor: string,
+  doorState: number,
+}
+
+export interface RmfScheduleMarkerPointMessage {
+  x: number,
+  y: number,
+  z: number,
+}
+
+export interface RmfScheduleMarkerQuaternionMessage {
+  x: number,
+  y: number,
+  z: number,
+  w: number,
+}
+
+export interface RmfScheduleMarkerPoseMessage extends RmfScheduleMarkerPointMessage {
+  orientation: RmfScheduleMarkerQuaternionMessage,
+}
+
+export interface RmfScheduleMarkerColorMessage {
+  r: number,
+  g: number,
+  b: number,
+  a: number,
+}
+
+export interface RmfScheduleMarkerMessage {
+  key?: string,
+  frameId: string,
+  stamp: FleetTimeMessage,
+  ns: string,
+  id: number,
+  type: number,
+  action: number,
+  pose: RmfScheduleMarkerPoseMessage,
+  scale: RmfScheduleMarkerPointMessage,
+  color: RmfScheduleMarkerColorMessage,
+  lifetime: number,
+  frameLocked: boolean,
+  points: RmfScheduleMarkerPointMessage[],
+  colors: RmfScheduleMarkerColorMessage[],
+  text: string,
+  meshResource: string,
+  meshUseEmbeddedMaterials: boolean,
+  timestamp: number,
+}
+
+export type RmfScheduleMarkerCacheMessage = Record<string, Record<string, RmfScheduleMarkerMessage>>
 
 export interface BuildingMapParamMessage {
   name: string,

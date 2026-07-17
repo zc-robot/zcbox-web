@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FC } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import toast from 'react-hot-toast'
+import apiServer from '@/service/apiServer'
 import { useGridStore, useParamsStore } from '@/store'
 import { defaultPointCloudTopics } from '@/store/params'
 import type { PointCloudMessage, PointCloudPoint } from '@/types'
@@ -16,6 +18,55 @@ const topicColors = [
   '#14b8a6',
   '#fb7185',
 ]
+
+const defaultPointCloudRoiRequest: ZenohPointCloudRoiRequest = {
+  min_x: 0,
+  max_x: 3,
+  min_y: -0.5,
+  max_y: 0.5,
+  min_z: -0.2,
+  max_z: 1,
+  remove_ground: false,
+  ground_plane_a: 0,
+  ground_plane_b: 0,
+  ground_plane_c: 1,
+  ground_plane_d: 0,
+  ground_distance_threshold: 0.06,
+}
+
+type PointCloudRoiNumberKey = Exclude<keyof ZenohPointCloudRoiRequest, 'remove_ground'>
+
+const roiBoundsFields: Array<{ key: keyof Pick<ZenohPointCloudRoiRequest, 'min_x' | 'max_x' | 'min_y' | 'max_y' | 'min_z' | 'max_z'>; label: string }> = [
+  { key: 'min_x', label: 'X 最小' },
+  { key: 'max_x', label: 'X 最大' },
+  { key: 'min_y', label: 'Y 最小' },
+  { key: 'max_y', label: 'Y 最大' },
+  { key: 'min_z', label: 'Z 最小' },
+  { key: 'max_z', label: 'Z 最大' },
+]
+
+const roiGroundPlaneFields: Array<{ key: keyof Pick<ZenohPointCloudRoiRequest, 'ground_plane_a' | 'ground_plane_b' | 'ground_plane_c' | 'ground_plane_d'>; label: string }> = [
+  { key: 'ground_plane_a', label: 'A' },
+  { key: 'ground_plane_b', label: 'B' },
+  { key: 'ground_plane_c', label: 'C' },
+  { key: 'ground_plane_d', label: 'D' },
+]
+
+const pointCloudRoiCameras = [
+  { name: 'camera_1', label: '相机 1' },
+  { name: 'camera_2', label: '相机 2' },
+]
+
+interface PointCloudRoiStatus {
+  type: 'success' | 'error'
+  cameraName: string
+  serviceKey?: string
+  message: string
+  frameId?: string
+  pointCount?: number
+  sampledCount?: number
+  isTransformError?: boolean
+}
 
 function parseTopicDraft(value: string) {
   return value
@@ -41,6 +92,23 @@ function isOpticalFrame(frameId: string) {
 
 function getCloudTopic(pointCloud: PointCloudMessage) {
   return pointCloud.topic || pointCloud.key || pointCloud.frameId
+}
+
+function getErrorMessage(error: unknown) {
+  if (!(error instanceof Error))
+    return String(error)
+
+  return error.message
+    .replace(/^Error invoking remote method 'zenoh-command:get-point-cloud-roi':\s*/, '')
+    .replace(/^Error:\s*/, '')
+}
+
+function formatPointCloudRoiError(message: string) {
+  const transformMatch = message.match(/Failed to transform point cloud from\s+(.+?)\s+to\s+(.+)$/i)
+  if (!transformMatch)
+    return message
+
+  return `服务端 TF 转换失败：${transformMatch[1]} -> ${transformMatch[2]}`
 }
 
 function getThreePoint(point: PointCloudPoint, frameId: string) {
@@ -102,10 +170,15 @@ const PointCloud3DView: FC = () => {
   const pointClouds = useGridStore(state => state.pointClouds)
   const pointCloudPointSize = useGridStore(state => state.pointCloudPointSize)
   const setPointCloudVisibility = useGridStore(state => state.setPointCloudVisibility)
+  const updatePointCloud = useGridStore(state => state.updatePointCloud)
   const updatePointCloudPointSize = useGridStore(state => state.updatePointCloudPointSize)
+  const nestControllerIp = useParamsStore(state => state.nestControllerIp)
   const pointCloudTopics = useParamsStore(state => state.pointCloudTopics)
   const updatePointCloudTopics = useParamsStore(state => state.updatePointCloudTopics)
   const [draftTopics, setDraftTopics] = useState(formatTopics(pointCloudTopics))
+  const [pointCloudRoiRequest, setPointCloudRoiRequest] = useState<ZenohPointCloudRoiRequest>({ ...defaultPointCloudRoiRequest })
+  const [requestingCamera, setRequestingCamera] = useState<string | null>(null)
+  const [pointCloudRoiStatus, setPointCloudRoiStatus] = useState<PointCloudRoiStatus | null>(null)
 
   const totalPoints = useMemo(() => {
     return pointClouds.reduce((sum, cloud) => sum + cloud.points.length, 0)
@@ -277,10 +350,79 @@ const PointCloud3DView: FC = () => {
   const increasePointSize = () => updatePointCloudPointSize(0.01)
   const applyTopics = () => updatePointCloudTopics(parseTopicDraft(draftTopics))
   const resetTopics = () => updatePointCloudTopics(defaultPointCloudTopics)
+  const updatePointCloudRoiNumber = (key: PointCloudRoiNumberKey, value: number) => {
+    if (!Number.isFinite(value))
+      return
+
+    setPointCloudRoiRequest(current => ({
+      ...current,
+      [key]: value,
+    }))
+  }
+  const resetPointCloudRoiRequest = () => setPointCloudRoiRequest({ ...defaultPointCloudRoiRequest })
+  const requestPointCloudRoi = async (cameraName: string) => {
+    if (!window.zcDesktop?.getZenohPointCloudRoi) {
+      toast.error('点云 ROI 仅支持桌面应用')
+      return
+    }
+
+    if (!nestControllerIp) {
+      toast.error('未连接机器人控制器')
+      return
+    }
+
+    setRequestingCamera(cameraName)
+    setPointCloudRoiStatus(null)
+    let serviceKey = ''
+    try {
+      const namespace = await apiServer.fetchZenohNamespace()
+      const normalizedNamespace = namespace.replace(/^\/+/, '').replace(/\/+$/, '')
+      serviceKey = normalizedNamespace
+        ? `${normalizedNamespace}/${cameraName}/get_point_cloud_roi`
+        : `${cameraName}/get_point_cloud_roi`
+      const response = await window.zcDesktop.getZenohPointCloudRoi({
+        host: nestControllerIp,
+        namespace,
+        cameraName,
+        request: pointCloudRoiRequest,
+        timeoutMs: 10000,
+        maxPoints: 12000,
+      })
+
+      hasFittedCloudRef.current = false
+      updatePointCloud(response.pointCloud)
+      setPointCloudRoiStatus({
+        type: 'success',
+        cameraName,
+        serviceKey: response.key || serviceKey,
+        message: response.message || 'success',
+        frameId: response.pointCloud.frameId,
+        pointCount: response.pointCloud.pointCount,
+        sampledCount: response.pointCloud.sampledCount,
+      })
+      toast.success(`点云已获取 ${response.pointCloud.sampledCount} 点`)
+    }
+    catch (error) {
+      const message = getErrorMessage(error)
+      const isTransformError = /Failed to transform point cloud from\s+.+?\s+to\s+.+$/i.test(message)
+      const displayMessage = formatPointCloudRoiError(message)
+      setPointCloudRoiStatus({
+        type: 'error',
+        cameraName,
+        serviceKey,
+        message: displayMessage,
+        isTransformError,
+      })
+      toast.error(`获取点云失败 ${displayMessage}`)
+    }
+    finally {
+      setRequestingCamera(null)
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-80 flex bg-slate-950 text-white">
-      <aside className="w-21rem shrink-0 border-(r-solid 1px slate-800) bg-slate-900 p-4">
+      <aside className="w-21rem shrink-0 overflow-y-auto border-(r-solid 1px slate-800) bg-slate-900 p-4">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2 font-600">
             <div className="i-material-symbols-view-in-ar-outline-rounded text-5 text-sky-300" />
@@ -308,6 +450,123 @@ const PointCloud3DView: FC = () => {
             <div className="text-slate-400">原点</div>
             <div className="truncate font-600">base_footprint</div>
           </div>
+        </div>
+
+        <div className="mt-4">
+          <div className="mb-2 text-xs text-slate-300">服务点云</div>
+          <div className="grid grid-cols-2 gap-2">
+            {pointCloudRoiCameras.map(camera => (
+              <button
+                key={camera.name}
+                className="h-9 flex items-center justify-center gap-1 rounded bg-sky-600 px-2 text-sm text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-45"
+                type="button"
+                title={`调用 ${camera.name} 点云 ROI 服务`}
+                aria-label={`调用 ${camera.name} 点云 ROI 服务`}
+                disabled={requestingCamera !== null}
+                onClick={() => void requestPointCloudRoi(camera.name)}>
+                <div className={requestingCamera === camera.name ? 'i-material-symbols-refresh-rounded animate-spin text-4' : 'i-material-symbols-view-in-ar-outline-rounded text-4'} />
+                <span>{requestingCamera === camera.name ? '获取中' : camera.label}</span>
+              </button>
+            ))}
+          </div>
+          {pointCloudRoiStatus && (
+            <div
+              className="mt-2 border-(solid 1px slate-800) bg-slate-950 p-2 text-xs"
+              style={{ borderColor: pointCloudRoiStatus.type === 'success' ? '#065f46' : '#b45309' }}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono text-slate-300">{pointCloudRoiStatus.cameraName}</span>
+                <span className={pointCloudRoiStatus.type === 'success' ? 'text-emerald-300' : 'text-amber-300'}>
+                  {pointCloudRoiStatus.type === 'success' ? '成功' : '失败'}
+                </span>
+              </div>
+              {pointCloudRoiStatus.serviceKey && (
+                <div className="mt-1 truncate font-mono text-slate-500" title={pointCloudRoiStatus.serviceKey}>
+                  {pointCloudRoiStatus.serviceKey}
+                </div>
+              )}
+              <div className={`mt-1 break-words ${pointCloudRoiStatus.type === 'success' ? 'text-slate-300' : 'text-amber-200'}`}>
+                {pointCloudRoiStatus.message}
+              </div>
+              {pointCloudRoiStatus.type === 'success' && (
+                <div className="mt-1 flex justify-between gap-2 text-slate-400">
+                  <span className="truncate">{pointCloudRoiStatus.frameId || 'base_footprint'}</span>
+                  <span>{pointCloudRoiStatus.sampledCount} / {pointCloudRoiStatus.pointCount}</span>
+                </div>
+              )}
+              {pointCloudRoiStatus.isTransformError && (
+                <div className="mt-1 text-amber-300">
+                  机器人 TF 缺少相机到 base_footprint 的转换
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-3 border-(solid 1px slate-800) bg-slate-950 p-2">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="text-xs text-slate-300">服务请求</div>
+            <button
+              className="rounded border-(solid 1px slate-700) px-2 py-0.5 text-xs text-slate-200 hover:bg-slate-800"
+              type="button"
+              disabled={requestingCamera !== null}
+              onClick={resetPointCloudRoiRequest}>
+              默认
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            {roiBoundsFields.map(field => (
+              <label key={field.key} className="block min-w-0 text-xs text-slate-400">
+                <span className="mb-1 block">{field.label}</span>
+                <input
+                  className="h-8 w-full border-(solid 1px slate-700) rounded bg-slate-900 px-2 font-mono text-xs text-slate-100 outline-none focus:border-sky-400 disabled:opacity-45"
+                  type="number"
+                  step="0.05"
+                  disabled={requestingCamera !== null}
+                  value={pointCloudRoiRequest[field.key]}
+                  onChange={event => updatePointCloudRoiNumber(field.key, event.currentTarget.valueAsNumber)} />
+              </label>
+            ))}
+          </div>
+
+          <label className="mt-2 flex items-center gap-2 text-xs text-slate-300">
+            <input
+              type="checkbox"
+              disabled={requestingCamera !== null}
+              checked={pointCloudRoiRequest.remove_ground}
+              onChange={event => setPointCloudRoiRequest(current => ({
+                ...current,
+                remove_ground: event.target.checked,
+              }))} />
+            <span>去除地面</span>
+          </label>
+
+          <div className="mt-2 grid grid-cols-4 gap-2">
+            {roiGroundPlaneFields.map(field => (
+              <label key={field.key} className="block min-w-0 text-xs text-slate-400">
+                <span className="mb-1 block">{field.label}</span>
+                <input
+                  className="h-8 w-full border-(solid 1px slate-700) rounded bg-slate-900 px-1.5 font-mono text-xs text-slate-100 outline-none focus:border-sky-400 disabled:opacity-45"
+                  type="number"
+                  step="0.01"
+                  disabled={requestingCamera !== null}
+                  value={pointCloudRoiRequest[field.key]}
+                  onChange={event => updatePointCloudRoiNumber(field.key, event.currentTarget.valueAsNumber)} />
+              </label>
+            ))}
+          </div>
+
+          <label className="mt-2 block text-xs text-slate-400">
+            <span className="mb-1 block">地面阈值</span>
+            <input
+              className="h-8 w-full border-(solid 1px slate-700) rounded bg-slate-900 px-2 font-mono text-xs text-slate-100 outline-none focus:border-sky-400 disabled:opacity-45"
+              type="number"
+              min="0"
+              step="0.01"
+              disabled={requestingCamera !== null}
+              value={pointCloudRoiRequest.ground_distance_threshold}
+              onChange={event => updatePointCloudRoiNumber('ground_distance_threshold', event.currentTarget.valueAsNumber)} />
+          </label>
         </div>
 
         <div className="mt-4 flex items-center gap-2">

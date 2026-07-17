@@ -4,6 +4,7 @@ const { spawn } = require('node:child_process')
 const { existsSync } = require('node:fs')
 const nodeNet = require('node:net')
 const { app, BrowserWindow, ipcMain, net, shell } = require('electron')
+const { serializeRobotParameterUpdateBody } = require('./robot-parameter-request.cjs')
 
 const appId = 'com.zcbox.desktop'
 const devServerUrl = process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173'
@@ -13,21 +14,31 @@ let zenohRobotPoseProcess = null
 let zenohPointCloudProcess = null
 let zenohTelemetryProcess = null
 let zenohMotorStatesProcess = null
+let zenohWheelStatesProcess = null
 let zenohFleetDataProcess = null
 let zenohBuildingMapProcess = null
+let zenohRmfStateProcess = null
 let zenohDidoProcess = null
 let zenohHardwareDiagnosticsProcess = null
+let zenohBondsProcess = null
+let zenohLifecycleTransitionProcess = null
 let zenohCommandProcess = null
 let zenohRobotPoseKey = null
 let zenohPointCloudKey = null
 let zenohTelemetryKey = null
 let zenohMotorStatesKey = null
+let zenohWheelStatesKey = null
 let zenohFleetDataKey = null
 let zenohBuildingMapKey = null
+let zenohRmfStateKey = null
 let zenohDidoKey = null
 let zenohHardwareDiagnosticsKey = null
+let zenohBondsKey = null
+let zenohLifecycleTransitionKey = null
 let zenohCommandKey = null
 let modbusTransactionId = 0
+let zenohCommandRequestId = 0
+const pendingZenohCommandRequests = new Map()
 
 const shelfStateModbusAddresses = Object.freeze({
   shelfPresentCoil: 401,
@@ -89,7 +100,15 @@ function normalizeComposeControlPath(value) {
   const normalizedPath = requestPath.startsWith('/') ? requestPath : `/${requestPath}`
   const pathname = normalizedPath.split('?')[0]
   const isAllowed = pathname === '/health'
+    || pathname === '/api/compose/allowed-files'
+    || pathname === '/api/compose/ps'
+    || pathname === '/api/compose/status'
+    || pathname === '/api/compose/config'
+    || pathname === '/api/compose/logs'
+    || pathname === '/api/compose/logs/stream'
+    || /^\/api\/compose\/(?:up|down|stop|restart)$/.test(pathname)
     || pathname === '/api/fleet-config'
+    || pathname === '/api/fleet-config/namespace'
     || pathname === '/api/fleet-config/reference-coordinates'
     || pathname === '/api/maps/sites'
     || /^\/api\/maps\/[^/]+\/files$/.test(pathname)
@@ -231,6 +250,158 @@ async function fetchCameraGatewayBinary(options) {
     status: response.status,
     contentType,
     data,
+  }
+}
+
+async function fetchRobotParameters(options) {
+  const host = normalizeGatewayHost(options?.host)
+  const port = Number.isFinite(options?.port) ? Math.floor(options.port) : 5000
+  if (port < 1 || port > 65535)
+    throw new Error(`Robot parameter request port is invalid: ${port}`)
+
+  const url = new URL('/param_handler/yamlGetAll', `http://${host}:${port}`)
+  let response
+  try {
+    response = await net.fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        'accept': 'application/json, application/yaml, text/yaml, text/plain, */*',
+        'x-api-key': '1234567890',
+      },
+    })
+  }
+  catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`Robot parameter request failed: GET ${url.toString()}: ${message}`)
+  }
+
+  const body = await response.text()
+  if (!response.ok)
+    throw new Error(`Robot parameter request failed: ${response.status} ${response.statusText}`)
+
+  return {
+    ok: true,
+    status: response.status,
+    body,
+  }
+}
+
+async function fetchRobotParameterHeads(options) {
+  const host = normalizeGatewayHost(options?.host)
+  const port = Number.isFinite(options?.port) ? Math.floor(options.port) : 5000
+  if (port < 1 || port > 65535)
+    throw new Error(`Robot parameter request port is invalid: ${port}`)
+
+  const url = new URL('/param_handler/yamlGetHeads', `http://${host}:${port}`)
+  let response
+  try {
+    response = await net.fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        'accept': 'application/json, */*',
+        'x-api-key': '1234567890',
+      },
+    })
+  }
+  catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`Robot parameter heads request failed: GET ${url.toString()}: ${message}`)
+  }
+
+  const body = await response.text()
+  if (!response.ok)
+    throw new Error(body.trim() || `Robot parameter heads request failed: ${response.status} ${response.statusText}`)
+
+  return {
+    ok: true,
+    status: response.status,
+    body,
+  }
+}
+
+async function fetchRobotParametersByHeads(options) {
+  const host = normalizeGatewayHost(options?.host)
+  const port = Number.isFinite(options?.port) ? Math.floor(options.port) : 5000
+  if (port < 1 || port > 65535)
+    throw new Error(`Robot parameter request port is invalid: ${port}`)
+
+  const heads = Array.isArray(options?.heads)
+    ? options.heads.filter(head => typeof head === 'string').map(head => head.trim()).filter(Boolean)
+    : []
+  if (heads.length === 0)
+    throw new Error('Robot parameters by head request requires at least one head')
+
+  const url = new URL('/param_handler/yamlGetParamsByHeads', `http://${host}:${port}`)
+  let response
+  try {
+    response = await net.fetch(url.toString(), {
+      method: 'POST',
+      headers: {
+        'accept': 'application/json, */*',
+        'content-type': 'application/json',
+        'x-api-key': '1234567890',
+      },
+      body: JSON.stringify({ heads }),
+    })
+  }
+  catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`Robot parameters by head request failed: POST ${url.toString()}: ${message}`)
+  }
+
+  const body = await response.text()
+  if (!response.ok)
+    throw new Error(body.trim() || `Robot parameters by head request failed: ${response.status} ${response.statusText}`)
+
+  return {
+    ok: true,
+    status: response.status,
+    body,
+  }
+}
+
+async function updateRobotParameter(options) {
+  const host = normalizeGatewayHost(options?.host)
+  const port = Number.isFinite(options?.port) ? Math.floor(options.port) : 5000
+  if (port < 1 || port > 65535)
+    throw new Error(`Robot parameter request port is invalid: ${port}`)
+
+  const keyPath = typeof options?.keyPath === 'string' ? options.keyPath.trim() : ''
+  if (!keyPath)
+    throw new Error('Robot parameter update requires a key path')
+  if (options?.newValue === undefined)
+    throw new Error('Robot parameter update requires a value')
+
+  const url = new URL('/param_handler/yamlUpdateValue', `http://${host}:${port}`)
+  let response
+  try {
+    response = await net.fetch(url.toString(), {
+      method: 'POST',
+      headers: {
+        'accept': 'application/json, text/plain, */*',
+        'content-type': 'application/json',
+        'x-api-key': '1234567890',
+      },
+      body: serializeRobotParameterUpdateBody({
+        keyPath,
+        newValue: options.newValue,
+        numericType: options.numericType,
+      }),
+    })
+  }
+  catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`Robot parameter update failed: POST ${url.toString()}: ${message}`)
+  }
+
+  const body = await response.text()
+  if (!response.ok)
+    throw new Error(body.trim() || `Robot parameter update failed: ${response.status} ${response.statusText}`)
+
+  return {
+    ok: true,
+    status: response.status,
+    body,
   }
 }
 
@@ -647,6 +818,13 @@ function getZenohBuildingMapBridgePath() {
   return path.join(process.resourcesPath, 'app.asar.unpacked', 'desktop', 'zenoh-building-map-bridge.py')
 }
 
+function getZenohRmfStateBridgePath() {
+  if (!app.isPackaged)
+    return path.join(__dirname, 'zenoh-rmf-state-bridge.py')
+
+  return path.join(process.resourcesPath, 'app.asar.unpacked', 'desktop', 'zenoh-rmf-state-bridge.py')
+}
+
 function getZenohDidoBridgePath() {
   if (!app.isPackaged)
     return path.join(__dirname, 'zenoh-dido-bridge.py')
@@ -659,6 +837,20 @@ function getZenohHardwareDiagnosticsBridgePath() {
     return path.join(__dirname, 'zenoh-hardware-diagnostics-bridge.py')
 
   return path.join(process.resourcesPath, 'app.asar.unpacked', 'desktop', 'zenoh-hardware-diagnostics-bridge.py')
+}
+
+function getZenohBondsBridgePath() {
+  if (!app.isPackaged)
+    return path.join(__dirname, 'zenoh-bond-bridge.py')
+
+  return path.join(process.resourcesPath, 'app.asar.unpacked', 'desktop', 'zenoh-bond-bridge.py')
+}
+
+function getZenohLifecycleTransitionBridgePath() {
+  if (!app.isPackaged)
+    return path.join(__dirname, 'zenoh-lifecycle-transition-bridge.py')
+
+  return path.join(process.resourcesPath, 'app.asar.unpacked', 'desktop', 'zenoh-lifecycle-transition-bridge.py')
 }
 
 function getZenohCommandBridgePath() {
@@ -737,6 +929,13 @@ function sendZenohMotorStatesMessage(message) {
   mainWindow.webContents.send('zenoh-motor-states:message', message)
 }
 
+function sendZenohWheelStatesMessage(message) {
+  if (!mainWindow || mainWindow.isDestroyed())
+    return
+
+  mainWindow.webContents.send('zenoh-wheel-states:message', message)
+}
+
 function sendZenohFleetDataMessage(message) {
   if (!mainWindow || mainWindow.isDestroyed())
     return
@@ -749,6 +948,13 @@ function sendZenohBuildingMapMessage(message) {
     return
 
   mainWindow.webContents.send('zenoh-building-map:message', message)
+}
+
+function sendZenohRmfStateMessage(message) {
+  if (!mainWindow || mainWindow.isDestroyed())
+    return
+
+  mainWindow.webContents.send('zenoh-rmf-state:message', message)
 }
 
 function sendZenohDidoMessage(message) {
@@ -765,6 +971,20 @@ function sendZenohHardwareDiagnosticsMessage(message) {
   mainWindow.webContents.send('zenoh-hardware-diagnostics:message', message)
 }
 
+function sendZenohBondsMessage(message) {
+  if (!mainWindow || mainWindow.isDestroyed())
+    return
+
+  mainWindow.webContents.send('zenoh-bonds:message', message)
+}
+
+function sendZenohLifecycleTransitionMessage(message) {
+  if (!mainWindow || mainWindow.isDestroyed())
+    return
+
+  mainWindow.webContents.send('zenoh-lifecycle-transition:message', message)
+}
+
 function sendZenohCommandMessage(message) {
   if (!mainWindow || mainWindow.isDestroyed())
     return
@@ -772,11 +992,82 @@ function sendZenohCommandMessage(message) {
   mainWindow.webContents.send('zenoh-command:message', message)
 }
 
+function handleZenohCommandMessage(message) {
+  sendZenohCommandMessage(message)
+
+  if (message?.type !== 'service-response' || typeof message.requestId !== 'string')
+    return
+
+  const pending = pendingZenohCommandRequests.get(message.requestId)
+  if (!pending)
+    return
+
+  pendingZenohCommandRequests.delete(message.requestId)
+  clearTimeout(pending.timeout)
+  pending.resolve(message)
+}
+
+function rejectPendingZenohCommandRequests(error) {
+  for (const [requestId, pending] of pendingZenohCommandRequests) {
+    pendingZenohCommandRequests.delete(requestId)
+    clearTimeout(pending.timeout)
+    pending.reject(error)
+  }
+}
+
+function nextZenohCommandRequestId(prefix) {
+  zenohCommandRequestId += 1
+  return `${prefix}:${Date.now()}:${zenohCommandRequestId}`
+}
+
+function waitForZenohCommandResponse(requestId, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      pendingZenohCommandRequests.delete(requestId)
+      reject(new Error(`Zenoh service request timed out: ${requestId}`))
+    }, timeoutMs)
+
+    pendingZenohCommandRequests.set(requestId, {
+      resolve,
+      reject,
+      timeout,
+    })
+  })
+}
+
+function cancelPendingZenohCommandRequest(requestId, error) {
+  const pending = pendingZenohCommandRequests.get(requestId)
+  if (!pending)
+    return
+
+  pendingZenohCommandRequests.delete(requestId)
+  clearTimeout(pending.timeout)
+  pending.reject(error)
+}
+
 function isBridgeRunning(bridgeProcess) {
   return bridgeProcess != null
     && bridgeProcess.exitCode == null
     && bridgeProcess.signalCode == null
     && !bridgeProcess.killed
+}
+
+function normalizeNamespacedZenohTopics(namespace, topics) {
+  const normalizedNamespace = typeof namespace === 'string' ? namespace.trim().replace(/^\/+/, '').replace(/\/+$/, '') : ''
+  const normalized = []
+  for (const rawTopic of topics) {
+    const topic = typeof rawTopic === 'string' ? rawTopic.trim().replace(/^\/+/, '').replace(/\/+$/, '') : ''
+    if (!topic)
+      continue
+
+    const key = normalizedNamespace && !topic.startsWith(`${normalizedNamespace}/`)
+      ? `${normalizedNamespace}/${topic}`
+      : topic
+    if (!normalized.includes(key))
+      normalized.push(key)
+  }
+
+  return normalized
 }
 
 function stopZenohRobotPoseBridge() {
@@ -1219,6 +1510,107 @@ function startZenohMotorStatesBridge(options) {
   zenohMotorStatesKey = bridgeKey
 }
 
+function stopZenohWheelStatesBridge() {
+  if (!zenohWheelStatesProcess)
+    return
+
+  zenohWheelStatesProcess.kill()
+  zenohWheelStatesProcess = null
+  zenohWheelStatesKey = null
+}
+
+function startZenohWheelStatesBridge(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const namespace = typeof options?.namespace === 'string' ? options.namespace.trim() : ''
+  const topics = Array.isArray(options?.topics) ? options.topics.filter(topic => typeof topic === 'string' && topic.trim()) : []
+  const normalizedTopics = Array.from(new Set(topics.map(topic => topic.trim().replace(/^\/+/, '').replace(/\/+$/, '')).filter(Boolean)))
+
+  if (!host)
+    throw new Error('Zenoh wheel states requires host')
+  if (normalizedTopics.length === 0)
+    throw new Error('Zenoh wheel states requires at least one topic')
+
+  const bridgeKey = JSON.stringify({ host, namespace, topics: normalizedTopics })
+  if (zenohWheelStatesKey === bridgeKey && isBridgeRunning(zenohWheelStatesProcess)) {
+    sendZenohWheelStatesMessage({
+      type: 'status',
+      state: 'subscribed',
+      reused: true,
+      keys: normalizedTopics,
+    })
+    return
+  }
+
+  stopZenohWheelStatesBridge()
+
+  const python = getPythonInvocation()
+  const pythonPath = process.env.ZCBOX_ZENOH_PYTHONPATH || getBundledZenohPythonPath()
+  const env = { ...process.env }
+  if (pythonPath)
+    env.PYTHONPATH = env.PYTHONPATH ? `${pythonPath}${path.delimiter}${env.PYTHONPATH}` : pythonPath
+
+  const args = [
+    getZenohMotorStateBridgePath(),
+    '--host',
+    host,
+    '--parent-pid',
+    String(process.pid),
+  ]
+  if (namespace)
+    args.push('--namespace', namespace)
+  for (const topic of normalizedTopics)
+    args.push('--topic', topic)
+
+  const bridgeProcess = spawn(python.command, [...python.args, ...args], {
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  })
+  zenohWheelStatesProcess = bridgeProcess
+
+  let stdoutBuffer = ''
+
+  bridgeProcess.stdout.on('data', (chunk) => {
+    stdoutBuffer += chunk.toString()
+    const lines = stdoutBuffer.split('\n')
+    stdoutBuffer = lines.pop() ?? ''
+
+    for (const line of lines) {
+      if (!line.trim())
+        continue
+
+      try {
+        sendZenohWheelStatesMessage(JSON.parse(line))
+      }
+      catch {
+        sendZenohWheelStatesMessage({ type: 'log', message: line })
+      }
+    }
+  })
+
+  bridgeProcess.stderr.on('data', (chunk) => {
+    sendZenohWheelStatesMessage({ type: 'error', message: chunk.toString() })
+  })
+
+  bridgeProcess.on('error', (error) => {
+    sendZenohWheelStatesMessage({ type: 'error', message: error.message })
+    if (zenohWheelStatesProcess === bridgeProcess) {
+      zenohWheelStatesProcess = null
+      zenohWheelStatesKey = null
+    }
+  })
+
+  bridgeProcess.on('exit', (code, signal) => {
+    sendZenohWheelStatesMessage({ type: 'status', state: 'stopped', code, signal })
+    if (zenohWheelStatesProcess === bridgeProcess) {
+      zenohWheelStatesProcess = null
+      zenohWheelStatesKey = null
+    }
+  })
+
+  zenohWheelStatesKey = bridgeKey
+}
+
 function stopZenohFleetDataBridge() {
   if (!zenohFleetDataProcess)
     return
@@ -1237,13 +1629,14 @@ function startZenohFleetDataBridge(options) {
     throw new Error('Zenoh fleet data requires host')
 
   const normalizedTopics = topics.map(topic => topic.trim()).filter(Boolean)
+  const subscribedKeys = normalizeNamespacedZenohTopics(namespace, normalizedTopics)
   const bridgeKey = JSON.stringify({ host, namespace, topics: normalizedTopics })
   if (zenohFleetDataKey === bridgeKey && isBridgeRunning(zenohFleetDataProcess)) {
     sendZenohFleetDataMessage({
       type: 'status',
       state: 'subscribed',
       reused: true,
-      keys: normalizedTopics,
+      keys: subscribedKeys,
     })
     return
   }
@@ -1336,13 +1729,14 @@ function startZenohBuildingMapBridge(options) {
     throw new Error('Zenoh building map requires host')
 
   const normalizedTopics = topics.map(topic => topic.trim()).filter(Boolean)
+  const subscribedKeys = normalizeNamespacedZenohTopics(namespace, normalizedTopics)
   const bridgeKey = JSON.stringify({ host, namespace, topics: normalizedTopics })
   if (zenohBuildingMapKey === bridgeKey && isBridgeRunning(zenohBuildingMapProcess)) {
     sendZenohBuildingMapMessage({
       type: 'status',
       state: 'subscribed',
       reused: true,
-      keys: normalizedTopics,
+      keys: subscribedKeys,
     })
     return
   }
@@ -1415,6 +1809,106 @@ function startZenohBuildingMapBridge(options) {
   })
 
   zenohBuildingMapKey = bridgeKey
+}
+
+function stopZenohRmfStateBridge() {
+  if (!zenohRmfStateProcess)
+    return
+
+  zenohRmfStateProcess.kill()
+  zenohRmfStateProcess = null
+  zenohRmfStateKey = null
+}
+
+function startZenohRmfStateBridge(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const namespace = typeof options?.namespace === 'string' ? options.namespace.trim() : ''
+  const topics = Array.isArray(options?.topics) ? options.topics.filter(topic => typeof topic === 'string' && topic.trim()) : []
+
+  if (!host)
+    throw new Error('Zenoh RMF state requires host')
+
+  const normalizedTopics = topics.map(topic => topic.trim()).filter(Boolean)
+  const subscribedKeys = normalizeNamespacedZenohTopics(namespace, normalizedTopics)
+  const bridgeKey = JSON.stringify({ host, namespace, topics: normalizedTopics })
+  if (zenohRmfStateKey === bridgeKey && isBridgeRunning(zenohRmfStateProcess)) {
+    sendZenohRmfStateMessage({
+      type: 'status',
+      state: 'subscribed',
+      reused: true,
+      keys: subscribedKeys,
+    })
+    return
+  }
+
+  stopZenohRmfStateBridge()
+
+  const python = getPythonInvocation()
+  const pythonPath = process.env.ZCBOX_ZENOH_PYTHONPATH || getBundledZenohPythonPath()
+  const env = { ...process.env }
+  if (pythonPath)
+    env.PYTHONPATH = env.PYTHONPATH ? `${pythonPath}${path.delimiter}${env.PYTHONPATH}` : pythonPath
+
+  const args = [
+    getZenohRmfStateBridgePath(),
+    '--host',
+    host,
+    '--parent-pid',
+    String(process.pid),
+  ]
+  if (namespace)
+    args.push('--namespace', namespace)
+  for (const topic of normalizedTopics)
+    args.push('--topic', topic)
+
+  const bridgeProcess = spawn(python.command, [...python.args, ...args], {
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  })
+  zenohRmfStateProcess = bridgeProcess
+
+  let stdoutBuffer = ''
+
+  bridgeProcess.stdout.on('data', (chunk) => {
+    stdoutBuffer += chunk.toString()
+    const lines = stdoutBuffer.split('\n')
+    stdoutBuffer = lines.pop() ?? ''
+
+    for (const line of lines) {
+      if (!line.trim())
+        continue
+
+      try {
+        sendZenohRmfStateMessage(JSON.parse(line))
+      }
+      catch {
+        sendZenohRmfStateMessage({ type: 'log', message: line })
+      }
+    }
+  })
+
+  bridgeProcess.stderr.on('data', (chunk) => {
+    sendZenohRmfStateMessage({ type: 'error', message: chunk.toString() })
+  })
+
+  bridgeProcess.on('error', (error) => {
+    sendZenohRmfStateMessage({ type: 'error', message: error.message })
+    if (zenohRmfStateProcess === bridgeProcess) {
+      zenohRmfStateProcess = null
+      zenohRmfStateKey = null
+    }
+  })
+
+  bridgeProcess.on('exit', (code, signal) => {
+    sendZenohRmfStateMessage({ type: 'status', state: 'stopped', code, signal })
+    if (zenohRmfStateProcess === bridgeProcess) {
+      zenohRmfStateProcess = null
+      zenohRmfStateKey = null
+    }
+  })
+
+  zenohRmfStateKey = bridgeKey
 }
 
 function stopZenohDidoBridge() {
@@ -1613,6 +2107,196 @@ function startZenohHardwareDiagnosticsBridge(options) {
   zenohHardwareDiagnosticsKey = bridgeKey
 }
 
+function stopZenohBondsBridge() {
+  if (!zenohBondsProcess)
+    return
+
+  zenohBondsProcess.kill()
+  zenohBondsProcess = null
+  zenohBondsKey = null
+}
+
+function startZenohBondsBridge(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const topics = Array.isArray(options?.topics) ? options.topics.filter(topic => typeof topic === 'string' && topic.trim()) : []
+  const normalizedTopics = Array.from(new Set(topics.map(topic => topic.trim().replace(/^\/+/, '').replace(/\/+$/, '')).filter(Boolean)))
+
+  if (!host)
+    throw new Error('Zenoh bonds requires host')
+  if (normalizedTopics.length === 0)
+    throw new Error('Zenoh bonds requires at least one topic')
+
+  const bridgeKey = JSON.stringify({ host, topics: normalizedTopics })
+  if (zenohBondsKey === bridgeKey && isBridgeRunning(zenohBondsProcess)) {
+    sendZenohBondsMessage({
+      type: 'status',
+      state: 'subscribed',
+      reused: true,
+      keys: normalizedTopics,
+    })
+    return
+  }
+
+  stopZenohBondsBridge()
+
+  const python = getPythonInvocation()
+  const pythonPath = process.env.ZCBOX_ZENOH_PYTHONPATH || getBundledZenohPythonPath()
+  const env = { ...process.env }
+  if (pythonPath)
+    env.PYTHONPATH = env.PYTHONPATH ? `${pythonPath}${path.delimiter}${env.PYTHONPATH}` : pythonPath
+
+  const args = [
+    getZenohBondsBridgePath(),
+    '--host',
+    host,
+    '--parent-pid',
+    String(process.pid),
+  ]
+  for (const topic of normalizedTopics)
+    args.push('--topic', topic)
+
+  const bridgeProcess = spawn(python.command, [...python.args, ...args], {
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  })
+  zenohBondsProcess = bridgeProcess
+
+  let stdoutBuffer = ''
+  bridgeProcess.stdout.on('data', (chunk) => {
+    stdoutBuffer += chunk.toString()
+    const lines = stdoutBuffer.split('\n')
+    stdoutBuffer = lines.pop() ?? ''
+
+    for (const line of lines) {
+      if (!line.trim())
+        continue
+
+      try {
+        sendZenohBondsMessage(JSON.parse(line))
+      }
+      catch {
+        sendZenohBondsMessage({ type: 'log', message: line })
+      }
+    }
+  })
+
+  bridgeProcess.stderr.on('data', (chunk) => {
+    sendZenohBondsMessage({ type: 'error', message: chunk.toString() })
+  })
+
+  bridgeProcess.on('error', (error) => {
+    sendZenohBondsMessage({ type: 'error', message: error.message })
+    if (zenohBondsProcess === bridgeProcess) {
+      zenohBondsProcess = null
+      zenohBondsKey = null
+    }
+  })
+
+  bridgeProcess.on('exit', (code, signal) => {
+    sendZenohBondsMessage({ type: 'status', state: 'stopped', code, signal })
+    if (zenohBondsProcess === bridgeProcess) {
+      zenohBondsProcess = null
+      zenohBondsKey = null
+    }
+  })
+
+  zenohBondsKey = bridgeKey
+}
+
+function stopZenohLifecycleTransitionBridge() {
+  if (!zenohLifecycleTransitionProcess)
+    return
+
+  zenohLifecycleTransitionProcess.kill()
+  zenohLifecycleTransitionProcess = null
+  zenohLifecycleTransitionKey = null
+}
+
+function startZenohLifecycleTransitionBridge(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const namespace = typeof options?.namespace === 'string' ? options.namespace.trim().replace(/^\/+/, '').replace(/\/+$/, '') : ''
+  const topics = Array.isArray(options?.topics) ? options.topics.filter(topic => typeof topic === 'string' && topic.trim()) : []
+  const normalizedTopics = Array.from(new Set(topics.map(topic => topic.trim().replace(/^\/+/, '').replace(/\/+$/, '')).filter(Boolean)))
+
+  if (!host)
+    throw new Error('Zenoh lifecycle transition bridge requires host')
+  if (normalizedTopics.length === 0)
+    throw new Error('Zenoh lifecycle transition bridge requires at least one topic')
+
+  const bridgeKey = JSON.stringify({ host, namespace, topics: normalizedTopics })
+  if (zenohLifecycleTransitionKey === bridgeKey && isBridgeRunning(zenohLifecycleTransitionProcess)) {
+    sendZenohLifecycleTransitionMessage({ type: 'status', state: 'subscribed', reused: true })
+    return
+  }
+
+  stopZenohLifecycleTransitionBridge()
+
+  const python = getPythonInvocation()
+  const pythonPath = process.env.ZCBOX_ZENOH_PYTHONPATH || getBundledZenohPythonPath()
+  const env = { ...process.env }
+  if (pythonPath)
+    env.PYTHONPATH = env.PYTHONPATH ? `${pythonPath}${path.delimiter}${env.PYTHONPATH}` : pythonPath
+
+  const args = [
+    getZenohLifecycleTransitionBridgePath(),
+    '--host',
+    host,
+    '--namespace',
+    namespace,
+    '--parent-pid',
+    String(process.pid),
+  ]
+  for (const topic of normalizedTopics)
+    args.push('--topic', topic)
+
+  const bridgeProcess = spawn(python.command, [...python.args, ...args], {
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  })
+  zenohLifecycleTransitionProcess = bridgeProcess
+
+  let stdoutBuffer = ''
+  bridgeProcess.stdout.on('data', (chunk) => {
+    stdoutBuffer += chunk.toString()
+    const lines = stdoutBuffer.split('\n')
+    stdoutBuffer = lines.pop() ?? ''
+    for (const line of lines) {
+      if (!line.trim())
+        continue
+      try {
+        sendZenohLifecycleTransitionMessage(JSON.parse(line))
+      }
+      catch {
+        sendZenohLifecycleTransitionMessage({ type: 'log', message: line })
+      }
+    }
+  })
+
+  bridgeProcess.stderr.on('data', (chunk) => {
+    sendZenohLifecycleTransitionMessage({ type: 'error', message: chunk.toString() })
+  })
+
+  bridgeProcess.on('error', (error) => {
+    sendZenohLifecycleTransitionMessage({ type: 'error', message: error.message })
+    if (zenohLifecycleTransitionProcess === bridgeProcess) {
+      zenohLifecycleTransitionProcess = null
+      zenohLifecycleTransitionKey = null
+    }
+  })
+
+  bridgeProcess.on('exit', (code, signal) => {
+    sendZenohLifecycleTransitionMessage({ type: 'status', state: 'stopped', code, signal })
+    if (zenohLifecycleTransitionProcess === bridgeProcess) {
+      zenohLifecycleTransitionProcess = null
+      zenohLifecycleTransitionKey = null
+    }
+  })
+
+  zenohLifecycleTransitionKey = bridgeKey
+}
+
 function stopZenohCommandBridge() {
   if (!zenohCommandProcess)
     return
@@ -1627,6 +2311,7 @@ function stopZenohCommandBridge() {
   zenohCommandProcess.kill()
   zenohCommandProcess = null
   zenohCommandKey = null
+  rejectPendingZenohCommandRequests(new Error('Zenoh command bridge stopped'))
 }
 
 function startZenohCommandBridge(host) {
@@ -1673,7 +2358,7 @@ function startZenohCommandBridge(host) {
         continue
 
       try {
-        sendZenohCommandMessage(JSON.parse(line))
+        handleZenohCommandMessage(JSON.parse(line))
       }
       catch {
         sendZenohCommandMessage({ type: 'log', message: line })
@@ -1687,6 +2372,7 @@ function startZenohCommandBridge(host) {
 
   bridgeProcess.on('error', (error) => {
     sendZenohCommandMessage({ type: 'error', message: error.message })
+    rejectPendingZenohCommandRequests(error)
     if (zenohCommandProcess === bridgeProcess) {
       zenohCommandProcess = null
       zenohCommandKey = null
@@ -1695,6 +2381,7 @@ function startZenohCommandBridge(host) {
 
   bridgeProcess.on('exit', (code, signal) => {
     sendZenohCommandMessage({ type: 'status', state: 'stopped', code, signal })
+    rejectPendingZenohCommandRequests(new Error(`Zenoh command bridge stopped: ${code ?? signal ?? 'unknown'}`))
     if (zenohCommandProcess === bridgeProcess) {
       zenohCommandProcess = null
       zenohCommandKey = null
@@ -1756,15 +2443,611 @@ function publishZenohFleetDigitalOutputCommand(options) {
   return true
 }
 
+function normalizeZenohTaskServicePath(value, fallback) {
+  const rawPath = typeof value === 'string' && value.trim() ? value : fallback
+  return rawPath.trim().replace(/^\/+/, '').replace(/\/+$/, '')
+}
+
+function normalizeZenohServiceTimeout(value) {
+  const timeoutMs = Number.isFinite(value) ? Math.floor(value) : 8000
+  if (timeoutMs < 500 || timeoutMs > 60000)
+    return 8000
+  return timeoutMs
+}
+
+async function requestZenohTaskList(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const servicePath = normalizeZenohTaskServicePath(options?.servicePath, '')
+  const robotNameFilter = typeof options?.robotNameFilter === 'string' ? options.robotNameFilter : ''
+  const timeoutMs = normalizeZenohServiceTimeout(options?.timeoutMs)
+
+  if (!host || !servicePath)
+    throw new Error('Task list request requires host and service path')
+
+  startZenohCommandBridge(host)
+
+  if (!zenohCommandProcess?.stdin?.writable)
+    throw new Error('Zenoh command bridge is not writable')
+
+  const requestId = nextZenohCommandRequestId('list_tasks')
+  const responsePromise = waitForZenohCommandResponse(requestId, timeoutMs)
+  try {
+    zenohCommandProcess.stdin.write(`${JSON.stringify({
+      type: 'list_tasks',
+      key: servicePath,
+      requestId,
+      robotNameFilter,
+      timeoutSec: timeoutMs / 1000,
+    })}\n`)
+  }
+  catch (error) {
+    cancelPendingZenohCommandRequest(requestId, error)
+    throw error
+  }
+
+  const response = await responsePromise
+  if (!response.success)
+    throw new Error(response.message || 'Failed to list tasks')
+
+  return {
+    ok: true,
+    ...response,
+  }
+}
+
+async function requestZenohTaskDetail(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const servicePath = normalizeZenohTaskServicePath(options?.servicePath, '')
+  const taskId = typeof options?.taskId === 'string' ? options.taskId.trim() : ''
+  const timeoutMs = normalizeZenohServiceTimeout(options?.timeoutMs)
+
+  if (!host || !servicePath)
+    throw new Error('Task detail request requires host and service path')
+  if (!taskId)
+    throw new Error('Task detail request requires task id')
+
+  startZenohCommandBridge(host)
+
+  if (!zenohCommandProcess?.stdin?.writable)
+    throw new Error('Zenoh command bridge is not writable')
+
+  const requestId = nextZenohCommandRequestId('get_task')
+  const responsePromise = waitForZenohCommandResponse(requestId, timeoutMs)
+  try {
+    zenohCommandProcess.stdin.write(`${JSON.stringify({
+      type: 'get_task',
+      key: servicePath,
+      requestId,
+      taskId,
+      timeoutSec: timeoutMs / 1000,
+    })}\n`)
+  }
+  catch (error) {
+    cancelPendingZenohCommandRequest(requestId, error)
+    throw error
+  }
+
+  const response = await responsePromise
+  if (!response.success)
+    throw new Error(response.message || 'Failed to get task')
+
+  return {
+    ok: true,
+    ...response,
+  }
+}
+
+function normalizeCreateTaskUnitTasks(value) {
+  const unitTasks = Array.isArray(value) ? value : []
+  return unitTasks.map((unitTask, index) => {
+    const seq = Number.isFinite(unitTask?.seq) ? Math.floor(unitTask.seq) : index
+    const waypoint = typeof unitTask?.waypoint === 'string' ? unitTask.waypoint.trim() : ''
+    const actionName = typeof unitTask?.action_name === 'string' ? unitTask.action_name.trim() : ''
+    const actionParamsJson = typeof unitTask?.action_params_json === 'string' && unitTask.action_params_json.trim()
+      ? unitTask.action_params_json
+      : '{}'
+
+    return {
+      seq,
+      waypoint,
+      action_name: actionName,
+      action_params_json: actionParamsJson,
+    }
+  })
+}
+
+async function requestZenohTaskCreate(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const servicePath = normalizeZenohTaskServicePath(options?.servicePath, '')
+  const timeoutMs = normalizeZenohServiceTimeout(options?.timeoutMs)
+  const task = options?.task && typeof options.task === 'object' ? options.task : {}
+  const name = typeof task.name === 'string' ? task.name.trim() : ''
+  const robotName = typeof task.robot_name === 'string' ? task.robot_name.trim() : ''
+  const fleetName = typeof task.fleet_name === 'string' ? task.fleet_name.trim() : ''
+  const unitTasks = normalizeCreateTaskUnitTasks(task.unit_tasks)
+
+  if (!host || !servicePath)
+    throw new Error('Task creation request requires host and service path')
+  if (!name)
+    throw new Error('Task creation request requires task name')
+  if (!robotName)
+    throw new Error('Task creation request requires robot name')
+  if (!fleetName)
+    throw new Error('Task creation request requires fleet name')
+  if (unitTasks.length === 0)
+    throw new Error('Task creation request requires at least one unit task')
+  if (unitTasks.some(unitTask => !unitTask.waypoint && !unitTask.action_name))
+    throw new Error('Task creation request requires waypoint or action for every unit task')
+
+  startZenohCommandBridge(host)
+
+  if (!zenohCommandProcess?.stdin?.writable)
+    throw new Error('Zenoh command bridge is not writable')
+
+  const requestId = nextZenohCommandRequestId('create_task')
+  const responsePromise = waitForZenohCommandResponse(requestId, timeoutMs)
+  try {
+    zenohCommandProcess.stdin.write(`${JSON.stringify({
+      type: 'create_task',
+      key: servicePath,
+      requestId,
+      task: {
+        name,
+        robot_name: robotName,
+        fleet_name: fleetName,
+        unit_tasks: unitTasks,
+      },
+      timeoutSec: timeoutMs / 1000,
+    })}\n`)
+  }
+  catch (error) {
+    cancelPendingZenohCommandRequest(requestId, error)
+    throw error
+  }
+
+  const response = await responsePromise
+  if (!response.success)
+    throw new Error(response.message || 'Failed to create task')
+
+  return response
+}
+
+async function requestZenohTaskRun(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const servicePath = normalizeZenohTaskServicePath(options?.servicePath, '')
+  const taskId = typeof options?.taskId === 'string' ? options.taskId.trim() : ''
+  const timeoutMs = normalizeZenohServiceTimeout(options?.timeoutMs)
+
+  if (!host || !servicePath)
+    throw new Error('Task run request requires host and service path')
+  if (!taskId)
+    throw new Error('Task run request requires task id')
+
+  startZenohCommandBridge(host)
+
+  if (!zenohCommandProcess?.stdin?.writable)
+    throw new Error('Zenoh command bridge is not writable')
+
+  const requestId = nextZenohCommandRequestId('run_task')
+  const responsePromise = waitForZenohCommandResponse(requestId, timeoutMs)
+  try {
+    zenohCommandProcess.stdin.write(`${JSON.stringify({
+      type: 'run_task',
+      key: servicePath,
+      requestId,
+      taskId,
+      timeoutSec: timeoutMs / 1000,
+    })}\n`)
+  }
+  catch (error) {
+    cancelPendingZenohCommandRequest(requestId, error)
+    throw error
+  }
+
+  const response = await responsePromise
+  if (!response.success)
+    throw new Error(response.message || 'Failed to run task')
+
+  return response
+}
+
+async function requestZenohTaskCancel(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const servicePath = normalizeZenohTaskServicePath(options?.servicePath, '')
+  const taskId = typeof options?.taskId === 'string' ? options.taskId.trim() : ''
+  const timeoutMs = normalizeZenohServiceTimeout(options?.timeoutMs)
+
+  if (!host || !servicePath)
+    throw new Error('Task cancel request requires host and service path')
+  if (!taskId)
+    throw new Error('Task cancel request requires task id')
+
+  startZenohCommandBridge(host)
+
+  if (!zenohCommandProcess?.stdin?.writable)
+    throw new Error('Zenoh command bridge is not writable')
+
+  const requestId = nextZenohCommandRequestId('cancel_task')
+  const responsePromise = waitForZenohCommandResponse(requestId, timeoutMs)
+  try {
+    zenohCommandProcess.stdin.write(`${JSON.stringify({
+      type: 'cancel_task',
+      key: servicePath,
+      requestId,
+      taskId,
+      timeoutSec: timeoutMs / 1000,
+    })}\n`)
+  }
+  catch (error) {
+    cancelPendingZenohCommandRequest(requestId, error)
+    throw error
+  }
+
+  const response = await responsePromise
+  if (!response.success)
+    throw new Error(response.message || 'Failed to cancel task')
+
+  return response
+}
+
+async function requestZenohTaskDelete(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const servicePath = normalizeZenohTaskServicePath(options?.servicePath, '')
+  const taskId = typeof options?.taskId === 'string' ? options.taskId.trim() : ''
+  const force = options?.force === true
+  const timeoutMs = normalizeZenohServiceTimeout(options?.timeoutMs)
+
+  if (!host || !servicePath)
+    throw new Error('Task delete request requires host and service path')
+  if (!taskId)
+    throw new Error('Task delete request requires task id')
+
+  startZenohCommandBridge(host)
+
+  if (!zenohCommandProcess?.stdin?.writable)
+    throw new Error('Zenoh command bridge is not writable')
+
+  const requestId = nextZenohCommandRequestId('delete_task')
+  const responsePromise = waitForZenohCommandResponse(requestId, timeoutMs)
+  try {
+    zenohCommandProcess.stdin.write(`${JSON.stringify({
+      type: 'delete_task',
+      key: servicePath,
+      requestId,
+      taskId,
+      force,
+      timeoutSec: timeoutMs / 1000,
+    })}\n`)
+  }
+  catch (error) {
+    cancelPendingZenohCommandRequest(requestId, error)
+    throw error
+  }
+
+  const response = await responsePromise
+  if (!response.success)
+    throw new Error(response.message || 'Failed to delete task')
+
+  return response
+}
+
+function normalizeStorageReinitShelf(value) {
+  const shelf = value && typeof value === 'object' ? value : {}
+  const shelfIndex = Number.isFinite(shelf.shelf_index) ? Math.floor(shelf.shelf_index) : 0
+  const columns = Number.isFinite(shelf.columns) ? Math.floor(shelf.columns) : 0
+  const rows = Number.isFinite(shelf.rows) ? Math.floor(shelf.rows) : 0
+  const shelfSide = typeof shelf.shelf_side === 'string' ? shelf.shelf_side.trim() : ''
+
+  return {
+    shelf_index: shelfIndex,
+    columns,
+    rows,
+    shelf_side: shelfSide,
+  }
+}
+
+function normalizeStorageReinitArea(value) {
+  const area = value && typeof value === 'object' ? value : {}
+  const areaIndex = Number.isFinite(area.area_index) ? Math.floor(area.area_index) : 0
+  const displayName = typeof area.display_name === 'string' ? area.display_name.trim() : ''
+  const shelves = Array.isArray(area.shelves) ? area.shelves.map(normalizeStorageReinitShelf) : []
+
+  return {
+    area_index: areaIndex,
+    display_name: displayName,
+    shelves,
+  }
+}
+
+async function requestZenohStorageAreaDisplayName(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const servicePath = normalizeZenohTaskServicePath(options?.servicePath, '')
+  const timeoutMs = normalizeZenohServiceTimeout(options?.timeoutMs ?? 10000)
+  const areaIndex = Number.isFinite(options?.areaIndex) ? Math.floor(options.areaIndex) : 0
+  const displayName = typeof options?.displayName === 'string' ? options.displayName.trim() : ''
+
+  if (!host || !servicePath)
+    throw new Error('Storage display name request requires host and service path')
+  if (areaIndex <= 0)
+    throw new Error('Storage display name request requires area index')
+
+  startZenohCommandBridge(host)
+
+  if (!zenohCommandProcess?.stdin?.writable)
+    throw new Error('Zenoh command bridge is not writable')
+
+  const requestId = nextZenohCommandRequestId('set_area_display_name')
+  const responsePromise = waitForZenohCommandResponse(requestId, timeoutMs)
+  try {
+    zenohCommandProcess.stdin.write(`${JSON.stringify({
+      type: 'set_area_display_name',
+      key: servicePath,
+      requestId,
+      areaIndex,
+      displayName,
+      timeoutSec: timeoutMs / 1000,
+    })}\n`)
+  }
+  catch (error) {
+    cancelPendingZenohCommandRequest(requestId, error)
+    throw error
+  }
+
+  const response = await responsePromise
+  if (response.received === false)
+    throw new Error(response.message || 'Failed to update storage display name')
+
+  return {
+    ok: true,
+    ...response,
+  }
+}
+
+async function requestZenohStorageReinit(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const servicePath = normalizeZenohTaskServicePath(options?.servicePath, '')
+  const timeoutMs = normalizeZenohServiceTimeout(options?.timeoutMs ?? 15000)
+  const request = options?.request && typeof options.request === 'object' ? options.request : {}
+  const layout = request.layout && typeof request.layout === 'object' ? request.layout : {}
+  const areas = Array.isArray(layout.areas) ? layout.areas.map(normalizeStorageReinitArea) : []
+  const normalizedRequest = {
+    request_id: typeof request.request_id === 'string' ? request.request_id.trim() : '',
+    confirm_reinitialize: request.confirm_reinitialize === true,
+    caller_id: typeof request.caller_id === 'string' ? request.caller_id.trim() : '',
+    reason: typeof request.reason === 'string' ? request.reason.trim() : '',
+    layout: {
+      areas,
+    },
+  }
+
+  if (!host || !servicePath)
+    throw new Error('Storage reinit request requires host and service path')
+  if (!normalizedRequest.request_id)
+    throw new Error('Storage reinit request requires request id')
+  if (!normalizedRequest.confirm_reinitialize)
+    throw new Error('Storage reinit request requires confirmation')
+  if (areas.length === 0)
+    throw new Error('Storage reinit request requires at least one area')
+  if (areas.some(area => area.area_index <= 0 || area.shelves.length === 0))
+    throw new Error('Storage reinit request requires valid areas and shelves')
+  if (areas.some(area => area.shelves.some(shelf => shelf.shelf_index <= 0 || shelf.columns <= 0 || shelf.rows <= 0)))
+    throw new Error('Storage reinit request requires valid shelf dimensions')
+
+  startZenohCommandBridge(host)
+
+  if (!zenohCommandProcess?.stdin?.writable)
+    throw new Error('Zenoh command bridge is not writable')
+
+  const requestId = nextZenohCommandRequestId('reinit_storage')
+  const responsePromise = waitForZenohCommandResponse(requestId, timeoutMs)
+  try {
+    zenohCommandProcess.stdin.write(`${JSON.stringify({
+      type: 'reinit_storage',
+      key: servicePath,
+      requestId,
+      request: normalizedRequest,
+      timeoutSec: timeoutMs / 1000,
+    })}\n`)
+  }
+  catch (error) {
+    cancelPendingZenohCommandRequest(requestId, error)
+    throw error
+  }
+
+  const response = await responsePromise
+  if (response.received === false)
+    throw new Error(response.message || 'Failed to reinitialize storage')
+
+  return {
+    ok: true,
+    ...response,
+  }
+}
+
+function normalizePointCloudRoiNumber(value, fallback) {
+  const numberValue = Number(value)
+  return Number.isFinite(numberValue) ? numberValue : fallback
+}
+
+function normalizePointCloudRoiRequest(request) {
+  const payload = request && typeof request === 'object' ? request : {}
+  const normalized = {
+    min_x: normalizePointCloudRoiNumber(payload.min_x, 0),
+    max_x: normalizePointCloudRoiNumber(payload.max_x, 3),
+    min_y: normalizePointCloudRoiNumber(payload.min_y, -0.5),
+    max_y: normalizePointCloudRoiNumber(payload.max_y, 0.5),
+    min_z: normalizePointCloudRoiNumber(payload.min_z, -0.2),
+    max_z: normalizePointCloudRoiNumber(payload.max_z, 1),
+    remove_ground: payload.remove_ground === true,
+    ground_plane_a: normalizePointCloudRoiNumber(payload.ground_plane_a, 0),
+    ground_plane_b: normalizePointCloudRoiNumber(payload.ground_plane_b, 0),
+    ground_plane_c: normalizePointCloudRoiNumber(payload.ground_plane_c, 1),
+    ground_plane_d: normalizePointCloudRoiNumber(payload.ground_plane_d, 0),
+    ground_distance_threshold: normalizePointCloudRoiNumber(payload.ground_distance_threshold, 0.06),
+  }
+
+  if (normalized.min_x >= normalized.max_x)
+    throw new Error('Point cloud ROI requires min_x < max_x')
+  if (normalized.min_y >= normalized.max_y)
+    throw new Error('Point cloud ROI requires min_y < max_y')
+  if (normalized.min_z >= normalized.max_z)
+    throw new Error('Point cloud ROI requires min_z < max_z')
+  if (normalized.ground_distance_threshold < 0)
+    throw new Error('Point cloud ROI ground threshold must be non-negative')
+
+  return normalized
+}
+
+function normalizePointCloudRoiMaxPoints(value) {
+  const maxPoints = Number.isFinite(value) ? Math.floor(value) : 3500
+  return Math.min(50000, Math.max(100, maxPoints))
+}
+
+async function requestZenohPointCloudRoi(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const namespace = typeof options?.namespace === 'string' ? options.namespace.trim().replace(/^\/+/, '').replace(/\/+$/, '') : ''
+  const cameraName = typeof options?.cameraName === 'string' ? options.cameraName.trim().replace(/^\/+/, '').replace(/\/+$/, '') : ''
+  const fallbackServicePath = namespace && cameraName ? `${namespace}/${cameraName}/get_point_cloud_roi` : ''
+  const servicePath = normalizeZenohTaskServicePath(options?.servicePath, fallbackServicePath)
+  const timeoutMs = normalizeZenohServiceTimeout(options?.timeoutMs ?? 10000)
+  const request = normalizePointCloudRoiRequest(options?.request)
+  const maxPoints = normalizePointCloudRoiMaxPoints(options?.maxPoints)
+
+  if (!host || !servicePath)
+    throw new Error('Point cloud ROI request requires host and camera')
+
+  startZenohCommandBridge(host)
+
+  if (!zenohCommandProcess?.stdin?.writable)
+    throw new Error('Zenoh command bridge is not writable')
+
+  const requestId = nextZenohCommandRequestId('get_point_cloud_roi')
+  const responsePromise = waitForZenohCommandResponse(requestId, timeoutMs)
+  try {
+    zenohCommandProcess.stdin.write(`${JSON.stringify({
+      type: 'get_point_cloud_roi',
+      key: servicePath,
+      requestId,
+      request,
+      maxPoints,
+      timeoutSec: timeoutMs / 1000,
+    })}\n`)
+  }
+  catch (error) {
+    cancelPendingZenohCommandRequest(requestId, error)
+    throw error
+  }
+
+  const response = await responsePromise
+  if (!response.success)
+    throw new Error(response.message || 'Failed to get point cloud')
+  if (!response.pointCloud)
+    throw new Error(response.message || 'Point cloud response was empty')
+
+  return {
+    ok: true,
+    ...response,
+  }
+}
+
+function publishZenohFleetLiftRequest(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const topic = typeof options?.topic === 'string'
+    ? options.topic.trim().replace(/^\/+/, '').replace(/\/+$/, '')
+    : ''
+  const request = options?.request && typeof options.request === 'object' ? options.request : {}
+  const liftName = typeof request.liftName === 'string' ? request.liftName.trim() : ''
+  const sessionId = typeof request.sessionId === 'string' ? request.sessionId.trim() : ''
+  const destinationFloor = typeof request.destinationFloor === 'string' ? request.destinationFloor.trim() : ''
+  const requestType = Number.isFinite(request.requestType) ? Math.floor(request.requestType) : 1
+  const doorState = Number.isFinite(request.doorState) ? Math.floor(request.doorState) : 2
+
+  if (!host || !topic)
+    throw new Error('Lift request requires host and topic')
+  if (!liftName)
+    throw new Error('Lift request requires lift name')
+  if (!sessionId)
+    throw new Error('Lift request requires session id')
+  if (requestType < 0 || requestType > 255)
+    throw new Error('Lift request type must be uint8')
+  if (!destinationFloor && requestType !== 0)
+    throw new Error('Lift request requires destination floor')
+  if (doorState < 0 || doorState > 255)
+    throw new Error('Lift door state must be uint8')
+
+  startZenohCommandBridge(host)
+
+  if (!zenohCommandProcess?.stdin?.writable)
+    return false
+
+  zenohCommandProcess.stdin.write(`${JSON.stringify({
+    type: 'lift_request',
+    key: topic,
+    request: {
+      liftName,
+      sessionId,
+      requestType,
+      destinationFloor,
+      doorState,
+    },
+  })}\n`)
+
+  return true
+}
+
+function publishZenohFleetDoorRequest(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const topic = typeof options?.topic === 'string'
+    ? options.topic.trim().replace(/^\/+/, '').replace(/\/+$/, '')
+    : ''
+  const request = options?.request && typeof options.request === 'object' ? options.request : {}
+  const requesterId = typeof request.requesterId === 'string' ? request.requesterId.trim() : ''
+  const doorName = typeof request.doorName === 'string' ? request.doorName.trim() : ''
+  const requestedMode = request.requestedMode && typeof request.requestedMode === 'object' ? request.requestedMode : {}
+  const requestedModeValue = Number.isFinite(requestedMode.value) ? Math.floor(requestedMode.value) : 0
+
+  if (!host || !topic)
+    throw new Error('Door request requires host and topic')
+  if (!requesterId)
+    throw new Error('Door request requires requester id')
+  if (!doorName)
+    throw new Error('Door request requires door name')
+  if (requestedModeValue < 0 || requestedModeValue > 0xFFFFFFFF)
+    throw new Error('Door requested mode must be uint32')
+
+  startZenohCommandBridge(host)
+
+  if (!zenohCommandProcess?.stdin?.writable)
+    return false
+
+  zenohCommandProcess.stdin.write(`${JSON.stringify({
+    type: 'door_request',
+    key: topic,
+    request: {
+      requesterId,
+      doorName,
+      requestedMode: {
+        value: requestedModeValue,
+      },
+    },
+  })}\n`)
+
+  return true
+}
+
 function stopAllZenohBridges() {
   stopZenohRobotPoseBridge()
   stopZenohPointCloudBridge()
   stopZenohTelemetryBridge()
   stopZenohMotorStatesBridge()
+  stopZenohWheelStatesBridge()
   stopZenohFleetDataBridge()
   stopZenohBuildingMapBridge()
+  stopZenohRmfStateBridge()
   stopZenohDidoBridge()
   stopZenohHardwareDiagnosticsBridge()
+  stopZenohBondsBridge()
+  stopZenohLifecycleTransitionBridge()
   stopZenohCommandBridge()
 }
 
@@ -1855,6 +3138,16 @@ ipcMain.handle('zenoh-motor-states:stop', () => {
   return { ok: true }
 })
 
+ipcMain.handle('zenoh-wheel-states:start', (_event, options) => {
+  startZenohWheelStatesBridge(options)
+  return { ok: true }
+})
+
+ipcMain.handle('zenoh-wheel-states:stop', () => {
+  stopZenohWheelStatesBridge()
+  return { ok: true }
+})
+
 ipcMain.handle('zenoh-fleet-data:start', (_event, options) => {
   startZenohFleetDataBridge(options)
   return { ok: true }
@@ -1872,6 +3165,16 @@ ipcMain.handle('zenoh-building-map:start', (_event, options) => {
 
 ipcMain.handle('zenoh-building-map:stop', () => {
   stopZenohBuildingMapBridge()
+  return { ok: true }
+})
+
+ipcMain.handle('zenoh-rmf-state:start', (_event, options) => {
+  startZenohRmfStateBridge(options)
+  return { ok: true }
+})
+
+ipcMain.handle('zenoh-rmf-state:stop', () => {
+  stopZenohRmfStateBridge()
   return { ok: true }
 })
 
@@ -1895,12 +3198,76 @@ ipcMain.handle('zenoh-hardware-diagnostics:stop', () => {
   return { ok: true }
 })
 
+ipcMain.handle('zenoh-bonds:start', (_event, options) => {
+  startZenohBondsBridge(options)
+  return { ok: true }
+})
+
+ipcMain.handle('zenoh-bonds:stop', () => {
+  stopZenohBondsBridge()
+  return { ok: true }
+})
+
+ipcMain.handle('zenoh-lifecycle-transition:start', (_event, options) => {
+  startZenohLifecycleTransitionBridge(options)
+  return { ok: true }
+})
+
+ipcMain.handle('zenoh-lifecycle-transition:stop', () => {
+  stopZenohLifecycleTransitionBridge()
+  return { ok: true }
+})
+
 ipcMain.handle('zenoh-command:publish-twist', (_event, options) => {
   return { ok: publishZenohFleetVelocityCommand(options) }
 })
 
 ipcMain.handle('zenoh-command:write-coil', (_event, options) => {
   return { ok: publishZenohFleetDigitalOutputCommand(options) }
+})
+
+ipcMain.handle('zenoh-command:list-tasks', (_event, options) => {
+  return requestZenohTaskList(options)
+})
+
+ipcMain.handle('zenoh-command:get-task', (_event, options) => {
+  return requestZenohTaskDetail(options)
+})
+
+ipcMain.handle('zenoh-command:create-task', (_event, options) => {
+  return requestZenohTaskCreate(options)
+})
+
+ipcMain.handle('zenoh-command:run-task', (_event, options) => {
+  return requestZenohTaskRun(options)
+})
+
+ipcMain.handle('zenoh-command:cancel-task', (_event, options) => {
+  return requestZenohTaskCancel(options)
+})
+
+ipcMain.handle('zenoh-command:delete-task', (_event, options) => {
+  return requestZenohTaskDelete(options)
+})
+
+ipcMain.handle('zenoh-command:set-area-display-name', (_event, options) => {
+  return requestZenohStorageAreaDisplayName(options)
+})
+
+ipcMain.handle('zenoh-command:reinit-storage', (_event, options) => {
+  return requestZenohStorageReinit(options)
+})
+
+ipcMain.handle('zenoh-command:get-point-cloud-roi', (_event, options) => {
+  return requestZenohPointCloudRoi(options)
+})
+
+ipcMain.handle('zenoh-command:publish-lift-request', (_event, options) => {
+  return { ok: publishZenohFleetLiftRequest(options) }
+})
+
+ipcMain.handle('zenoh-command:publish-door-request', (_event, options) => {
+  return { ok: publishZenohFleetDoorRequest(options) }
 })
 
 ipcMain.handle('zenoh-command:stop', () => {
@@ -1914,6 +3281,22 @@ ipcMain.handle('camera-gateway:request', (_event, options) => {
 
 ipcMain.handle('camera-gateway:fetch-binary', (_event, options) => {
   return fetchCameraGatewayBinary(options)
+})
+
+ipcMain.handle('robot-parameters:fetch', (_event, options) => {
+  return fetchRobotParameters(options)
+})
+
+ipcMain.handle('robot-parameters:fetch-heads', (_event, options) => {
+  return fetchRobotParameterHeads(options)
+})
+
+ipcMain.handle('robot-parameters:fetch-by-heads', (_event, options) => {
+  return fetchRobotParametersByHeads(options)
+})
+
+ipcMain.handle('robot-parameters:update', (_event, options) => {
+  return updateRobotParameter(options)
 })
 
 ipcMain.handle('compose-control:request', (_event, options) => {

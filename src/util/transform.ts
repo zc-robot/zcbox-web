@@ -1,4 +1,6 @@
 import type { PoseMessage, QuaternionMessage } from '@/types'
+import { getPngDisplayOrientation, swapsPngAxes } from '@/util/pngOrientation'
+import type { PngDisplayOrientation } from '@/util/pngOrientation'
 import type { RmfPixelTransform } from '@/util/rmf'
 
 export function normalizeYaw(yaw: number) {
@@ -137,45 +139,89 @@ function rgbaToGrayscale(data: Uint8ClampedArray, index: number) {
   return Math.round(0.299 * red + 0.587 * green + 0.114 * blue)
 }
 
-async function parsePng(data: Uint8Array): Promise<ParsedMapRaster> {
-  const bitmap = await createImageBitmap(new Blob([data], { type: 'image/png' }))
+async function createRawPngImageBitmap(data: Uint8Array) {
+  const blob = new Blob([data], { type: 'image/png' })
+  try {
+    return await createImageBitmap(blob, { imageOrientation: 'none' } as ImageBitmapOptions)
+  }
+  catch {
+    return createImageBitmap(blob)
+  }
+}
+
+function applyPngOrientationTransform(context: CanvasRenderingContext2D, orientation: PngDisplayOrientation, width: number, height: number) {
+  if (orientation === 3) {
+    context.translate(width, height)
+    context.rotate(Math.PI)
+    return
+  }
+
+  if (orientation === 6) {
+    context.translate(height, 0)
+    context.rotate(Math.PI / 2)
+    return
+  }
+
+  if (orientation === 8) {
+    context.translate(0, width)
+    context.rotate(-Math.PI / 2)
+  }
+}
+
+async function drawPngToNormalizedCanvas(data: Uint8Array, contextAttributes?: CanvasRenderingContext2DSettings) {
+  const orientation = getPngDisplayOrientation(data)
+  const bitmap = await createRawPngImageBitmap(data)
+  const width = swapsPngAxes(orientation) ? bitmap.height : bitmap.width
+  const height = swapsPngAxes(orientation) ? bitmap.width : bitmap.height
 
   try {
     const canvas = document.createElement('canvas')
-    canvas.width = bitmap.width
-    canvas.height = bitmap.height
+    canvas.width = width
+    canvas.height = height
 
-    const context = canvas.getContext('2d', { willReadFrequently: true })
+    const context = canvas.getContext('2d', contextAttributes)
     if (!context)
       throw new Error('无法创建 PNG 地图解析画布')
 
+    applyPngOrientationTransform(context, orientation, bitmap.width, bitmap.height)
     context.drawImage(bitmap, 0, 0)
 
-    const width = bitmap.width
-    const height = bitmap.height
-    const pixels = context.getImageData(0, 0, width, height).data
-    const result = new Int32Array(width * height)
-
-    for (let sourceY = 0; sourceY < height; sourceY++) {
-      const targetRowStart = (height - 1 - sourceY) * width
-      const sourceRowStart = sourceY * width * 4
-      for (let x = 0; x < width; x++) {
-        const pixelIndex = sourceRowStart + x * 4
-        result[targetRowStart + x] = pixels[pixelIndex + 3] <= 0
-          ? -1
-          : grayscaleToOccupancy(rgbaToGrayscale(pixels, pixelIndex))
-      }
-    }
-
     return {
+      canvas,
       width,
       height,
-      data: Array.from(result),
-      format: 'png',
     }
   }
   finally {
     bitmap.close()
+  }
+}
+
+async function parsePng(data: Uint8Array): Promise<ParsedMapRaster> {
+  const { canvas, width, height } = await drawPngToNormalizedCanvas(data, { willReadFrequently: true })
+  const context = canvas.getContext('2d', { willReadFrequently: true })
+  if (!context)
+    throw new Error('无法创建 PNG 地图解析画布')
+
+  const pixels = context.getImageData(0, 0, width, height).data
+  const result = new Int32Array(width * height)
+
+  for (let sourceY = 0; sourceY < height; sourceY++) {
+    const targetRowStart = (height - 1 - sourceY) * width
+    const sourceRowStart = sourceY * width * 4
+    for (let x = 0; x < width; x++) {
+      const pixelIndex = sourceRowStart + x * 4
+      result[targetRowStart + x] = pixels[pixelIndex + 3] <= 0
+        ? -1
+        : grayscaleToOccupancy(rgbaToGrayscale(pixels, pixelIndex))
+    }
+  }
+
+  return {
+    width,
+    height,
+    data: Array.from(result),
+    format: 'png',
   }
 }
 
@@ -355,7 +401,16 @@ function clampGrayscale(value: number) {
 
 async function createMapRasterDrawable(data: Uint8Array): Promise<MapRasterDrawable> {
   if (isPng(data)) {
-    const bitmap = await createImageBitmap(new Blob([data], { type: 'image/png' }))
+    const orientation = getPngDisplayOrientation(data)
+    if (orientation !== 1) {
+      const { canvas } = await drawPngToNormalizedCanvas(data)
+      return {
+        source: canvas,
+        close: () => {},
+      }
+    }
+
+    const bitmap = await createRawPngImageBitmap(data)
     return {
       source: bitmap,
       close: () => bitmap.close(),
@@ -417,8 +472,13 @@ export async function renderAlignedMapRasterToPngBlob(data: Uint8Array, options:
 }
 
 export async function convertMapRasterToPngBlob(data: Uint8Array) {
-  if (isPng(data))
+  if (isPng(data) && getPngDisplayOrientation(data) === 1)
     return new Blob([data], { type: 'image/png' })
+
+  if (isPng(data)) {
+    const { canvas } = await drawPngToNormalizedCanvas(data)
+    return canvasToPngBlob(canvas)
+  }
 
   if (!isPgm(data))
     throw new Error('Unsupported map image format, only PGM and PNG are supported.')

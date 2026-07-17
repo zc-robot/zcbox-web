@@ -185,22 +185,31 @@ def normalize_topics(namespace, topics):
     namespace = namespace.strip("/")
     normalized = []
 
-    for topic in topics:
-        topic = topic.strip("/")
+    for raw_topic in topics:
+        is_absolute = raw_topic.strip().startswith("/")
+        topic = raw_topic.strip("/")
         if not topic:
             continue
 
-        key_expr = topic if topic.startswith(f"{namespace}/") else f"{namespace}/{topic}"
+        key_expr = topic if is_absolute or not namespace or topic.startswith(f"{namespace}/") else f"{namespace}/{topic}"
         if key_expr not in normalized:
             normalized.append(key_expr)
 
     return normalized
 
 
+def parse_namespace(key):
+    normalized = key.strip("/")
+    for suffix in ("/wheel/state", "/lifting_motor/states"):
+        if normalized.endswith(suffix):
+            return normalized[:-len(suffix)]
+    return ""
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", required=True)
-    parser.add_argument("--namespace", required=True)
+    parser.add_argument("--namespace", default="")
     parser.add_argument("--port", type=int, default=7447)
     parser.add_argument("--parent-pid", type=int, default=0)
     parser.add_argument("--topic", action="append", default=[])
@@ -260,6 +269,7 @@ def main():
         emit({
             "type": "motor-states",
             "key": key,
+            "namespace": parse_namespace(key),
             **motor_states,
         })
 

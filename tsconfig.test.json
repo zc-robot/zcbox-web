@@ -11,6 +11,8 @@
     ]
   },
   "include": [
+    "src/hooks/fleetBondModel.ts",
+    "src/hooks/fleetBondModel.test.ts",
     "src/page/fleet/runtimeModel.ts",
     "src/page/fleet/runtimeModel.test.ts",
     "src/page/home/parameterModel.ts",
@@ -18,12 +20,16 @@
     "src/hooks/robotHardwareDiagnosticsModel.ts",
     "src/hooks/robotHardwareDiagnosticsModel.test.ts",
     "src/hooks/robotHardwareDiagnosticsSubscription.ts",
+    "src/service/robotParameterPayload.ts",
+    "src/service/robotParameterPayload.test.ts",
     "src/util/nav2MapYaml.ts",
     "src/util/nav2MapYaml.test.ts",
     "src/util/rmf.ts",
     "src/util/rmf.test.ts",
+    "src/util/pngOrientation.ts",
     "src/util/robotConnection.ts",
     "src/util/robotConnection.test.ts",
+    "src/util/transform.test.ts",
     "src/types.d.ts"
   ]
 }

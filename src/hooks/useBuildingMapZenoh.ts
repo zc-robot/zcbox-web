@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useParamsStore } from '@/store'
+import { useFleetSiteNamespace } from './useFleetSiteNamespace'
 import type { BuildingMapMessage } from '@/types'
 
-const BUILDING_MAP_TOPIC = '/map'
+const BUILDING_MAP_TOPIC = 'map'
 
 interface BuildingMapZenohState {
   connected: boolean
@@ -24,6 +25,7 @@ const initialState: BuildingMapZenohState = {
 
 export function useBuildingMapZenoh() {
   const nestControllerIp = useParamsStore(state => state.nestControllerIp)
+  const fleetSiteNamespace = useFleetSiteNamespace()
   const [state, setState] = useState<BuildingMapZenohState>(initialState)
 
   useEffect(() => {
@@ -31,6 +33,26 @@ export function useBuildingMapZenoh() {
       setState({
         ...initialState,
         status: window.zcDesktop?.isDesktop ? 'missing-controller' : 'desktop-only',
+      })
+      return
+    }
+
+    if (fleetSiteNamespace.status === 'idle' || fleetSiteNamespace.status === 'loading') {
+      setState({
+        ...initialState,
+        status: 'loading-site-namespace',
+      })
+      return
+    }
+
+    if (!fleetSiteNamespace.namespace) {
+      setState({
+        ...initialState,
+        status: 'missing-site-namespace',
+        error: fleetSiteNamespace.error || 'Fleet site name is not configured',
+      })
+      window.zcDesktop.stopZenohBuildingMap().catch((error) => {
+        console.warn('Failed to stop Zenoh building map bridge', error)
       })
       return
     }
@@ -80,6 +102,7 @@ export function useBuildingMapZenoh() {
         setState(current => ({ ...current, status: 'starting', error: null }))
         await window.zcDesktop?.startZenohBuildingMap({
           host: nestControllerIp,
+          namespace: fleetSiteNamespace.namespace,
           topics: [BUILDING_MAP_TOPIC],
         })
       }
@@ -106,7 +129,7 @@ export function useBuildingMapZenoh() {
         console.warn('Failed to stop Zenoh building map bridge', error)
       })
     }
-  }, [nestControllerIp])
+  }, [fleetSiteNamespace.error, fleetSiteNamespace.namespace, fleetSiteNamespace.status, nestControllerIp])
 
   return state
 }
