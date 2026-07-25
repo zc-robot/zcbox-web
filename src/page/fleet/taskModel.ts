@@ -10,42 +10,62 @@ export type MultiGoToPoseUnitTasksResult =
     error: string
   }
 
+export interface MultiGoToPoseInput {
+  x: string
+  y: string
+  yaw: string
+}
+
 export function buildMultiGoToPoseUnitTasks(
-  waypoints: string[],
-  availableWaypoints: readonly string[],
+  poses: MultiGoToPoseInput[],
 ): MultiGoToPoseUnitTasksResult {
-  if (waypoints.length < 2) {
+  if (poses.length < 2) {
     return {
       ok: false,
-      error: 'Add at least two Waypoints.',
+      error: 'Add at least two poses.',
     }
   }
 
-  const normalizedWaypoints = waypoints.map(waypoint => waypoint.trim())
-  const emptyWaypointIndex = normalizedWaypoints.findIndex(waypoint => !waypoint)
-  if (emptyWaypointIndex >= 0) {
-    return {
-      ok: false,
-      error: `Select Waypoint #${emptyWaypointIndex}.`,
-    }
-  }
+  const parsedPoses: Array<{ x: number; y: number; yaw: number }> = []
+  const coordinateLabels = {
+    x: 'X',
+    y: 'Y',
+    yaw: 'Yaw',
+  } as const
 
-  const availableWaypointNames = new Set(availableWaypoints.map(waypoint => waypoint.trim()))
-  const unavailableWaypointIndex = normalizedWaypoints.findIndex(waypoint => !availableWaypointNames.has(waypoint))
-  if (unavailableWaypointIndex >= 0) {
-    return {
-      ok: false,
-      error: `Waypoint #${unavailableWaypointIndex} is no longer available.`,
+  for (const [index, pose] of poses.entries()) {
+    const parsedPose = { x: 0, y: 0, yaw: 0 }
+
+    for (const coordinate of ['x', 'y', 'yaw'] as const) {
+      const value = pose[coordinate].trim()
+      const label = coordinateLabels[coordinate]
+      if (!value) {
+        return {
+          ok: false,
+          error: `Enter ${label} for Pose #${index}.`,
+        }
+      }
+
+      const parsedValue = Number(value)
+      if (!Number.isFinite(parsedValue)) {
+        return {
+          ok: false,
+          error: `${label} for Pose #${index} must be a finite number.`,
+        }
+      }
+      parsedPose[coordinate] = parsedValue
     }
+
+    parsedPoses.push(parsedPose)
   }
 
   return {
     ok: true,
-    unitTasks: normalizedWaypoints.map((waypoint, seq) => ({
+    unitTasks: parsedPoses.map((pose, seq) => ({
       seq,
-      waypoint,
-      action_name: '',
-      action_params_json: '{}',
+      waypoint: '',
+      action_name: 'go_to_pose',
+      action_params_json: JSON.stringify(pose),
     })),
   }
 }

@@ -110,7 +110,9 @@ interface GoToWaypointTaskDraft {
 
 interface MultiGoToPoseStop {
   id: string
-  waypoint: string
+  x: string
+  y: string
+  yaw: string
 }
 
 interface MultiGoToPoseTaskDraft {
@@ -180,7 +182,7 @@ const digitalOutputAddressBase = 800
 const goToChargerTaskName = 'go_to_charger'
 const goToChargerActionName = 'reflector_docking'
 const goToWaypointTaskName = 'go_to_waypoint'
-const multiGoToPoseTaskName = 'go_to_waypoints'
+const multiGoToPoseTaskName = 'multi_go_to_pose'
 
 function digitalBitLabel(prefix: 'I' | 'O', index: number) {
   return `${prefix}${index}`
@@ -5236,8 +5238,8 @@ function TasksPage({
   const [multiGoToPoseDraft, setMultiGoToPoseDraft] = useState<MultiGoToPoseTaskDraft>(() => ({
     robot: '',
     stops: [
-      { id: createId('go-to-pose'), waypoint: '' },
-      { id: createId('go-to-pose'), waypoint: '' },
+      { id: createId('go-to-pose'), x: '', y: '', yaw: '' },
+      { id: createId('go-to-pose'), x: '', y: '', yaw: '' },
     ],
   }))
   const [isCreatingGoToChargerTask, setIsCreatingGoToChargerTask] = useState(false)
@@ -5260,10 +5262,7 @@ function TasksPage({
       : fleetSiteNamespace.error || 'Missing site name'
   const selectedChargerOption = chargerWaypointOptions.find(option => option.name === goToChargerDraft.chargerWaypoint) ?? null
   const selectedWaypointOption = waypointOptions.find(option => option.name === goToWaypointDraft.waypoint.trim()) ?? null
-  const multiGoToPoseUnitTasks = buildMultiGoToPoseUnitTasks(
-    multiGoToPoseDraft.stops.map(stop => stop.waypoint),
-    waypointNames,
-  )
+  const multiGoToPoseUnitTasks = buildMultiGoToPoseUnitTasks(multiGoToPoseDraft.stops)
   const canCreateGoToChargerTask = Boolean(
     normalizedFleetName
     && !taskCreateServiceError
@@ -5319,19 +5318,6 @@ function TasksPage({
   }, [waypointNames])
 
   useEffect(() => {
-    setMultiGoToPoseDraft((current) => {
-      const stops = current.stops.map(stop => (
-        !stop.waypoint || waypointNames.includes(stop.waypoint)
-          ? stop
-          : { ...stop, waypoint: '' }
-      ))
-      return stops.every((stop, index) => stop === current.stops[index])
-        ? current
-        : { ...current, stops }
-    })
-  }, [waypointNames])
-
-  useEffect(() => {
     setGoToChargerDraft((current) => {
       if (chargerWaypointNames.length === 0)
         return current.chargerWaypoint ? { ...current, chargerWaypoint: '' } : current
@@ -5350,10 +5336,10 @@ function TasksPage({
     return false
   }
 
-  function updateMultiGoToPoseStop(stopId: string, waypoint: string) {
+  function updateMultiGoToPoseStop(stopId: string, coordinate: 'x' | 'y' | 'yaw', value: string) {
     setMultiGoToPoseDraft(current => ({
       ...current,
-      stops: current.stops.map(stop => stop.id === stopId ? { ...stop, waypoint } : stop),
+      stops: current.stops.map(stop => stop.id === stopId ? { ...stop, [coordinate]: value } : stop),
     }))
     setMultiGoToPoseFeedback(null)
   }
@@ -5361,7 +5347,7 @@ function TasksPage({
   function addMultiGoToPoseStop() {
     setMultiGoToPoseDraft(current => ({
       ...current,
-      stops: [...current.stops, { id: createId('go-to-pose'), waypoint: '' }],
+      stops: [...current.stops, { id: createId('go-to-pose'), x: '', y: '', yaw: '' }],
     }))
     setMultiGoToPoseFeedback(null)
   }
@@ -5715,7 +5701,7 @@ function TasksPage({
           <form className="space-y-4 border-(t-solid 1px gray-200) pt-5" onSubmit={createMultiGoToPoseTask}>
             <div>
               <div className="text-4 font-800">Multi Go To Pose</div>
-              <div className="text-xs text-gray-500">Create an ordered Waypoint Task</div>
+              <div className="text-xs text-gray-500">Create an ordered X, Y, and yaw Task</div>
             </div>
 
             <div className="space-y-2">
@@ -5731,73 +5717,68 @@ function TasksPage({
 
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <FieldLabel>Waypoints</FieldLabel>
-                <Badge className="bg-gray-50 text-gray-700">{multiGoToPoseDraft.stops.length} stops</Badge>
+                <FieldLabel>Poses</FieldLabel>
+                <Badge className="bg-gray-50 text-gray-700">{multiGoToPoseDraft.stops.length} poses</Badge>
               </div>
 
-              {multiGoToPoseDraft.stops.map((stop, index) => {
-                const waypointOption = waypointOptions.find(option => option.name === stop.waypoint.trim()) ?? null
-                return (
-                  <div key={stop.id} className="rounded-lg border-(solid 1px gray-200) bg-white/70 p-2">
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <Badge className="bg-blue-50 text-blue-700">#{index}</Badge>
-                      <div className="flex items-center gap-1">
-                        <IconButton
-                          type="button"
-                          icon="i-material-symbols-arrow-upward-rounded"
-                          title={`Move Waypoint #${index} up`}
-                          disabled={index === 0}
-                          onClick={() => moveMultiGoToPoseStop(stop.id, -1)}
-                        />
-                        <IconButton
-                          type="button"
-                          icon="i-material-symbols-arrow-downward-rounded"
-                          title={`Move Waypoint #${index} down`}
-                          disabled={index === multiGoToPoseDraft.stops.length - 1}
-                          onClick={() => moveMultiGoToPoseStop(stop.id, 1)}
-                        />
-                        <IconButton
-                          type="button"
-                          icon="i-material-symbols-delete-outline-rounded"
-                          title={`Remove Waypoint #${index}`}
-                          tone="danger"
-                          disabled={multiGoToPoseDraft.stops.length <= 2}
-                          onClick={() => removeMultiGoToPoseStop(stop.id)}
-                        />
-                      </div>
-                    </div>
-
-                    <select
-                      className="h-9 box-border w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
-                      aria-label={`Waypoint #${index}`}
-                      value={stop.waypoint}
-                      disabled={waypointOptions.length === 0}
-                      onChange={event => updateMultiGoToPoseStop(stop.id, event.target.value)}>
-                      <option value="">{waypointOptions.length > 0 ? 'Select waypoint' : 'No waypoints available'}</option>
-                      {waypointOptions.map(option => (
-                        <option key={`${option.name}:${option.levelName}:${option.graphName}`} value={option.name}>
-                          {option.name} ({option.levelName})
-                        </option>
-                      ))}
-                    </select>
-
-                    <div className="mt-1 min-h-4 text-xs text-gray-400">
-                      {waypointOption
-                        ? `${waypointOption.levelName} · ${waypointOption.graphName}`
-                        : waypointOptions.length > 0
-                          ? 'Waypoint required'
-                          : 'Waiting for navigation Waypoints'}
+              {multiGoToPoseDraft.stops.map((stop, index) => (
+                <div key={stop.id} className="rounded-lg border-(solid 1px gray-200) bg-white/70 p-2">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <Badge className="bg-blue-50 text-blue-700">#{index}</Badge>
+                    <div className="flex items-center gap-1">
+                      <IconButton
+                        type="button"
+                        icon="i-material-symbols-arrow-upward-rounded"
+                        title={`Move Pose #${index} up`}
+                        disabled={index === 0}
+                        onClick={() => moveMultiGoToPoseStop(stop.id, -1)}
+                      />
+                      <IconButton
+                        type="button"
+                        icon="i-material-symbols-arrow-downward-rounded"
+                        title={`Move Pose #${index} down`}
+                        disabled={index === multiGoToPoseDraft.stops.length - 1}
+                        onClick={() => moveMultiGoToPoseStop(stop.id, 1)}
+                      />
+                      <IconButton
+                        type="button"
+                        icon="i-material-symbols-delete-outline-rounded"
+                        title={`Remove Pose #${index}`}
+                        tone="danger"
+                        disabled={multiGoToPoseDraft.stops.length <= 2}
+                        onClick={() => removeMultiGoToPoseStop(stop.id)}
+                      />
                     </div>
                   </div>
-                )
-              })}
+
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['x', 'y', 'yaw'] as const).map(coordinate => (
+                      <label key={coordinate} className="min-w-0">
+                        <span className="mb-1 block text-[11px] font-700 uppercase text-gray-500">
+                          {coordinate === 'yaw' ? 'Yaw (rad)' : coordinate.toUpperCase()}
+                        </span>
+                        <input
+                          type="number"
+                          step="any"
+                          inputMode="decimal"
+                          className="h-9 box-border min-w-0 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-2 text-sm tabular-nums outline-none focus:border-emerald-600"
+                          aria-label={`Pose #${index} ${coordinate === 'yaw' ? 'Yaw' : coordinate.toUpperCase()}`}
+                          placeholder="0.0"
+                          value={stop[coordinate]}
+                          onChange={event => updateMultiGoToPoseStop(stop.id, coordinate, event.target.value)}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
 
               <Button
                 type="button"
                 icon="i-material-symbols-add-rounded"
                 className="w-full"
                 onClick={addMultiGoToPoseStop}>
-                Add waypoint
+                Add pose
               </Button>
             </div>
 
@@ -5812,10 +5793,14 @@ function TasksPage({
               <div className="text-[11px] font-700 uppercase text-gray-400">Unit task sequence</div>
               <div className="mt-1 space-y-1 text-sm">
                 {multiGoToPoseDraft.stops.map((stop, index) => (
-                  <div key={`preview:${stop.id}`} className="flex min-w-0 flex-wrap items-center gap-2">
+                  <div key={`preview:${stop.id}`} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-2">
                     <Badge className="bg-blue-50 text-blue-700">#{index}</Badge>
-                    <span className="min-w-0 break-words font-800 text-gray-900">{stop.waypoint.trim() || '--'}</span>
-                    <span className="text-gray-500">Go To</span>
+                    <div className="min-w-0">
+                      <div className="break-words font-mono text-xs font-800 text-gray-900">
+                        x {stop.x.trim() || '--'} · y {stop.y.trim() || '--'} · yaw {stop.yaw.trim() || '--'}
+                      </div>
+                      <div className="mt-0.5 font-mono text-xs text-gray-500">go_to_pose</div>
+                    </div>
                   </div>
                 ))}
               </div>
