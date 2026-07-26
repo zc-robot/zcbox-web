@@ -11,9 +11,10 @@ export type MultiGoToPoseUnitTasksResult =
   }
 
 export interface MultiGoToPoseInput {
+  mapName: string
   x: string
   y: string
-  yaw: string
+  heading: string
 }
 
 export function buildMultiGoToPoseUnitTasks(
@@ -26,17 +27,24 @@ export function buildMultiGoToPoseUnitTasks(
     }
   }
 
-  const parsedPoses: Array<{ x: number; y: number; yaw: number }> = []
+  const parsedPoses: Array<{ map_name: string; x: number; y: number; heading: number }> = []
   const coordinateLabels = {
     x: 'X',
     y: 'Y',
-    yaw: 'Yaw',
+    heading: 'Heading',
   } as const
 
   for (const [index, pose] of poses.entries()) {
-    const parsedPose = { x: 0, y: 0, yaw: 0 }
+    const mapName = pose.mapName.trim()
+    if (!mapName) {
+      return {
+        ok: false,
+        error: `Enter a map name for Pose #${index}.`,
+      }
+    }
 
-    for (const coordinate of ['x', 'y', 'yaw'] as const) {
+    const parsedPose = { map_name: mapName, x: 0, y: 0, heading: 0 }
+    for (const coordinate of ['x', 'y', 'heading'] as const) {
       const value = pose[coordinate].trim()
       const label = coordinateLabels[coordinate]
       if (!value) {

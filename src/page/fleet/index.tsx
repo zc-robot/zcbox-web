@@ -110,9 +110,10 @@ interface GoToWaypointTaskDraft {
 
 interface MultiGoToPoseStop {
   id: string
+  mapName: string
   x: string
   y: string
-  yaw: string
+  heading: string
 }
 
 interface MultiGoToPoseTaskDraft {
@@ -5238,8 +5239,8 @@ function TasksPage({
   const [multiGoToPoseDraft, setMultiGoToPoseDraft] = useState<MultiGoToPoseTaskDraft>(() => ({
     robot: '',
     stops: [
-      { id: createId('go-to-pose'), x: '', y: '', yaw: '' },
-      { id: createId('go-to-pose'), x: '', y: '', yaw: '' },
+      { id: createId('go-to-pose'), mapName: '', x: '', y: '', heading: '' },
+      { id: createId('go-to-pose'), mapName: '', x: '', y: '', heading: '' },
     ],
   }))
   const [isCreatingGoToChargerTask, setIsCreatingGoToChargerTask] = useState(false)
@@ -5250,6 +5251,10 @@ function TasksPage({
   const [multiGoToPoseFeedback, setMultiGoToPoseFeedback] = useState<GoToChargerFeedback | null>(null)
   const waypointOptions = useMemo(() => getNavWaypointOptions(buildingMap), [buildingMap])
   const waypointNames = useMemo(() => waypointOptions.map(option => option.name), [waypointOptions])
+  const poseMapNames = useMemo(
+    () => Array.from(new Set((buildingMap?.levels ?? []).map(level => level.name.trim()).filter(Boolean))),
+    [buildingMap],
+  )
   const chargerWaypointOptions = useMemo(() => getChargerWaypointOptions(buildingMap), [buildingMap])
   const chargerWaypointNames = useMemo(() => chargerWaypointOptions.map(option => option.name), [chargerWaypointOptions])
   const normalizedFleetName = fleetName.trim()
@@ -5318,6 +5323,22 @@ function TasksPage({
   }, [waypointNames])
 
   useEffect(() => {
+    if (poseMapNames.length === 0)
+      return
+
+    setMultiGoToPoseDraft((current) => {
+      const stops = current.stops.map((stop) => {
+        const mapName = stop.mapName.trim()
+        const nextMapName = poseMapNames.includes(mapName) ? mapName : poseMapNames[0]
+        return nextMapName === stop.mapName ? stop : { ...stop, mapName: nextMapName }
+      })
+      return stops.every((stop, index) => stop === current.stops[index])
+        ? current
+        : { ...current, stops }
+    })
+  }, [poseMapNames])
+
+  useEffect(() => {
     setGoToChargerDraft((current) => {
       if (chargerWaypointNames.length === 0)
         return current.chargerWaypoint ? { ...current, chargerWaypoint: '' } : current
@@ -5336,19 +5357,22 @@ function TasksPage({
     return false
   }
 
-  function updateMultiGoToPoseStop(stopId: string, coordinate: 'x' | 'y' | 'yaw', value: string) {
+  function updateMultiGoToPoseStop(stopId: string, field: 'mapName' | 'x' | 'y' | 'heading', value: string) {
     setMultiGoToPoseDraft(current => ({
       ...current,
-      stops: current.stops.map(stop => stop.id === stopId ? { ...stop, [coordinate]: value } : stop),
+      stops: current.stops.map(stop => stop.id === stopId ? { ...stop, [field]: value } : stop),
     }))
     setMultiGoToPoseFeedback(null)
   }
 
   function addMultiGoToPoseStop() {
-    setMultiGoToPoseDraft(current => ({
-      ...current,
-      stops: [...current.stops, { id: createId('go-to-pose'), x: '', y: '', yaw: '' }],
-    }))
+    setMultiGoToPoseDraft((current) => {
+      const mapName = current.stops[current.stops.length - 1]?.mapName || poseMapNames[0] || ''
+      return {
+        ...current,
+        stops: [...current.stops, { id: createId('go-to-pose'), mapName, x: '', y: '', heading: '' }],
+      }
+    })
     setMultiGoToPoseFeedback(null)
   }
 
@@ -5701,7 +5725,7 @@ function TasksPage({
           <form className="space-y-4 border-(t-solid 1px gray-200) pt-5" onSubmit={createMultiGoToPoseTask}>
             <div>
               <div className="text-4 font-800">Multi Go To Pose</div>
-              <div className="text-xs text-gray-500">Create an ordered X, Y, and yaw Task</div>
+              <div className="text-xs text-gray-500">Create ordered map, X, Y, and heading actions</div>
             </div>
 
             <div className="space-y-2">
@@ -5751,18 +5775,41 @@ function TasksPage({
                     </div>
                   </div>
 
+                  <label className="mb-2 block min-w-0">
+                    <span className="mb-1 block text-[11px] font-700 uppercase text-gray-500">Map</span>
+                    {poseMapNames.length > 0
+                      ? (
+                          <select
+                            className="h-9 box-border w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-2 text-sm outline-none focus:border-emerald-600"
+                            aria-label={`Pose #${index} Map name`}
+                            value={stop.mapName}
+                            onChange={event => updateMultiGoToPoseStop(stop.id, 'mapName', event.target.value)}>
+                            {poseMapNames.map(mapName => <option key={mapName} value={mapName}>{mapName}</option>)}
+                          </select>
+                        )
+                      : (
+                          <input
+                            className="h-9 box-border w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-2 text-sm outline-none focus:border-emerald-600"
+                            aria-label={`Pose #${index} Map name`}
+                            placeholder="L3"
+                            value={stop.mapName}
+                            onChange={event => updateMultiGoToPoseStop(stop.id, 'mapName', event.target.value)}
+                          />
+                        )}
+                  </label>
+
                   <div className="grid grid-cols-3 gap-2">
-                    {(['x', 'y', 'yaw'] as const).map(coordinate => (
+                    {(['x', 'y', 'heading'] as const).map(coordinate => (
                       <label key={coordinate} className="min-w-0">
                         <span className="mb-1 block text-[11px] font-700 uppercase text-gray-500">
-                          {coordinate === 'yaw' ? 'Yaw (rad)' : coordinate.toUpperCase()}
+                          {coordinate === 'heading' ? 'Heading (rad)' : coordinate.toUpperCase()}
                         </span>
                         <input
                           type="number"
                           step="any"
                           inputMode="decimal"
                           className="h-9 box-border min-w-0 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-2 text-sm tabular-nums outline-none focus:border-emerald-600"
-                          aria-label={`Pose #${index} ${coordinate === 'yaw' ? 'Yaw' : coordinate.toUpperCase()}`}
+                          aria-label={`Pose #${index} ${coordinate === 'heading' ? 'Heading' : coordinate.toUpperCase()}`}
                           placeholder="0.0"
                           value={stop[coordinate]}
                           onChange={event => updateMultiGoToPoseStop(stop.id, coordinate, event.target.value)}
@@ -5797,7 +5844,7 @@ function TasksPage({
                     <Badge className="bg-blue-50 text-blue-700">#{index}</Badge>
                     <div className="min-w-0">
                       <div className="break-words font-mono text-xs font-800 text-gray-900">
-                        x {stop.x.trim() || '--'} · y {stop.y.trim() || '--'} · yaw {stop.yaw.trim() || '--'}
+                        {stop.mapName.trim() || '--'} · x {stop.x.trim() || '--'} · y {stop.y.trim() || '--'} · heading {stop.heading.trim() || '--'}
                       </div>
                       <div className="mt-0.5 font-mono text-xs text-gray-500">go_to_pose</div>
                     </div>
