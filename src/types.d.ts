@@ -354,6 +354,7 @@ export interface TaskManagerTaskInfo {
   latest_task_execution_id: string,
   active_task_execution_id: string,
   name: string,
+  description: string,
   robot_name: string,
   fleet_name: string,
   status: string,
@@ -375,12 +376,49 @@ export interface TaskManagerUnitTaskInfo {
   task_execution_id: string,
   unit_task_definition_id: string,
   unit_task_execution_id: string,
+  recovery_resume_mode: string,
+  recovery_approach_waypoint: string,
+  recovery_position_tolerance_m: number,
+  recovery_yaw_tolerance_enabled: boolean,
+  recovery_yaw_tolerance_rad: number,
+  recovery_max_attempts: number,
+  recovery_clear_timeout_sec: number,
+  on_suspend_actions: TaskManagerRecoveryLifecycleActionSpec[],
+  before_redispatch_actions: TaskManagerRecoveryLifecycleActionSpec[],
+}
+
+export interface TaskManagerRecoveryTaskMappingSpec {
+  recovery_task_index: number,
+  recovery_task_definition_id: string,
+}
+
+export interface TaskManagerRecoveryLifecycleActionSpec {
+  action_name: string,
+  parameters_json: string,
+  failure_policy: 'required' | 'best_effort',
 }
 
 export interface TaskManagerTaskDetail {
   found: boolean,
   task: TaskManagerTaskInfo,
   unit_tasks: TaskManagerUnitTaskInfo[],
+  recovery_task_mappings: TaskManagerRecoveryTaskMappingSpec[],
+  message: string,
+}
+
+export interface TaskManagerActionParameterInfo {
+  name: string,
+  data_type: string,
+}
+
+export interface TaskManagerActionInfo {
+  action_name: string,
+  required_parameters: TaskManagerActionParameterInfo[],
+}
+
+export interface TaskManagerListActionsResult {
+  ok: boolean,
+  actions: TaskManagerActionInfo[],
   message: string,
 }
 
@@ -389,13 +427,27 @@ export interface TaskManagerUnitTaskSpec {
   waypoint: string,
   action_name: string,
   action_params_json: string,
+  recovery_resume_mode?: string,
+  recovery_approach_waypoint?: string,
+  recovery_position_tolerance_m?: number,
+  recovery_yaw_tolerance_enabled?: boolean,
+  recovery_yaw_tolerance_rad?: number,
+  recovery_max_attempts?: number,
+  recovery_clear_timeout_sec?: number,
+  on_suspend_actions?: TaskManagerRecoveryLifecycleActionSpec[],
+  before_redispatch_actions?: TaskManagerRecoveryLifecycleActionSpec[],
 }
 
 export interface TaskManagerCreateTaskPayload {
   name: string,
+  description?: string,
   robot_name: string,
   fleet_name: string,
+  waypoint?: string,
+  action_name?: string,
+  parameters_json?: string,
   unit_tasks: TaskManagerUnitTaskSpec[],
+  recovery_task_mappings?: TaskManagerRecoveryTaskMappingSpec[],
 }
 
 export interface TaskManagerCreateTaskResult {

@@ -24,12 +24,17 @@ export interface GridSlice {
   selectedLidarScanTopics: string[]
   pointCloud: PointCloudMessage | null
   pointClouds: PointCloudMessage[]
+  battery2: number | null
+  battery2Current: number | null
   hasLivePose: boolean
   hasLiveBattery: boolean
+  hasLiveBattery2: boolean
   livePoseSource: string | null
   liveBatterySource: string | null
+  liveBattery2Source: string | null
   lastPoseUpdateAt: number | null
   lastBatteryUpdateAt: number | null
+  lastBattery2UpdateAt: number | null
   zenohPoseStatus: string
   zenohTelemetryStatus: string
   isScanVisible: boolean
@@ -49,6 +54,7 @@ export interface GridSlice {
   updateLocalizationQuality: (quality: number) => void
   updateRobotPose: (pose: PoseMessage, source?: string) => void
   updateRobotBattery: (battery: number, batteryCurrent: number, source?: string) => void
+  updateRobotBattery2: (battery: number, batteryCurrent: number, source?: string) => void
   updateZenohPoseStatus: (status: string) => void
   updateZenohTelemetryStatus: (status: string) => void
   updateLaserPose: (pose: PoseMessage) => void
@@ -122,12 +128,17 @@ export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
   selectedLidarScanTopics: [DEFAULT_LIDAR_SCAN_TOPIC],
   pointCloud: null,
   pointClouds: [],
+  battery2: null,
+  battery2Current: null,
   hasLivePose: false,
   hasLiveBattery: false,
+  hasLiveBattery2: false,
   livePoseSource: null,
   liveBatterySource: null,
+  liveBattery2Source: null,
   lastPoseUpdateAt: null,
   lastBatteryUpdateAt: null,
+  lastBattery2UpdateAt: null,
   zenohPoseStatus: 'idle',
   zenohTelemetryStatus: 'idle',
   isScanVisible: false,
@@ -206,6 +217,15 @@ export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
             battery,
             batteryCurrent,
           },
+    }))
+  },
+  updateRobotBattery2: (battery, batteryCurrent, source) => {
+    set(state => ({
+      battery2: battery,
+      battery2Current: batteryCurrent,
+      hasLiveBattery2: true,
+      liveBattery2Source: source ?? state.liveBattery2Source,
+      lastBattery2UpdateAt: Date.now(),
     }))
   },
   updateZenohPoseStatus: (status) => {
@@ -350,12 +370,17 @@ export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
       selectedLidarScanTopics: [DEFAULT_LIDAR_SCAN_TOPIC],
       pointCloud: null,
       pointClouds: [],
+      battery2: null,
+      battery2Current: null,
       hasLivePose: false,
       hasLiveBattery: false,
+      hasLiveBattery2: false,
       livePoseSource: null,
       liveBatterySource: null,
+      liveBattery2Source: null,
       lastPoseUpdateAt: null,
       lastBatteryUpdateAt: null,
+      lastBattery2UpdateAt: null,
       zenohPoseStatus: 'idle',
       zenohTelemetryStatus: 'idle',
       isScanVisible: false,

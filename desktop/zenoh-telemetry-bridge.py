@@ -19,6 +19,7 @@ POSE_DOUBLE_COUNT = 7
 
 BASE_SUBSCRIPTIONS = {
     "battery/state": "battery",
+    "battery2/state": "battery2",
 }
 
 SCAN_SUBSCRIPTIONS = {
@@ -873,13 +874,13 @@ def main():
         message_type = subscription.get("type") if subscription else None
         payload = sample.payload.to_bytes()
 
-        if message_type == "battery":
+        if message_type in ("battery", "battery2"):
             battery = decode_battery_payload(payload)
             if battery is None:
                 emit_decode_error(key, len(payload), now)
                 return
             emit({
-                "type": "battery",
+                "type": message_type,
                 "key": key,
                 **battery,
             })

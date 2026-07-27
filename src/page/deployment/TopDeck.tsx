@@ -103,6 +103,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const [executePreciseRad, setExecutePreciseRad] = useState('0.05')
   const [executeNavType, setExecuteNavType] = useState<ExecuteWaypointNavType>('auto')
   const [executeActionId, setExecuteActionId] = useState('')
+  const [relocalizationUseAbsolute, setRelocalizationUseAbsolute] = useState(false)
   const { zoom, gridInfo, robotInfo, robotStatus, hasLivePose, updateRobotFsm, updateLocalizationQuality, setMapGrid, setPathPointInfo, mapsNew, setMapsNew, isScanVisible, setScanVisibility, updateScanPointSize, requestCenterRobot, requestCenterMap, relocalizationPose, beginRelocalization, cancelRelocalization } = useGridStore(state => ({
     zoom: state.zoom,
     gridInfo: state.gridInfo,
@@ -402,6 +403,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     if (!isScanVisible)
       setScanVisibility(true)
 
+    setRelocalizationUseAbsolute(false)
     beginRelocalization()
     updateOp('relocalize')
   }
@@ -414,7 +416,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
 
     const loadingToast = toast.loading('正在发送重定位...')
     try {
-      await apiServer.setPose(relocalizationPose)
+      await apiServer.setPose(relocalizationPose, relocalizationUseAbsolute)
       toast.dismiss(loadingToast)
       toast.success('重定位已发送')
       cancelRelocalization()
@@ -1104,13 +1106,30 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           <div className="i-material-symbols-elevator-outline-rounded panel-icon" />
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">添加电梯</span>
         </div>
-        <div
-          className={`${currentOp === 'relocalize' ? 'panel-item-enabled' : 'panel-item'} group`}
-          onClick={toggleRelocalization}>
-          <div className="i-material-symbols-location-on-outline panel-icon text-white" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
-            {currentOp === 'relocalize' ? '关闭重定位' : '重定位'}
-          </span>
+        <div className="relative">
+          <div
+            className={`${currentOp === 'relocalize' ? 'panel-item-enabled' : 'panel-item'} group`}
+            onClick={toggleRelocalization}>
+            <div className="i-material-symbols-location-on-outline panel-icon text-white" />
+            <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
+              {currentOp === 'relocalize' ? '关闭重定位' : '重定位'}
+            </span>
+          </div>
+          {currentOp === 'relocalize' && (
+            <div className="absolute z-50 top-11 left-0 w-56 rounded-xl border-(solid 1px gray-300) bg-white p-3 text-sm text-gray-800 shadow-lg">
+              <div className="mb-2 font-bold">重定位设置</div>
+              <label className="flex items-center justify-between gap-3">
+                <span className="text-gray-600">use_absolute</span>
+                <select
+                  className="w-26 rounded border-(solid 1px gray-300) bg-gray-50 px-2 py-1"
+                  value={relocalizationUseAbsolute ? 'true' : 'false'}
+                  onChange={event => setRelocalizationUseAbsolute(event.target.value === 'true')}>
+                  <option value="false">false</option>
+                  <option value="true">true</option>
+                </select>
+              </label>
+            </div>
+          )}
         </div>
         {currentOp === 'relocalize' && (
           <div

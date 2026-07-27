@@ -19,7 +19,9 @@ TASK_STATUSES = {
     "SUCCEEDED",
     "FAILED",
     "CANCELED",
+    "SKIPPED",
     "PAUSED",
+    "RECOVERY_REQUIRED",
     "ARCHIVED",
 }
 POINT_FIELD_DATATYPES = {
@@ -231,6 +233,78 @@ def encode_delete_task_request(task_id, force):
     return writer.to_bytes()
 
 
+def encode_empty_request():
+    return CdrWriter().to_bytes()
+
+
+def normalized_int32(value, fallback=0):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return max(-0x80000000, min(parsed, 0x7FFFFFFF))
+
+
+def normalized_float64(value, fallback=0.0):
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    return parsed if math.isfinite(parsed) else fallback
+
+
+def encode_recovery_lifecycle_action(writer, action):
+    if not isinstance(action, dict):
+        action = {}
+
+    writer.write_string(action.get("action_name"))
+    writer.write_string(action.get("parameters_json", "{}"))
+    writer.write_string(action.get("failure_policy", "required"))
+
+
+def encode_unit_task_spec(writer, unit_task, index):
+    if not isinstance(unit_task, dict):
+        unit_task = {}
+
+    writer.write_int32(normalized_int32(unit_task.get("seq"), index))
+    writer.write_string(unit_task.get("waypoint"))
+    writer.write_string(unit_task.get("action_name"))
+    writer.write_string(unit_task.get("action_params_json", "{}"))
+    writer.write_string(unit_task.get("recovery_resume_mode", "operator_required"))
+    writer.write_string(unit_task.get("recovery_approach_waypoint"))
+    writer.write_float64(normalized_float64(unit_task.get("recovery_position_tolerance_m"), 0.1))
+    writer.write_bool(unit_task.get("recovery_yaw_tolerance_enabled", False))
+    writer.write_float64(normalized_float64(unit_task.get("recovery_yaw_tolerance_rad"), 0.0))
+    writer.write_int32(normalized_int32(unit_task.get("recovery_max_attempts"), 3))
+    writer.write_float64(normalized_float64(unit_task.get("recovery_clear_timeout_sec"), 300.0))
+
+    on_suspend_actions = (
+        unit_task.get("on_suspend_actions")
+        if isinstance(unit_task.get("on_suspend_actions"), list)
+        else []
+    )
+    writer.write_uint32(len(on_suspend_actions))
+    for action in on_suspend_actions:
+        encode_recovery_lifecycle_action(writer, action)
+
+    before_redispatch_actions = (
+        unit_task.get("before_redispatch_actions")
+        if isinstance(unit_task.get("before_redispatch_actions"), list)
+        else []
+    )
+    writer.write_uint32(len(before_redispatch_actions))
+    for action in before_redispatch_actions:
+        encode_recovery_lifecycle_action(writer, action)
+
+
+def encode_recovery_task_mapping(writer, mapping):
+    if not isinstance(mapping, dict):
+        mapping = {}
+
+    writer.write_uint8(mapping.get("recovery_task_index", 0))
+    writer.write_string(mapping.get("recovery_task_definition_id"))
+
+
 def encode_set_area_display_name_request(area_index, display_name):
     writer = CdrWriter()
     writer.write_uint32(normalized_storage_uint32(area_index))
@@ -240,23 +314,26 @@ def encode_set_area_display_name_request(area_index, display_name):
 
 def encode_create_task_request(task):
     unit_tasks = task.get("unit_tasks") if isinstance(task.get("unit_tasks"), list) else []
+    recovery_task_mappings = (
+        task.get("recovery_task_mappings")
+        if isinstance(task.get("recovery_task_mappings"), list)
+        else []
+    )
 
     writer = CdrWriter()
     writer.write_string(task.get("name"))
+    writer.write_string(task.get("description"))
     writer.write_string(task.get("robot_name"))
     writer.write_string(task.get("fleet_name"))
+    writer.write_string(task.get("waypoint"))
+    writer.write_string(task.get("action_name"))
+    writer.write_string(task.get("parameters_json", "{}"))
     writer.write_uint32(len(unit_tasks))
     for index, unit_task in enumerate(unit_tasks):
-        if not isinstance(unit_task, dict):
-            unit_task = {}
-        try:
-            seq = int(unit_task.get("seq", index))
-        except (TypeError, ValueError):
-            seq = index
-        writer.write_int32(seq)
-        writer.write_string(unit_task.get("waypoint"))
-        writer.write_string(unit_task.get("action_name"))
-        writer.write_string(unit_task.get("action_params_json", "{}"))
+        encode_unit_task_spec(writer, unit_task, index)
+    writer.write_uint32(len(recovery_task_mappings))
+    for mapping in recovery_task_mappings:
+        encode_recovery_task_mapping(writer, mapping)
     return writer.to_bytes()
 
 
@@ -514,6 +591,7 @@ def empty_task_info():
         "latest_task_execution_id": "",
         "active_task_execution_id": "",
         "name": "",
+        "description": "",
         "robot_name": "",
         "fleet_name": "",
         "status": "",
@@ -521,6 +599,42 @@ def empty_task_info():
         "updated_at_unix_ms": 0,
         "execution_created_at_unix_ms": 0,
         "execution_updated_at_unix_ms": 0,
+    }
+
+
+def decode_current_task_info(reader):
+    return {
+        "task_id": reader.read_string(),
+        "name": reader.read_string(),
+        "description": reader.read_string(),
+        "robot_name": reader.read_string(),
+        "fleet_name": reader.read_string(),
+        "status": reader.read_string(),
+        "created_at_unix_ms": reader.read_int64(),
+        "updated_at_unix_ms": reader.read_int64(),
+        "task_definition_id": reader.read_string(),
+        "latest_task_execution_id": reader.read_string(),
+        "active_task_execution_id": reader.read_string(),
+        "execution_created_at_unix_ms": reader.read_int64(),
+        "execution_updated_at_unix_ms": reader.read_int64(),
+    }
+
+
+def decode_current_id_first_task_info(reader):
+    return {
+        "task_id": reader.read_string(),
+        "task_definition_id": reader.read_string(),
+        "latest_task_execution_id": reader.read_string(),
+        "active_task_execution_id": reader.read_string(),
+        "name": reader.read_string(),
+        "description": reader.read_string(),
+        "robot_name": reader.read_string(),
+        "fleet_name": reader.read_string(),
+        "status": reader.read_string(),
+        "created_at_unix_ms": reader.read_int64(),
+        "updated_at_unix_ms": reader.read_int64(),
+        "execution_created_at_unix_ms": reader.read_int64(),
+        "execution_updated_at_unix_ms": reader.read_int64(),
     }
 
 
@@ -602,6 +716,21 @@ def describe_payload(payload, max_bytes=96):
     return f"payload_len={len(payload)} payload_hex_prefix={prefix}"
 
 
+def decode_recovery_lifecycle_action(reader):
+    return {
+        "action_name": reader.read_string(),
+        "parameters_json": reader.read_string(),
+        "failure_policy": reader.read_string(),
+    }
+
+
+def decode_recovery_task_mapping(reader):
+    return {
+        "recovery_task_index": reader.read_uint8(),
+        "recovery_task_definition_id": reader.read_string(),
+    }
+
+
 def decode_unit_task_info(reader):
     return {
         "unit_id": reader.read_string(),
@@ -615,6 +744,40 @@ def decode_unit_task_info(reader):
         "task_execution_id": reader.read_string(),
         "unit_task_definition_id": reader.read_string(),
         "unit_task_execution_id": reader.read_string(),
+        "recovery_resume_mode": reader.read_string(),
+        "recovery_approach_waypoint": reader.read_string(),
+        "recovery_position_tolerance_m": reader.read_float64(),
+        "recovery_yaw_tolerance_enabled": reader.read_bool(),
+        "recovery_yaw_tolerance_rad": reader.read_float64(),
+        "recovery_max_attempts": reader.read_int32(),
+        "recovery_clear_timeout_sec": reader.read_float64(),
+        "on_suspend_actions": reader.read_sequence(decode_recovery_lifecycle_action),
+        "before_redispatch_actions": reader.read_sequence(decode_recovery_lifecycle_action),
+    }
+
+
+def decode_legacy_unit_task_info(reader):
+    return {
+        "unit_id": reader.read_string(),
+        "seq": reader.read_int32(),
+        "waypoint": reader.read_string(),
+        "action_name": reader.read_string(),
+        "status": reader.read_string(),
+        "attempts": reader.read_int32(),
+        "last_error": reader.read_string(),
+        "task_definition_id": reader.read_string(),
+        "task_execution_id": reader.read_string(),
+        "unit_task_definition_id": reader.read_string(),
+        "unit_task_execution_id": reader.read_string(),
+        "recovery_resume_mode": "",
+        "recovery_approach_waypoint": "",
+        "recovery_position_tolerance_m": 0.1,
+        "recovery_yaw_tolerance_enabled": False,
+        "recovery_yaw_tolerance_rad": 0.0,
+        "recovery_max_attempts": 3,
+        "recovery_clear_timeout_sec": 300.0,
+        "on_suspend_actions": [],
+        "before_redispatch_actions": [],
     }
 
 
@@ -624,7 +787,7 @@ def decode_task_info_sequence(payload, task_decoder):
     unknown_statuses = sorted({
         task.get("status") or ""
         for task in tasks
-        if not is_plausible_task_info(task)
+        if not task.get("status") or not is_plausible_task_info(task)
     })
     if unknown_statuses:
         raise ValueError(f"task response did not match TaskInfo status fields: {unknown_statuses}")
@@ -636,6 +799,8 @@ def decode_task_info_sequence(payload, task_decoder):
 def decode_list_tasks_response(payload):
     decoder_errors = []
     for task_decoder in (
+        decode_current_task_info,
+        decode_current_id_first_task_info,
         decode_task_info,
         decode_reordered_task_info,
         decode_legacy_task_info,
@@ -650,31 +815,77 @@ def decode_list_tasks_response(payload):
     raise ValueError(f"unable to decode list_tasks response ({details}); {describe_payload(payload)}")
 
 
-def decode_get_task_response_with(payload, task_decoder):
+def decode_action_parameter_info(reader):
+    return {
+        "name": reader.read_string(),
+        "data_type": reader.read_string(),
+    }
+
+
+def decode_action_info(reader):
+    return {
+        "action_name": reader.read_string(),
+        "required_parameters": reader.read_sequence(decode_action_parameter_info),
+    }
+
+
+def decode_list_actions_response(payload):
+    reader = CdrReader(payload)
+    response = {
+        "ok": reader.read_bool(),
+        "actions": reader.read_sequence(decode_action_info),
+        "message": reader.read_string(),
+    }
+    if reader.offset < len(payload) and any(payload[reader.offset:]):
+        raise ValueError("list_actions response had trailing undecoded fields")
+    return response
+
+
+def decode_get_task_response_with(
+    payload,
+    task_decoder,
+    unit_task_decoder,
+    include_recovery_mappings,
+):
     reader = CdrReader(payload)
     found = reader.read_bool()
     task = task_decoder(reader)
     if found and not is_plausible_task_info(task):
         raise ValueError("task response did not match TaskInfo status fields")
 
-    return {
+    response = {
         "found": found,
         "task": task,
-        "unit_tasks": reader.read_sequence(decode_unit_task_info),
+        "unit_tasks": reader.read_sequence(unit_task_decoder),
+        "recovery_task_mappings": (
+            reader.read_sequence(decode_recovery_task_mapping)
+            if include_recovery_mappings
+            else []
+        ),
         "message": reader.read_string(),
     }
+    if reader.offset < len(payload) and any(payload[reader.offset:]):
+        raise ValueError("get_task response had trailing undecoded fields")
+    return response
 
 
 def decode_get_task_response(payload):
     decoder_errors = []
-    for task_decoder in (
-        decode_task_info,
-        decode_reordered_task_info,
-        decode_legacy_task_info,
-        decode_legacy_no_fleet_task_info,
+    for task_decoder, unit_task_decoder, include_recovery_mappings in (
+        (decode_current_task_info, decode_unit_task_info, True),
+        (decode_current_id_first_task_info, decode_unit_task_info, True),
+        (decode_task_info, decode_legacy_unit_task_info, False),
+        (decode_reordered_task_info, decode_legacy_unit_task_info, False),
+        (decode_legacy_task_info, decode_legacy_unit_task_info, False),
+        (decode_legacy_no_fleet_task_info, decode_legacy_unit_task_info, False),
     ):
         try:
-            return decode_get_task_response_with(payload, task_decoder)
+            return decode_get_task_response_with(
+                payload,
+                task_decoder,
+                unit_task_decoder,
+                include_recovery_mappings,
+            )
         except Exception as error:
             decoder_errors.append(f"{task_decoder.__name__}: {error}")
 
@@ -857,6 +1068,53 @@ def list_tasks(session, message):
         emit(response_message)
 
 
+def list_actions(session, message):
+    key = normalize_key(message.get("key"))
+    request_id = str(message.get("requestId") or "")
+
+    response_message = {
+        "type": "service-response",
+        "service": "list_actions",
+        "key": key,
+        "requestId": request_id,
+        "success": False,
+        "ok": False,
+        "actions": [],
+        "message": "no service response",
+    }
+
+    if not key:
+        response_message["message"] = "missing list_actions service key"
+        emit(response_message)
+        return
+
+    try:
+        replies = session.get(
+            key,
+            timeout=normalized_timeout(message),
+            payload=encode_empty_request(),
+        )
+        received_reply = False
+        for reply in replies:
+            received_reply = True
+            if reply.ok is not None:
+                response_message.update(decode_list_actions_response(reply.ok.payload.to_bytes()))
+                response_message["success"] = True
+                emit(response_message)
+                return
+
+            if reply.err is not None:
+                response_message["message"] = reply.err.payload.to_bytes().decode("utf-8", errors="replace")
+                emit(response_message)
+                return
+
+        if not received_reply:
+            emit(response_message)
+    except Exception as error:
+        response_message["message"] = str(error)
+        emit(response_message)
+
+
 def get_task(session, message):
     key = normalize_key(message.get("key"))
     request_id = str(message.get("requestId") or "")
@@ -871,6 +1129,7 @@ def get_task(session, message):
         "found": False,
         "task": empty_task_info(),
         "unit_tasks": [],
+        "recovery_task_mappings": [],
         "message": "no service response",
     }
 
@@ -1336,6 +1595,9 @@ def main():
                 continue
             if message_type == "list_tasks":
                 list_tasks(session, message)
+                continue
+            if message_type == "list_actions":
+                list_actions(session, message)
                 continue
             if message_type == "get_task":
                 get_task(session, message)

@@ -31,6 +31,7 @@ export function useTelemetryZenoh(options: UseTelemetryZenohOptions = {}) {
   const requestedScanTopicsKey = requestedScanTopics.join('\n')
   const nestControllerIp = useParamsStore(state => state.nestControllerIp)
   const updateRobotBattery = useGridStore(state => state.updateRobotBattery)
+  const updateRobotBattery2 = useGridStore(state => state.updateRobotBattery2)
   const updateLaserPose = useGridStore(state => state.updateLaserPose)
   const updateLaserScan = useGridStore(state => state.updateLaserScan)
   const updateZenohTelemetryStatus = useGridStore(state => state.updateZenohTelemetryStatus)
@@ -83,6 +84,11 @@ export function useTelemetryZenoh(options: UseTelemetryZenohOptions = {}) {
 
       if (message.type === 'battery') {
         updateRobotBattery(message.battery, message.batteryCurrent, message.key)
+        return
+      }
+
+      if (message.type === 'battery2') {
+        updateRobotBattery2(message.battery, message.batteryCurrent, message.key)
         return
       }
 
@@ -157,6 +163,7 @@ export function useTelemetryZenoh(options: UseTelemetryZenohOptions = {}) {
     updateLaserPose,
     updateLaserScan,
     updateRobotBattery,
+    updateRobotBattery2,
     updateZenohTelemetryStatus,
   ])
 

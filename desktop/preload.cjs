@@ -161,6 +161,7 @@ contextBridge.exposeInMainWorld('zcDesktop', Object.freeze({
   publishZenohFleetVelocityCommand: options => ipcRenderer.invoke('zenoh-command:publish-twist', options),
   publishZenohFleetDigitalOutputCommand: options => ipcRenderer.invoke('zenoh-command:write-coil', options),
   listZenohTasks: options => ipcRenderer.invoke('zenoh-command:list-tasks', options),
+  listZenohActions: options => ipcRenderer.invoke('zenoh-command:list-actions', options),
   getZenohTask: options => ipcRenderer.invoke('zenoh-command:get-task', options),
   createZenohTask: options => ipcRenderer.invoke('zenoh-command:create-task', options),
   runZenohTask: options => ipcRenderer.invoke('zenoh-command:run-task', options),

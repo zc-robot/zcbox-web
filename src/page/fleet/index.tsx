@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import toast, { Toaster } from 'react-hot-toast'
 import { buildRobotHardwareDiagnosticsView } from './runtimeModel'
 import { buildMultiGoToPoseUnitTasks } from './taskModel'
@@ -6,7 +6,7 @@ import type { FleetHardwareDiagnosticState, FleetRobotHardwareDiagnosticsState }
 import { notifyFleetSiteNamespaceUpdated, prefixFleetSiteTopic, useBuildingMapZenoh, useFleetBondsZenoh, useFleetDataZenoh, useFleetDidoZenoh, useFleetHardwareDiagnosticsZenoh, useFleetRmfStatesZenoh, useFleetSiteNamespace, useFleetWheelStatesZenoh, useInterval } from '@/hooks'
 import apiServer from '@/service/apiServer'
 import { useParamsStore } from '@/store'
-import type { BuildingMapGraphMessage, BuildingMapImageMessage, BuildingMapLevelMessage, BuildingMapMessage, FleetRobotDataMessage, RmfDoorRequestMessage, RmfLiftRequestMessage, StorageAreaLayoutMessage, StorageCellStockMessage, StorageReinitLayoutSpec, StorageShelfMessage, TaskManagerTaskDetail, TaskManagerTaskInfo, TaskManagerUnitTaskInfo, TwistCommand } from '@/types'
+import type { BuildingMapGraphMessage, BuildingMapImageMessage, BuildingMapLevelMessage, BuildingMapMessage, FleetRobotDataMessage, RmfDoorRequestMessage, RmfLiftRequestMessage, StorageAreaLayoutMessage, StorageCellStockMessage, StorageReinitLayoutSpec, StorageShelfMessage, TaskManagerActionInfo, TaskManagerTaskDetail, TaskManagerTaskInfo, TaskManagerUnitTaskInfo, TwistCommand } from '@/types'
 import type { ComposeControlAction, ComposeControlCommandResponse, ComposeControlServiceStatus, ComposeControlStatusResponse, ComposeMapSiteWithFiles, FleetConfigNamespaceData, FleetConfigResponse, FleetConfigWriteResponse } from '@/service/apiServer'
 import type { DidoValue, FleetDidoZenohState, RobotDidoValues } from '@/hooks/useFleetDidoZenoh'
 import type { FleetHardwareDiagnosticsZenohState, HardwareDiagnosticsValue } from '@/hooks/useFleetHardwareDiagnosticsZenoh'
@@ -119,6 +119,13 @@ interface MultiGoToPoseStop {
 interface MultiGoToPoseTaskDraft {
   robot: string
   stops: MultiGoToPoseStop[]
+}
+
+interface ActionTaskDraft {
+  robot: string
+  waypoint: string
+  actionName: string
+  parameterValues: Record<string, string>
 }
 
 interface TaskWaypointOption {
@@ -272,6 +279,91 @@ function formatDateTime(value: string) {
     return '--'
 
   return time.toLocaleString()
+}
+
+function normalizeActionDataType(dataType: string) {
+  return dataType.trim().toLowerCase()
+}
+
+function isActionBooleanType(dataType: string) {
+  const normalized = normalizeActionDataType(dataType)
+  return normalized === 'bool' || normalized === 'boolean'
+}
+
+function isActionIntegerType(dataType: string) {
+  const normalized = normalizeActionDataType(dataType)
+  return normalized.includes('int') || normalized === 'long' || normalized === 'short'
+}
+
+function isActionNumberType(dataType: string) {
+  const normalized = normalizeActionDataType(dataType)
+  return normalized.includes('double') || normalized.includes('float') || normalized === 'number'
+}
+
+function defaultActionParameterValue(dataType: string) {
+  return isActionBooleanType(dataType) ? 'false' : ''
+}
+
+function formatActionParameters(action: TaskManagerActionInfo) {
+  if (action.required_parameters.length === 0)
+    return 'No parameters'
+
+  return action.required_parameters
+    .map(parameter => `${parameter.name}: ${parameter.data_type}`)
+    .join(', ')
+}
+
+function buildActionParameterPayload(action: TaskManagerActionInfo, values: Record<string, string>) {
+  const payload: Record<string, string | number | boolean> = {}
+
+  for (const parameter of action.required_parameters) {
+    const rawValue = values[parameter.name] ?? ''
+    const trimmedValue = rawValue.trim()
+    const dataType = parameter.data_type || 'string'
+
+    if (isActionBooleanType(dataType)) {
+      payload[parameter.name] = rawValue === 'true'
+      continue
+    }
+
+    if (!trimmedValue) {
+      return {
+        ok: false as const,
+        error: `${parameter.name} is required`,
+      }
+    }
+
+    if (isActionIntegerType(dataType)) {
+      const parsed = Number(trimmedValue)
+      if (!Number.isInteger(parsed)) {
+        return {
+          ok: false as const,
+          error: `${parameter.name} must be an integer`,
+        }
+      }
+      payload[parameter.name] = parsed
+      continue
+    }
+
+    if (isActionNumberType(dataType)) {
+      const parsed = Number(trimmedValue)
+      if (!Number.isFinite(parsed)) {
+        return {
+          ok: false as const,
+          error: `${parameter.name} must be a finite number`,
+        }
+      }
+      payload[parameter.name] = parsed
+      continue
+    }
+
+    payload[parameter.name] = trimmedValue
+  }
+
+  return {
+    ok: true as const,
+    payload,
+  }
 }
 
 function formatTimer(value: string, status: FleetTaskStatus) {
@@ -617,11 +709,13 @@ const taskManagerStatusClass: Record<string, string> = {
   SUCCEEDED: 'bg-blue-50 text-blue-700',
   FAILED: 'bg-red-50 text-red-700',
   CANCELED: 'bg-zinc-100 text-zinc-600',
+  SKIPPED: 'bg-cyan-50 text-cyan-700',
   PAUSED: 'bg-purple-50 text-purple-700',
+  RECOVERY_REQUIRED: 'bg-orange-50 text-orange-700',
   ARCHIVED: 'bg-gray-100 text-gray-700',
 }
 
-const taskManagerExecutingStatuses = new Set(['PENDING', 'RUNNING'])
+const taskManagerExecutingStatuses = new Set(['PENDING', 'RUNNING', 'RECOVERY_REQUIRED'])
 
 const composeControlActionLabels: Record<ComposeControlAction, string> = {
   up: 'Start',
@@ -2071,6 +2165,7 @@ const storageStateTopic = 'storage_state'
 const storageAreaDisplayNameServiceTopic = 'set_area_display_name'
 const storageReinitServiceTopic = 'reinit_storage'
 const taskManagerServiceTopics = {
+  listActions: 'list_actions',
   list: 'list_tasks',
   get: 'get_task',
   create: 'create_task',
@@ -4745,6 +4840,8 @@ function TaskManagerUnitTaskRow({ unitTask }: { unitTask: TaskManagerUnitTaskInf
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs font-700 text-gray-500">
         <span>Attempts {unitTask.attempts}</span>
         <span title={unitTask.unit_id}>Unit {shortIdentifier(unitTask.unit_id)}</span>
+        {unitTask.recovery_resume_mode && <span>Recovery {unitTask.recovery_resume_mode}</span>}
+        {unitTask.recovery_approach_waypoint && <span>Via {unitTask.recovery_approach_waypoint}</span>}
       </div>
       {unitTask.last_error && <div className="mt-2 break-words text-xs text-red-700">{unitTask.last_error}</div>}
     </div>
@@ -4816,6 +4913,7 @@ function TaskManagerDetail({
             />
           </div>
         </div>
+        {task.description && <div className="mb-3 break-words text-sm text-gray-600">{task.description}</div>}
         <div className="grid grid-cols-1 gap-2 2xl:grid-cols-2">
           <TaskManagerDetailField label="Task ID" value={shortIdentifier(task.task_id)} title={task.task_id} />
           <TaskManagerDetailField label="Definition ID" value={shortIdentifier(task.task_definition_id)} title={task.task_definition_id} />
@@ -4842,6 +4940,23 @@ function TaskManagerDetail({
           ))
           : <div className="border-(t-solid 1px gray-100) px-3 py-8 text-center text-sm text-gray-500">No unit tasks</div>}
       </section>
+
+      {detail.recovery_task_mappings.length > 0 && (
+        <section className="overflow-hidden rounded-lg border-(solid 1px gray-200) bg-white/75">
+          <div className="px-3 py-2 font-800 text-gray-900">Recovery mappings</div>
+          {detail.recovery_task_mappings.map(mapping => (
+            <div
+              key={`${mapping.recovery_task_index}:${mapping.recovery_task_definition_id}`}
+              className="flex items-center gap-3 border-(t-solid 1px gray-100) px-3 py-2 text-sm"
+            >
+              <span className="w-8 shrink-0 font-800 tabular-nums text-gray-500">{mapping.recovery_task_index}</span>
+              <span className="min-w-0 break-all font-mono text-xs text-gray-700">
+                {mapping.recovery_task_definition_id}
+              </span>
+            </div>
+          ))}
+        </section>
+      )}
     </div>
   )
 }
@@ -5243,12 +5358,24 @@ function TasksPage({
       { id: createId('go-to-pose'), mapName: '', x: '', y: '', heading: '' },
     ],
   }))
+  const [actionTaskDraft, setActionTaskDraft] = useState<ActionTaskDraft>({
+    robot: '',
+    waypoint: '',
+    actionName: '',
+    parameterValues: {},
+  })
   const [isCreatingGoToChargerTask, setIsCreatingGoToChargerTask] = useState(false)
   const [isCreatingGoToWaypointTask, setIsCreatingGoToWaypointTask] = useState(false)
   const [isCreatingMultiGoToPoseTask, setIsCreatingMultiGoToPoseTask] = useState(false)
+  const [isCreatingActionTask, setIsCreatingActionTask] = useState(false)
+  const [isLoadingActions, setIsLoadingActions] = useState(false)
+  const [actionCatalog, setActionCatalog] = useState<TaskManagerActionInfo[]>([])
+  const [actionCatalogError, setActionCatalogError] = useState<string | null>(null)
+  const [actionCatalogMessage, setActionCatalogMessage] = useState('')
   const [goToChargerFeedback, setGoToChargerFeedback] = useState<GoToChargerFeedback | null>(null)
   const [goToWaypointFeedback, setGoToWaypointFeedback] = useState<GoToChargerFeedback | null>(null)
   const [multiGoToPoseFeedback, setMultiGoToPoseFeedback] = useState<GoToChargerFeedback | null>(null)
+  const [actionTaskFeedback, setActionTaskFeedback] = useState<GoToChargerFeedback | null>(null)
   const waypointOptions = useMemo(() => getNavWaypointOptions(buildingMap), [buildingMap])
   const waypointNames = useMemo(() => waypointOptions.map(option => option.name), [waypointOptions])
   const poseMapNames = useMemo(
@@ -5259,15 +5386,28 @@ function TasksPage({
   const chargerWaypointNames = useMemo(() => chargerWaypointOptions.map(option => option.name), [chargerWaypointOptions])
   const normalizedFleetName = fleetName.trim()
   const fleetSiteNamespace = useFleetSiteNamespace()
+  const taskListActionsServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.listActions)
   const taskCreateServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.create)
   const taskCreateServiceError = fleetSiteNamespace.status === 'idle' || fleetSiteNamespace.status === 'loading'
     ? 'Loading site name'
     : taskCreateServicePath
       ? ''
       : fleetSiteNamespace.error || 'Missing site name'
+  const taskListActionsServiceError = fleetSiteNamespace.status === 'idle' || fleetSiteNamespace.status === 'loading'
+    ? 'Loading site name'
+    : taskListActionsServicePath
+      ? ''
+      : fleetSiteNamespace.error || 'Missing site name'
   const selectedChargerOption = chargerWaypointOptions.find(option => option.name === goToChargerDraft.chargerWaypoint) ?? null
   const selectedWaypointOption = waypointOptions.find(option => option.name === goToWaypointDraft.waypoint.trim()) ?? null
   const multiGoToPoseUnitTasks = buildMultiGoToPoseUnitTasks(multiGoToPoseDraft.stops)
+  const selectedAction = actionCatalog.find(action => action.action_name === actionTaskDraft.actionName) ?? null
+  const actionParametersComplete = selectedAction
+    ? selectedAction.required_parameters.every((parameter) => {
+      const value = actionTaskDraft.parameterValues[parameter.name] ?? ''
+      return isActionBooleanType(parameter.data_type) || value.trim().length > 0
+    })
+    : false
   const canCreateGoToChargerTask = Boolean(
     normalizedFleetName
     && !taskCreateServiceError
@@ -5286,6 +5426,13 @@ function TasksPage({
     && multiGoToPoseDraft.robot
     && multiGoToPoseUnitTasks.ok,
   )
+  const canCreateActionTask = Boolean(
+    normalizedFleetName
+    && !taskCreateServiceError
+    && actionTaskDraft.robot
+    && selectedAction
+    && actionParametersComplete,
+  )
   const sortedTasks = [...tasks].sort((a, b) => {
     if (a.status === b.status)
       return new Date(a.scheduleAt).getTime() - new Date(b.scheduleAt).getTime()
@@ -5295,6 +5442,37 @@ function TasksPage({
       return 1
     return a.createdAt - b.createdAt
   })
+
+  const loadActionCatalog = useCallback(async () => {
+    if (taskListActionsServiceError) {
+      setActionCatalog([])
+      setActionCatalogMessage('')
+      setActionCatalogError(taskListActionsServiceError)
+      return
+    }
+
+    setIsLoadingActions(true)
+    setActionCatalogError(null)
+    try {
+      const response = await apiServer.listActions({
+        servicePath: taskListActionsServicePath,
+      })
+      setActionCatalog(response.actions)
+      setActionCatalogMessage(response.message || '')
+    }
+    catch (error) {
+      setActionCatalog([])
+      setActionCatalogMessage('')
+      setActionCatalogError(errorMessage(error))
+    }
+    finally {
+      setIsLoadingActions(false)
+    }
+  }, [taskListActionsServiceError, taskListActionsServicePath])
+
+  useEffect(() => {
+    void loadActionCatalog()
+  }, [loadActionCatalog])
 
   useEffect(() => {
     setGoToChargerDraft((current) => {
@@ -5312,7 +5490,37 @@ function TasksPage({
         return current.robot ? { ...current, robot: '' } : current
       return robotOptions.includes(current.robot) ? current : { ...current, robot: robotOptions[0] }
     })
+    setActionTaskDraft((current) => {
+      if (robotOptions.length === 0)
+        return current.robot ? { ...current, robot: '' } : current
+      return robotOptions.includes(current.robot) ? current : { ...current, robot: robotOptions[0] }
+    })
   }, [robotOptions])
+
+  useEffect(() => {
+    setActionTaskDraft((current) => {
+      const nextAction = actionCatalog.find(action => action.action_name === current.actionName) ?? actionCatalog[0] ?? null
+      if (!nextAction) {
+        return current.actionName || Object.keys(current.parameterValues).length > 0
+          ? { ...current, actionName: '', parameterValues: {} }
+          : current
+      }
+
+      const parameterValues = Object.fromEntries(nextAction.required_parameters.map(parameter => [
+        parameter.name,
+        current.parameterValues[parameter.name] ?? defaultActionParameterValue(parameter.data_type),
+      ]))
+
+      if (current.actionName === nextAction.action_name && JSON.stringify(current.parameterValues) === JSON.stringify(parameterValues))
+        return current
+
+      return {
+        ...current,
+        actionName: nextAction.action_name,
+        parameterValues,
+      }
+    })
+  }, [actionCatalog])
 
   useEffect(() => {
     setGoToWaypointDraft((current) => {
@@ -5486,12 +5694,10 @@ function TasksPage({
         name: goToWaypointTaskName,
         robot_name: robot,
         fleet_name: normalizedFleetName,
-        unit_tasks: [{
-          seq: 1,
-          waypoint,
-          action_name: '',
-          action_params_json: '{}',
-        }],
+        waypoint,
+        action_name: '',
+        parameters_json: '{}',
+        unit_tasks: [],
       }, {
         servicePath: taskCreateServicePath,
       })
@@ -5550,6 +5756,60 @@ function TasksPage({
     }
     finally {
       setIsCreatingMultiGoToPoseTask(false)
+    }
+  }
+
+  async function createActionTask(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const robot = actionTaskDraft.robot.trim()
+    const waypoint = actionTaskDraft.waypoint.trim()
+
+    if (!robot) {
+      setActionTaskFeedback({ tone: 'error', message: 'Select a robot before creating the task.' })
+      return
+    }
+    if (!normalizedFleetName) {
+      setActionTaskFeedback({ tone: 'error', message: 'Waiting for fleet state before creating the task.' })
+      return
+    }
+    if (!selectedAction) {
+      setActionTaskFeedback({ tone: 'error', message: 'Select an action before creating the task.' })
+      return
+    }
+    if (!requireTaskCreateService(setActionTaskFeedback))
+      return
+
+    const parameters = buildActionParameterPayload(selectedAction, actionTaskDraft.parameterValues)
+    if (!parameters.ok) {
+      setActionTaskFeedback({ tone: 'error', message: parameters.error })
+      return
+    }
+
+    setIsCreatingActionTask(true)
+    setActionTaskFeedback(null)
+    try {
+      const response = await apiServer.createTask({
+        name: waypoint ? `${selectedAction.action_name}_at_${waypoint}` : selectedAction.action_name,
+        robot_name: robot,
+        fleet_name: normalizedFleetName,
+        waypoint,
+        action_name: selectedAction.action_name,
+        parameters_json: JSON.stringify(parameters.payload),
+        unit_tasks: [],
+      }, {
+        servicePath: taskCreateServicePath,
+      })
+      const taskLabel = response.task_id ? `Task ${shortIdentifier(response.task_id)} created` : 'Task created'
+      setActionTaskFeedback({ tone: 'success', message: response.message || taskLabel })
+      toast.success(taskLabel)
+    }
+    catch (error) {
+      const message = errorMessage(error)
+      setActionTaskFeedback({ tone: 'error', message })
+      toast.error(`Failed to create task: ${message}`)
+    }
+    finally {
+      setIsCreatingActionTask(false)
     }
   }
 
@@ -5690,7 +5950,7 @@ function TasksPage({
             <div className="rounded-lg border-(solid 1px gray-200) bg-white/70 px-3 py-2">
               <div className="text-[11px] font-700 uppercase text-gray-400">Unit task</div>
               <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-sm">
-                <Badge className="bg-blue-50 text-blue-700">#1</Badge>
+                <Badge className="bg-blue-50 text-blue-700">#0</Badge>
                 <span className="font-800 text-gray-900">{goToWaypointDraft.waypoint.trim() || '--'}</span>
                 <span className="text-gray-500">Navigate</span>
                 <span className="text-xs text-gray-400">
@@ -5872,6 +6132,220 @@ function TasksPage({
               icon={isCreatingMultiGoToPoseTask ? 'i-material-symbols-progress-activity' : 'i-material-symbols-conversion-path-rounded'}
               className="w-full"
               disabled={isCreatingMultiGoToPoseTask || !canCreateMultiGoToPoseTask}>
+              Create task
+            </Button>
+          </form>
+
+          <form className="space-y-4 border-(t-solid 1px gray-200) pt-5" onSubmit={createActionTask}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-4 font-800">Action task</div>
+                <div className="text-xs text-gray-500">Create a Task Manager task</div>
+              </div>
+              <IconButton
+                type="button"
+                icon={isLoadingActions ? 'i-material-symbols-progress-activity' : 'i-material-symbols-refresh-rounded'}
+                title="Refresh actions"
+                disabled={isLoadingActions}
+                onClick={() => { void loadActionCatalog() }}
+              />
+            </div>
+
+            <div className="rounded-lg border-(solid 1px gray-200) bg-white/70 px-3 py-2">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="text-[11px] font-700 uppercase text-gray-400">Available actions</div>
+                <Badge className="bg-gray-50 text-gray-700">{actionCatalog.length} total</Badge>
+              </div>
+              {isLoadingActions
+                ? (
+                    <div className="rounded-lg bg-gray-50 px-3 py-4 text-center text-sm text-gray-500">Loading actions...</div>
+                  )
+                : actionCatalogError
+                  ? (
+                      <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{actionCatalogError}</div>
+                    )
+                  : actionCatalog.length > 0
+                    ? (
+                        <div className="space-y-2">
+                          {actionCatalog.map(action => (
+                            <button
+                              key={action.action_name}
+                              type="button"
+                              className={classNames(
+                                'w-full rounded-lg border px-3 py-2 text-left transition',
+                                action.action_name === actionTaskDraft.actionName
+                                  ? 'border-emerald-500 bg-emerald-50'
+                                  : 'border-gray-200 bg-white hover:bg-gray-50',
+                              )}
+                              onClick={() => {
+                                setActionTaskDraft(current => ({
+                                  ...current,
+                                  actionName: action.action_name,
+                                  parameterValues: Object.fromEntries(action.required_parameters.map(parameter => [
+                                    parameter.name,
+                                    current.parameterValues[parameter.name] ?? defaultActionParameterValue(parameter.data_type),
+                                  ])),
+                                }))
+                              }}>
+                              <div className="min-w-0 break-words text-sm font-800 text-gray-900">{action.action_name}</div>
+                              <div className="mt-0.5 min-w-0 break-words text-xs text-gray-500">{formatActionParameters(action)}</div>
+                            </button>
+                          ))}
+                        </div>
+                      )
+                    : (
+                        <div className="rounded-lg bg-gray-50 px-3 py-4 text-center text-sm text-gray-500">No actions</div>
+                      )}
+              {actionCatalogMessage && (
+                <div className="mt-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">{actionCatalogMessage}</div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <FieldLabel>Robot</FieldLabel>
+              <select
+                className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
+                value={actionTaskDraft.robot}
+                onChange={event => setActionTaskDraft(current => ({ ...current, robot: event.target.value }))}>
+                {robotOptions.map(robot => <option key={robot} value={robot}>{robot}</option>)}
+                {robotOptions.length === 0 && <option value="">No robots</option>}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <FieldLabel>Waypoint</FieldLabel>
+              {waypointOptions.length > 0
+                ? (
+                    <select
+                      className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
+                      value={actionTaskDraft.waypoint}
+                      onChange={event => setActionTaskDraft(current => ({ ...current, waypoint: event.target.value }))}>
+                      <option value="">No waypoint</option>
+                      {waypointOptions.map(option => (
+                        <option key={`${option.name}:${option.levelName}:${option.graphName}`} value={option.name}>
+                          {option.name} ({option.levelName})
+                        </option>
+                      ))}
+                    </select>
+                  )
+                : (
+                    <input
+                      className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
+                      placeholder="Optional waypoint"
+                      value={actionTaskDraft.waypoint}
+                      onChange={event => setActionTaskDraft(current => ({ ...current, waypoint: event.target.value }))}
+                    />
+                  )}
+            </div>
+
+            <div className="space-y-2">
+              <FieldLabel>Action</FieldLabel>
+              <select
+                className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
+                value={actionTaskDraft.actionName}
+                onChange={(event) => {
+                  const action = actionCatalog.find(item => item.action_name === event.target.value) ?? null
+                  setActionTaskDraft(current => ({
+                    ...current,
+                    actionName: event.target.value,
+                    parameterValues: action
+                      ? Object.fromEntries(action.required_parameters.map(parameter => [
+                        parameter.name,
+                        current.parameterValues[parameter.name] ?? defaultActionParameterValue(parameter.data_type),
+                      ]))
+                      : {},
+                  }))
+                }}>
+                {actionCatalog.map(action => <option key={action.action_name} value={action.action_name}>{action.action_name}</option>)}
+                {actionCatalog.length === 0 && <option value="">No actions</option>}
+              </select>
+            </div>
+
+            {selectedAction && selectedAction.required_parameters.length > 0 && (
+              <div className="space-y-3">
+                {selectedAction.required_parameters.map(parameter => (
+                  <div key={`${selectedAction.action_name}:${parameter.name}`} className="space-y-2">
+                    <FieldLabel>{parameter.name}</FieldLabel>
+                    {isActionBooleanType(parameter.data_type)
+                      ? (
+                          <select
+                            className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
+                            value={actionTaskDraft.parameterValues[parameter.name] ?? defaultActionParameterValue(parameter.data_type)}
+                            onChange={event => setActionTaskDraft(current => ({
+                              ...current,
+                              parameterValues: {
+                                ...current.parameterValues,
+                                [parameter.name]: event.target.value,
+                              },
+                            }))}>
+                            <option value="false">False</option>
+                            <option value="true">True</option>
+                          </select>
+                        )
+                      : (
+                          <input
+                            className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
+                            inputMode={isActionIntegerType(parameter.data_type) || isActionNumberType(parameter.data_type) ? 'decimal' : 'text'}
+                            placeholder={parameter.data_type}
+                            value={actionTaskDraft.parameterValues[parameter.name] ?? ''}
+                            onChange={event => setActionTaskDraft(current => ({
+                              ...current,
+                              parameterValues: {
+                                ...current.parameterValues,
+                                [parameter.name]: event.target.value,
+                              },
+                            }))}
+                          />
+                        )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="rounded-lg bg-gray-50 px-3 py-2">
+              <div className="text-[11px] font-700 uppercase text-gray-400">Fleet</div>
+              <div className="mt-0.5 min-w-0 break-words text-sm font-700 text-gray-800">
+                {normalizedFleetName || 'Waiting for fleet state'}
+              </div>
+            </div>
+
+            <div className="rounded-lg border-(solid 1px gray-200) bg-white/70 px-3 py-2">
+              <div className="text-[11px] font-700 uppercase text-gray-400">Simple task</div>
+              <div className="mt-1 space-y-1 text-sm">
+                {actionTaskDraft.waypoint.trim() && (
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <Badge className="bg-blue-50 text-blue-700">#0</Badge>
+                    <span className="font-800 text-gray-900">{actionTaskDraft.waypoint.trim()}</span>
+                    <span className="text-gray-500">Navigate</span>
+                  </div>
+                )}
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <Badge className="bg-sky-50 text-sky-700">{actionTaskDraft.waypoint.trim() ? '#1' : '#0'}</Badge>
+                  <span className="font-800 text-gray-900">{selectedAction?.action_name || '--'}</span>
+                  <span className="text-gray-500">Action</span>
+                </div>
+              </div>
+            </div>
+
+            {actionTaskFeedback && (
+              <div
+                className={classNames(
+                  'rounded-lg px-3 py-2 text-sm',
+                  actionTaskFeedback.tone === 'success'
+                    ? 'bg-emerald-50 text-emerald-700'
+                    : 'bg-red-50 text-red-700',
+                )}
+              >
+                {actionTaskFeedback.message}
+              </div>
+            )}
+
+            <Button
+              type="submit"
+              tone="primary"
+              icon={isCreatingActionTask ? 'i-material-symbols-progress-activity' : 'i-material-symbols-playlist-add-check-rounded'}
+              className="w-full"
+              disabled={isCreatingActionTask || !canCreateActionTask}>
               Create task
             </Button>
           </form>

@@ -1,5 +1,5 @@
 import type { ShelfState } from './service/apiServer'
-import type { BondStatusMessage, BuildingMapMessage, FleetDataMessage, FleetDiagnosticStateMessage, LaserScanMessage, MotorStatesMessage, PointCloudMessage, PoseMessage, RmfDoorRequestMessage, RmfDoorStateMessage, RmfLiftRequestMessage, RmfLiftStateMessage, RmfScheduleMarkerCacheMessage, StorageAreaDisplayNameResult, StorageReinitRequestPayload, StorageReinitResult, StorageStateMessage, TaskManagerCancelTaskResult, TaskManagerCreateTaskPayload, TaskManagerCreateTaskResult, TaskManagerDeleteTaskResult, TaskManagerRunTaskResult, TaskManagerTaskDetail, TaskManagerTaskInfo, TwistCommand, UInt8MultiArrayMessage } from './types'
+import type { BondStatusMessage, BuildingMapMessage, FleetDataMessage, FleetDiagnosticStateMessage, LaserScanMessage, MotorStatesMessage, PointCloudMessage, PoseMessage, RmfDoorRequestMessage, RmfDoorStateMessage, RmfLiftRequestMessage, RmfLiftStateMessage, RmfScheduleMarkerCacheMessage, StorageAreaDisplayNameResult, StorageReinitRequestPayload, StorageReinitResult, StorageStateMessage, TaskManagerCancelTaskResult, TaskManagerCreateTaskPayload, TaskManagerCreateTaskResult, TaskManagerDeleteTaskResult, TaskManagerListActionsResult, TaskManagerRunTaskResult, TaskManagerTaskDetail, TaskManagerTaskInfo, TwistCommand, UInt8MultiArrayMessage } from './types'
 
 declare global {
   interface ImportMetaEnv {
@@ -114,6 +114,13 @@ declare global {
     batteryCurrent: number
   }
 
+  interface ZenohTelemetryBattery2Message {
+    type: 'battery2'
+    key: string
+    battery: number
+    batteryCurrent: number
+  }
+
   interface ZenohTelemetryLaserPoseMessage {
     type: 'laser-pose'
     key: string
@@ -149,6 +156,7 @@ declare global {
   type ZenohTelemetryMessage =
     | ZenohTelemetryStatusMessage
     | ZenohTelemetryBatteryMessage
+    | ZenohTelemetryBattery2Message
     | ZenohTelemetryLaserPoseMessage
     | ZenohTelemetryLaserScanMessage
     | ZenohTelemetryCompressedMapMessage
@@ -494,6 +502,20 @@ declare global {
     tasks: TaskManagerTaskInfo[]
   }
 
+  interface ZenohActionListOptions {
+    host: string
+    servicePath?: string
+    timeoutMs?: number
+  }
+
+  interface ZenohActionListResult extends TaskManagerListActionsResult {
+    type: 'service-response'
+    service: 'list_actions'
+    key: string
+    requestId: string
+    success: boolean
+  }
+
   interface ZenohTaskDetailOptions {
     host: string
     servicePath?: string
@@ -687,6 +709,14 @@ declare global {
     tasks: TaskManagerTaskInfo[]
   }
 
+  interface ZenohCommandListActionsServiceResponseMessage extends TaskManagerListActionsResult {
+    type: 'service-response'
+    service: 'list_actions'
+    key: string
+    requestId: string
+    success: boolean
+  }
+
   interface ZenohCommandGetTaskServiceResponseMessage extends TaskManagerTaskDetail {
     type: 'service-response'
     service: 'get_task'
@@ -756,6 +786,7 @@ declare global {
   type ZenohCommandServiceResponseMessage =
     | ZenohCommandWriteCoilServiceResponseMessage
     | ZenohCommandListTasksServiceResponseMessage
+    | ZenohCommandListActionsServiceResponseMessage
     | ZenohCommandGetTaskServiceResponseMessage
     | ZenohCommandCreateTaskServiceResponseMessage
     | ZenohCommandRunTaskServiceResponseMessage
@@ -920,6 +951,7 @@ declare global {
       publishZenohFleetVelocityCommand: (options: ZenohFleetVelocityCommandOptions) => Promise<{ ok: boolean }>
       publishZenohFleetDigitalOutputCommand: (options: ZenohFleetDigitalOutputCommandOptions) => Promise<{ ok: boolean }>
       listZenohTasks: (options: ZenohTaskListOptions) => Promise<ZenohTaskListResult>
+      listZenohActions: (options: ZenohActionListOptions) => Promise<ZenohActionListResult>
       getZenohTask: (options: ZenohTaskDetailOptions) => Promise<ZenohTaskDetailResult>
       createZenohTask: (options: ZenohTaskCreateOptions) => Promise<ZenohTaskCreateResult>
       runZenohTask: (options: ZenohTaskRunOptions) => Promise<ZenohTaskRunResult>

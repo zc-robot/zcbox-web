@@ -66,6 +66,7 @@
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "asar": true,
     "asarUnpack": [
+      "desktop/modbus-transport.cjs",
       "desktop/zenoh-robot-pose-bridge.py",
       "desktop/zenoh-pointcloud-bridge.py",
       "desktop/zenoh-telemetry-bridge.py",

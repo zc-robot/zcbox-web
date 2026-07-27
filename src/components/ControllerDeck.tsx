@@ -241,12 +241,16 @@ const Info: React.FC<{
   qulity: number
   battery: number | null
   batteryCurrent: number | null
+  battery2: number | null
+  battery2Current: number | null
 }> = ({
   pose,
   status,
   qulity,
   battery,
   batteryCurrent,
+  battery2,
+  battery2Current,
 }) => {
   const formatPoseValue = (value?: number) => value == null ? '--' : formatDisplayValue(value)
   const formatMetricValue = (value: number | null, suffix: string) => value == null ? '--' : `${formatDisplayValue(value)}${suffix}`
@@ -260,6 +264,12 @@ const Info: React.FC<{
         <span className="text-dark font-200">{formatMetricValue(battery, '%')}</span>
         <span className="pl-3">电流:
           <span className="text-dark font-200">{formatMetricValue(batteryCurrent, 'A')}</span>
+        </span>
+      </div>
+      <div className="flex text-sm text-dark font-bold pl-1 pt-1">电量2:
+        <span className="text-dark font-200">{formatMetricValue(battery2, '%')}</span>
+        <span className="pl-3">电流2:
+          <span className="text-dark font-200">{formatMetricValue(battery2Current, 'A')}</span>
         </span>
       </div>
       <div className="flex text-sm text-dark font-bold pl-1 pt-1">质量:
@@ -291,11 +301,17 @@ const ControllerDeck: React.FC = () => {
   const {
     hasLivePose,
     hasLiveBattery,
+    hasLiveBattery2,
+    battery2,
+    battery2Current,
     robotInfo,
     relocalizationPose,
   } = useGridStore(state => ({
     hasLivePose: state.hasLivePose,
     hasLiveBattery: state.hasLiveBattery,
+    hasLiveBattery2: state.hasLiveBattery2,
+    battery2: state.battery2,
+    battery2Current: state.battery2Current,
     robotInfo: state.robotInfo,
     relocalizationPose: state.relocalizationPose,
   }))
@@ -310,6 +326,8 @@ const ControllerDeck: React.FC = () => {
           qulity={robotInfo?.localization_quality ?? 0}
           battery={hasLiveBattery ? robotInfo?.battery ?? null : null}
           batteryCurrent={hasLiveBattery ? robotInfo?.batteryCurrent ?? null : null}
+          battery2={hasLiveBattery2 ? battery2 : null}
+          battery2Current={hasLiveBattery2 ? battery2Current : null}
         />
       )}
       {currentOp === 'relocalize' && relocalizationPose && (

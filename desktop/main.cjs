@@ -3,7 +3,7 @@ const { Buffer } = require('node:buffer')
 const { spawn } = require('node:child_process')
 const { existsSync } = require('node:fs')
 const nodeNet = require('node:net')
-const { app, BrowserWindow, ipcMain, net, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, net, shell, utilityProcess } = require('electron')
 const { serializeRobotParameterUpdateBody } = require('./robot-parameter-request.cjs')
 
 const appId = 'com.zcbox.desktop'
@@ -39,6 +39,14 @@ let zenohCommandKey = null
 let modbusTransactionId = 0
 let zenohCommandRequestId = 0
 const pendingZenohCommandRequests = new Map()
+const modbusRetryableConnectErrorCodes = new Set([
+  'EADDRNOTAVAIL',
+  'EHOSTUNREACH',
+  'ENETDOWN',
+  'ENETUNREACH',
+])
+// Virtual-network peer discovery can outlast a sub-second retry window.
+const modbusRetryDelaysMs = [500, 1500, 3000]
 
 const shelfStateModbusAddresses = Object.freeze({
   shelfPresentCoil: 401,
@@ -485,14 +493,59 @@ function describeModbusException(code) {
   return names[code] || `exception ${code}`
 }
 
-function requestModbusPdu({ host, port, unitId, functionCode, payload, timeoutMs }) {
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function isRetryableModbusConnectError(error) {
+  return modbusRetryableConnectErrorCodes.has(error?.code)
+}
+
+function wrapModbusRetryError(error, connection, attempts, elapsedMs) {
+  const wrappedError = new Error(`Modbus TCP ${connection.host}:${connection.port} failed after ${attempts} attempts over ${elapsedMs}ms: ${error.message}`)
+  wrappedError.code = error.code
+  wrappedError.cause = error
+  return wrappedError
+}
+
+async function requestModbusPdu(options) {
+  const startedAt = Date.now()
+  let lastError = null
+
+  for (let attemptIndex = 0; attemptIndex <= modbusRetryDelaysMs.length; attemptIndex += 1) {
+    try {
+      return await requestModbusPduOnce(options)
+    }
+    catch (error) {
+      lastError = error
+      if (!isRetryableModbusConnectError(error) || attemptIndex === modbusRetryDelaysMs.length) {
+        if (attemptIndex > 0)
+          throw wrapModbusRetryError(error, options, attemptIndex + 1, Date.now() - startedAt)
+
+        throw error
+      }
+
+      await wait(modbusRetryDelaysMs[attemptIndex])
+    }
+  }
+
+  throw lastError
+}
+
+function getModbusTransportPath() {
+  if (!app.isPackaged)
+    return path.join(__dirname, 'modbus-transport.cjs')
+
+  return path.join(process.resourcesPath, 'app.asar.unpacked', 'desktop', 'modbus-transport.cjs')
+}
+
+function exchangeModbusFrameDirect({ host, port, timeoutMs, frame }) {
   return new Promise((resolve, reject) => {
-    const { transactionId, frame } = buildModbusFrame(unitId, functionCode, payload)
     const socket = new nodeNet.Socket()
     let buffer = Buffer.alloc(0)
     let done = false
 
-    function finish(error, responsePdu) {
+    function finish(error, response) {
       if (done)
         return
 
@@ -503,7 +556,7 @@ function requestModbusPdu({ host, port, unitId, functionCode, payload, timeoutMs
       if (error)
         reject(error)
       else
-        resolve(responsePdu)
+        resolve(response)
     }
 
     socket.setNoDelay(true)
@@ -528,47 +581,114 @@ function requestModbusPdu({ host, port, unitId, functionCode, payload, timeoutMs
       if (buffer.length < frameLength)
         return
 
-      const response = buffer.subarray(0, frameLength)
-      if (response.readUInt16BE(0) !== transactionId) {
-        finish(new Error('Modbus transaction id mismatch'))
-        return
-      }
-
-      if (response.readUInt16BE(2) !== 0) {
-        finish(new Error('Modbus protocol id mismatch'))
-        return
-      }
-
-      const responseUnitId = response.readUInt8(6)
-      if (responseUnitId !== unitId) {
-        finish(new Error(`Modbus unit id mismatch: expected ${unitId}, got ${responseUnitId}`))
-        return
-      }
-
-      const responsePdu = response.subarray(7)
-      if (responsePdu.length < 1) {
-        finish(new Error('Modbus response PDU is empty'))
-        return
-      }
-
-      if (responsePdu[0] === (functionCode | 0x80)) {
-        const exceptionCode = responsePdu[1] ?? 0
-        finish(new Error(`Modbus ${describeModbusException(exceptionCode)}`))
-        return
-      }
-
-      if (responsePdu[0] !== functionCode) {
-        finish(new Error(`Unexpected Modbus function ${responsePdu[0]}`))
-        return
-      }
-
-      finish(null, responsePdu)
+      finish(null, buffer.subarray(0, frameLength))
     })
 
     socket.connect(port, host, () => {
       socket.write(frame)
     })
   })
+}
+
+function exchangeModbusFrameViaUtility({ host, port, timeoutMs, frame }) {
+  return new Promise((resolve, reject) => {
+    const child = utilityProcess.fork(getModbusTransportPath(), [], {
+      disclaim: true,
+      stdio: 'pipe',
+    })
+    let done = false
+    let stderr = ''
+    let killTimeout = null
+
+    function finish(error, response) {
+      if (done)
+        return
+
+      done = true
+      if (killTimeout)
+        clearTimeout(killTimeout)
+      child.kill()
+
+      if (error)
+        reject(error)
+      else
+        resolve(response)
+    }
+
+    child.stderr?.on('data', (chunk) => {
+      stderr += chunk.toString()
+    })
+
+    child.on('message', (result) => {
+      if (!result?.ok) {
+        const error = new Error(result?.message || stderr.trim() || 'Modbus transport utility failed')
+        error.code = result?.code
+        finish(error)
+        return
+      }
+
+      if (typeof result.responseHex !== 'string' || !/^(?:[0-9a-fA-F]{2})+$/.test(result.responseHex)) {
+        finish(new Error('Modbus transport utility returned an invalid response frame'))
+        return
+      }
+
+      finish(null, Buffer.from(result.responseHex, 'hex'))
+    })
+
+    child.on('error', (type, location, report) => {
+      finish(new Error(`Modbus transport utility error: ${type} at ${location}${report ? `: ${report}` : ''}`))
+    })
+
+    child.on('exit', (code) => {
+      if (!done)
+        finish(new Error(stderr.trim() || `Modbus transport utility exited with code ${code}`))
+    })
+
+    killTimeout = setTimeout(() => {
+      const error = new Error(`Modbus transport utility timed out after ${timeoutMs + 2000}ms`)
+      error.code = 'ETIMEDOUT'
+      finish(error)
+    }, timeoutMs + 2000)
+
+    child.postMessage({
+      host,
+      port,
+      timeoutMs,
+      frameHex: frame.toString('hex'),
+    })
+  })
+}
+
+async function requestModbusPduOnce({ host, port, unitId, functionCode, payload, timeoutMs }) {
+  const { transactionId, frame } = buildModbusFrame(unitId, functionCode, payload)
+  const exchangeFrame = process.platform === 'darwin'
+    ? exchangeModbusFrameViaUtility
+    : exchangeModbusFrameDirect
+  const response = await exchangeFrame({ host, port, timeoutMs, frame })
+
+  if (response.readUInt16BE(0) !== transactionId)
+    throw new Error('Modbus transaction id mismatch')
+
+  if (response.readUInt16BE(2) !== 0)
+    throw new Error('Modbus protocol id mismatch')
+
+  const responseUnitId = response.readUInt8(6)
+  if (responseUnitId !== unitId)
+    throw new Error(`Modbus unit id mismatch: expected ${unitId}, got ${responseUnitId}`)
+
+  const responsePdu = response.subarray(7)
+  if (responsePdu.length < 1)
+    throw new Error('Modbus response PDU is empty')
+
+  if (responsePdu[0] === (functionCode | 0x80)) {
+    const exceptionCode = responsePdu[1] ?? 0
+    throw new Error(`Modbus ${describeModbusException(exceptionCode)}`)
+  }
+
+  if (responsePdu[0] !== functionCode)
+    throw new Error(`Unexpected Modbus function ${responsePdu[0]}`)
+
+  return responsePdu
 }
 
 async function readModbusCoils(connection, address, quantity) {
@@ -2495,6 +2615,41 @@ async function requestZenohTaskList(options) {
   }
 }
 
+async function requestZenohActionList(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const servicePath = normalizeZenohTaskServicePath(options?.servicePath, '')
+  const timeoutMs = normalizeZenohServiceTimeout(options?.timeoutMs)
+
+  if (!host || !servicePath)
+    throw new Error('Action list request requires host and service path')
+
+  startZenohCommandBridge(host)
+
+  if (!zenohCommandProcess?.stdin?.writable)
+    throw new Error('Zenoh command bridge is not writable')
+
+  const requestId = nextZenohCommandRequestId('list_actions')
+  const responsePromise = waitForZenohCommandResponse(requestId, timeoutMs)
+  try {
+    zenohCommandProcess.stdin.write(`${JSON.stringify({
+      type: 'list_actions',
+      key: servicePath,
+      requestId,
+      timeoutSec: timeoutMs / 1000,
+    })}\n`)
+  }
+  catch (error) {
+    cancelPendingZenohCommandRequest(requestId, error)
+    throw error
+  }
+
+  const response = await responsePromise
+  if (!response.success)
+    throw new Error(response.message || 'Failed to list actions')
+
+  return response
+}
+
 async function requestZenohTaskDetail(options) {
   const host = typeof options?.host === 'string' ? options.host.trim() : ''
   const servicePath = normalizeZenohTaskServicePath(options?.servicePath, '')
@@ -2537,21 +2692,114 @@ async function requestZenohTaskDetail(options) {
   }
 }
 
+function normalizeTaskJsonObject(value, fieldName) {
+  const json = typeof value === 'string' && value.trim() ? value.trim() : '{}'
+  try {
+    const parsed = JSON.parse(json)
+    if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed))
+      throw new Error(`${fieldName} must be an object`)
+  }
+  catch {
+    throw new Error(`${fieldName} must be a JSON object`)
+  }
+  return json
+}
+
+function normalizeRecoveryLifecycleActions(value, fieldName) {
+  const actions = Array.isArray(value) ? value : []
+  return actions.map((action, index) => {
+    const actionName = typeof action?.action_name === 'string' ? action.action_name.trim() : ''
+    if (!actionName)
+      throw new Error(`${fieldName}[${index}] requires action_name`)
+
+    return {
+      action_name: actionName,
+      parameters_json: normalizeTaskJsonObject(action?.parameters_json, `${fieldName}[${index}].parameters_json`),
+      failure_policy: action?.failure_policy === 'best_effort' ? 'best_effort' : 'required',
+    }
+  })
+}
+
 function normalizeCreateTaskUnitTasks(value) {
   const unitTasks = Array.isArray(value) ? value : []
   return unitTasks.map((unitTask, index) => {
     const seq = Number.isFinite(unitTask?.seq) ? Math.floor(unitTask.seq) : index
     const waypoint = typeof unitTask?.waypoint === 'string' ? unitTask.waypoint.trim() : ''
     const actionName = typeof unitTask?.action_name === 'string' ? unitTask.action_name.trim() : ''
-    const actionParamsJson = typeof unitTask?.action_params_json === 'string' && unitTask.action_params_json.trim()
-      ? unitTask.action_params_json
-      : '{}'
+    const actionParamsJson = normalizeTaskJsonObject(unitTask?.action_params_json, `unit_tasks[${index}].action_params_json`)
+    const requestedResumeMode = typeof unitTask?.recovery_resume_mode === 'string'
+      ? unitTask.recovery_resume_mode.trim()
+      : ''
+    const recoveryResumeMode = [
+      'redispatch',
+      'via_waypoint',
+      'via_pause_pose',
+      'via_waypoint_and_pause_pose',
+      'operator_required',
+    ].includes(requestedResumeMode)
+      ? requestedResumeMode
+      : 'operator_required'
+    const recoveryApproachWaypoint = typeof unitTask?.recovery_approach_waypoint === 'string'
+      ? unitTask.recovery_approach_waypoint.trim()
+      : ''
+    const recoveryPositionToleranceM = Number.isFinite(unitTask?.recovery_position_tolerance_m)
+      ? Number(unitTask.recovery_position_tolerance_m)
+      : 0.1
+    const recoveryYawToleranceRad = Number.isFinite(unitTask?.recovery_yaw_tolerance_rad)
+      ? Number(unitTask.recovery_yaw_tolerance_rad)
+      : 0
+    const recoveryMaxAttempts = Number.isFinite(unitTask?.recovery_max_attempts)
+      ? Math.floor(unitTask.recovery_max_attempts)
+      : 3
+    const recoveryClearTimeoutSec = Number.isFinite(unitTask?.recovery_clear_timeout_sec)
+      ? Number(unitTask.recovery_clear_timeout_sec)
+      : 300
 
     return {
       seq,
       waypoint,
       action_name: actionName,
       action_params_json: actionParamsJson,
+      recovery_resume_mode: recoveryResumeMode,
+      recovery_approach_waypoint: recoveryApproachWaypoint,
+      recovery_position_tolerance_m: recoveryPositionToleranceM,
+      recovery_yaw_tolerance_enabled: Boolean(unitTask?.recovery_yaw_tolerance_enabled),
+      recovery_yaw_tolerance_rad: recoveryYawToleranceRad,
+      recovery_max_attempts: recoveryMaxAttempts,
+      recovery_clear_timeout_sec: recoveryClearTimeoutSec,
+      on_suspend_actions: normalizeRecoveryLifecycleActions(
+        unitTask?.on_suspend_actions,
+        `unit_tasks[${index}].on_suspend_actions`,
+      ),
+      before_redispatch_actions: normalizeRecoveryLifecycleActions(
+        unitTask?.before_redispatch_actions,
+        `unit_tasks[${index}].before_redispatch_actions`,
+      ),
+    }
+  })
+}
+
+function normalizeRecoveryTaskMappings(value) {
+  const mappings = Array.isArray(value) ? value : []
+  const seenIndices = new Set()
+  return mappings.map((mapping, index) => {
+    const recoveryTaskIndex = Number.isFinite(mapping?.recovery_task_index)
+      ? Math.floor(mapping.recovery_task_index)
+      : 0
+    const recoveryTaskDefinitionId = typeof mapping?.recovery_task_definition_id === 'string'
+      ? mapping.recovery_task_definition_id.trim()
+      : ''
+    if (recoveryTaskIndex < 1 || recoveryTaskIndex > 255)
+      throw new Error(`recovery_task_mappings[${index}].recovery_task_index must be between 1 and 255`)
+    if (!recoveryTaskDefinitionId)
+      throw new Error(`recovery_task_mappings[${index}] requires recovery_task_definition_id`)
+    if (seenIndices.has(recoveryTaskIndex))
+      throw new Error(`recovery_task_mappings contains duplicate index ${recoveryTaskIndex}`)
+    seenIndices.add(recoveryTaskIndex)
+
+    return {
+      recovery_task_index: recoveryTaskIndex,
+      recovery_task_definition_id: recoveryTaskDefinitionId,
     }
   })
 }
@@ -2562,22 +2810,28 @@ async function requestZenohTaskCreate(options) {
   const timeoutMs = normalizeZenohServiceTimeout(options?.timeoutMs)
   const task = options?.task && typeof options.task === 'object' ? options.task : {}
   const name = typeof task.name === 'string' ? task.name.trim() : ''
+  const description = typeof task.description === 'string' ? task.description.trim() : ''
   const robotName = typeof task.robot_name === 'string' ? task.robot_name.trim() : ''
   const fleetName = typeof task.fleet_name === 'string' ? task.fleet_name.trim() : ''
+  const waypoint = typeof task.waypoint === 'string' ? task.waypoint.trim() : ''
+  const actionName = typeof task.action_name === 'string' ? task.action_name.trim() : ''
+  const parametersJson = normalizeTaskJsonObject(task.parameters_json, 'parameters_json')
   const unitTasks = normalizeCreateTaskUnitTasks(task.unit_tasks)
+  const recoveryTaskMappings = normalizeRecoveryTaskMappings(task.recovery_task_mappings)
 
   if (!host || !servicePath)
     throw new Error('Task creation request requires host and service path')
-  if (!name)
-    throw new Error('Task creation request requires task name')
   if (!robotName)
     throw new Error('Task creation request requires robot name')
   if (!fleetName)
     throw new Error('Task creation request requires fleet name')
-  if (unitTasks.length === 0)
-    throw new Error('Task creation request requires at least one unit task')
+  if (!waypoint && !actionName && unitTasks.length === 0)
+    throw new Error('Task creation request requires waypoint, action, or unit tasks')
   if (unitTasks.some(unitTask => !unitTask.waypoint && !unitTask.action_name))
     throw new Error('Task creation request requires waypoint or action for every unit task')
+  const parsedParameters = JSON.parse(parametersJson)
+  if (unitTasks.length > 0 && (waypoint || actionName || Object.keys(parsedParameters).length > 0))
+    throw new Error('Task creation request cannot combine unit tasks with simple waypoint or action fields')
 
   startZenohCommandBridge(host)
 
@@ -2593,9 +2847,14 @@ async function requestZenohTaskCreate(options) {
       requestId,
       task: {
         name,
+        description,
         robot_name: robotName,
         fleet_name: fleetName,
+        waypoint,
+        action_name: actionName,
+        parameters_json: parametersJson,
         unit_tasks: unitTasks,
+        recovery_task_mappings: recoveryTaskMappings,
       },
       timeoutSec: timeoutMs / 1000,
     })}\n`)
@@ -3228,6 +3487,10 @@ ipcMain.handle('zenoh-command:write-coil', (_event, options) => {
 
 ipcMain.handle('zenoh-command:list-tasks', (_event, options) => {
   return requestZenohTaskList(options)
+})
+
+ipcMain.handle('zenoh-command:list-actions', (_event, options) => {
+  return requestZenohActionList(options)
 })
 
 ipcMain.handle('zenoh-command:get-task', (_event, options) => {

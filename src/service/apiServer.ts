@@ -1,7 +1,7 @@
 import ky from 'ky'
 import { extractLatestRobotParameterYaml, normalizeRobotParametersByHeads, parseRobotParameterHeads, serializeRobotParameterUpdateBody } from './robotParameterPayload'
 import type { RobotParameterNumericType } from './robotParameterPayload'
-import type { CurrentMapData, MapDataDetail, MapListItem, NavProfile, PointAction, PoseMessage, QuaternionMessage, RobotParams, TaskManagerCancelTaskResult, TaskManagerCreateTaskPayload, TaskManagerCreateTaskResult, TaskManagerDeleteTaskResult, TaskManagerRunTaskResult, TaskManagerTaskDetail, TaskManagerTaskInfo } from '@/types'
+import type { CurrentMapData, MapDataDetail, MapListItem, NavProfile, PointAction, PoseMessage, QuaternionMessage, RobotParams, TaskManagerCancelTaskResult, TaskManagerCreateTaskPayload, TaskManagerCreateTaskResult, TaskManagerDeleteTaskResult, TaskManagerListActionsResult, TaskManagerRunTaskResult, TaskManagerTaskDetail, TaskManagerTaskInfo } from '@/types'
 import { useBoundStore } from '@/store'
 
 interface Resp<T> {
@@ -903,6 +903,27 @@ class ApiServer {
     return response.tasks
   }
 
+  listActions = async (options: ZenohTaskServiceOptions = {}): Promise<TaskManagerListActionsResult> => {
+    if (!window.zcDesktop?.listZenohActions)
+      throw new Error('动作列表仅支持桌面应用')
+
+    const response = await window.zcDesktop.listZenohActions({
+      host: this.controllerHost,
+      servicePath: options.servicePath,
+      timeoutMs: options.timeoutMs,
+    })
+    if (!response.success)
+      throw new Error(response.message || '获取动作列表失败')
+    if (!response.ok)
+      throw new Error(response.message || '任务管理器拒绝获取动作列表')
+
+    return {
+      ok: response.ok,
+      actions: response.actions,
+      message: response.message,
+    }
+  }
+
   getTask = async (taskId: string, options: ZenohTaskServiceOptions = {}): Promise<TaskManagerTaskDetail> => {
     if (!window.zcDesktop?.getZenohTask)
       throw new Error('任务详情仅支持桌面应用')
@@ -920,6 +941,7 @@ class ApiServer {
       found: response.found,
       task: response.task,
       unit_tasks: response.unit_tasks,
+      recovery_task_mappings: response.recovery_task_mappings,
       message: response.message,
     }
   }
@@ -1022,7 +1044,7 @@ class ApiServer {
     return json
   }
 
-  setPose = async (pose: PoseMessage) => {
+  setPose = async (pose: PoseMessage, useAbsolute = false) => {
     const json = await this.robotHttpClient.post('set_pose', {
       json: {
         position: {
@@ -1030,6 +1052,7 @@ class ApiServer {
           y: pose.position.y,
         },
         use_pyr: true,
+        use_absolute: useAbsolute,
         pyr: {
           yaw: pose.pyr.yaw,
         },

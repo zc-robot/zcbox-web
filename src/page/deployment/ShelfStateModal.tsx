@@ -29,7 +29,7 @@ const controlCoilActions: ControlCoilAction[] = [
   },
   {
     id: 'fork-retract',
-    label: '触臂缩回',
+    label: '叉臂缩回',
     steps: [
       { address: 805, value: false },
       { address: 806, value: true },
@@ -77,12 +77,12 @@ function formatLiveStatus(status: string, connected: boolean) {
     return '已连接'
 
   const statusLabels: Record<string, string> = {
-    idle: '未启动',
-    starting: '连接中...',
-    connecting: '连接中...',
-    subscribed: '已订阅',
-    stopped: '已停止',
-    error: '连接错误',
+    'idle': '未启动',
+    'starting': '连接中...',
+    'connecting': '连接中...',
+    'subscribed': '已订阅',
+    'stopped': '已停止',
+    'error': '连接错误',
     'decode-error': '解析错误',
     'missing-controller': '未选择控制器',
     'desktop-only': '仅桌面应用支持',
