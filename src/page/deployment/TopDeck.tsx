@@ -9,6 +9,7 @@ import RotateLineWaypointsModal from './RotateLineWaypointsModal'
 import ShelfStateModal from './ShelfStateModal'
 import type { ExportRmfAlignment, ExportRmfSelection } from './ExportRmfModal'
 import CameraStreamControls from '@/components/CameraStreamControls'
+import CostmapControls from '@/components/CostmapControls'
 import LidarScanControls from '@/components/LidarScanControls'
 import PointCloudControls from '@/components/PointCloudControls'
 import { useGridStore, useOperationStore, useParamsStore, useProfileStore } from '@/store'
@@ -1202,6 +1203,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
             </div>
           </>
         )}
+        <CostmapControls />
         <PointCloudControls />
         <CameraStreamControls />
         <div className="panel-item justify-center group">

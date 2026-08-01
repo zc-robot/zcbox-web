@@ -1,4 +1,6 @@
 import type { GridInfoMessage } from './types'
+import { createCostmapPixels } from './util/costmapModel'
+import type { CostmapGrid, CostmapLayer } from './util/costmapModel'
 
 export interface MapRenderResult {
   bitmap: ImageBitmap
@@ -21,6 +23,8 @@ function getColorVal(value: number) {
 
 const baseCanvas = new OffscreenCanvas(0, 0)
 const scaledCanvas = new OffscreenCanvas(0, 0)
+const costmapCanvas = new OffscreenCanvas(0, 0)
+const scaledCostmapCanvas = new OffscreenCanvas(0, 0)
 const MAX_BITMAP_SIZE = 1500
 
 const RLE_SIGNATURE = [82, 76, 69, 32] // 'RLE '
@@ -504,6 +508,52 @@ export function mapImageData(info: GridInfoMessage, mapData: number[]): MapRende
   return {
     bitmap: outputCanvas.transferToImageBitmap(),
     optimizedInfo,
+    scaleRatio,
+  }
+}
+
+export function costmapImageData(grid: CostmapGrid, layer: CostmapLayer): MapRenderResult {
+  const { width, height } = grid.info
+  costmapCanvas.width = width
+  costmapCanvas.height = height
+
+  const context = costmapCanvas.getContext('2d')
+  if (!context)
+    throw new Error('无法创建代价地图画布上下文')
+
+  const image = context.createImageData(width, height)
+  image.data.set(createCostmapPixels(grid, layer))
+  context.putImageData(image, 0, 0)
+
+  const maxDimension = Math.max(width, height)
+  const needsScaling = maxDimension > MAX_BITMAP_SIZE
+  const scaleRatio = needsScaling ? MAX_BITMAP_SIZE / maxDimension : 1
+  let outputCanvas = costmapCanvas
+
+  if (needsScaling) {
+    const targetWidth = Math.max(1, Math.round(width * scaleRatio))
+    const targetHeight = Math.max(1, Math.round(height * scaleRatio))
+    scaledCostmapCanvas.width = targetWidth
+    scaledCostmapCanvas.height = targetHeight
+
+    const scaledContext = scaledCostmapCanvas.getContext('2d')
+    if (!scaledContext)
+      throw new Error('无法创建缩放代价地图画布上下文')
+
+    scaledContext.imageSmoothingEnabled = false
+    scaledContext.clearRect(0, 0, targetWidth, targetHeight)
+    scaledContext.drawImage(costmapCanvas, 0, 0, targetWidth, targetHeight)
+    outputCanvas = scaledCostmapCanvas
+  }
+
+  return {
+    bitmap: outputCanvas.transferToImageBitmap(),
+    optimizedInfo: {
+      ...grid.info,
+      width: outputCanvas.width,
+      height: outputCanvas.height,
+      resolution: grid.info.resolution / scaleRatio,
+    },
     scaleRatio,
   }
 }

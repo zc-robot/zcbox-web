@@ -5,7 +5,7 @@ import ParameterViewerModal from './ParameterViewerModal'
 import RobotDiagnosticsModal from './RobotDiagnosticsModal'
 import apiServer from '@/service/apiServer'
 import { useGridStore, useParamsStore } from '@/store'
-import { useLocales, usePointCloudZenoh, useRobotPoseZenoh, useTelemetryZenoh } from '@/hooks'
+import { useCostmapZenoh, useLocales, usePointCloudZenoh, useRobotPoseZenoh, useTelemetryZenoh } from '@/hooks'
 
 interface MapContextMenuState {
   id: number
@@ -54,6 +54,8 @@ const Home: React.FC = () => {
   const changeNestController = useParamsStore(state => state.changeNestController)
   const location = useLocation()
   const isMappingRoute = location.pathname === '/mapping'
+  const isDeploymentRoute = location.pathname.startsWith('/deployment/')
+  useCostmapZenoh(isDeploymentRoute ? location.pathname : null)
   useTelemetryZenoh({
     includeMap: isMappingRoute,
     includeScan: isScanVisible,

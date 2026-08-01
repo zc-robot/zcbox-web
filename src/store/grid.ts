@@ -1,6 +1,7 @@
 import type { StateCreator } from 'zustand'
 import type { GridInfoMessage, LaserScanMessage, MapListItem, PointCloudMessage, PointMessage, PoseMessage, RobotInfoMessage, RobotStatus } from '@/types'
 import { DEFAULT_LIDAR_SCAN_TOPIC, DEFAULT_LIDAR_SCAN_TOPICS, resolveLidarScanTopic } from '@/constants/lidar'
+import type { CostmapGrid, CostmapLayer, CostmapStatus } from '@/util/costmapModel'
 
 const defaultScanPointSize = 0.08
 const defaultPointCloudPointSize = 0.05
@@ -9,6 +10,31 @@ interface CenterPointRequest {
   requestId: number
   x: number
   y: number
+}
+
+export interface CostmapLayerState {
+  visible: boolean
+  status: CostmapStatus
+  grid: CostmapGrid | null
+  message: string | null
+  lastUpdateAt: number | null
+}
+
+function createDefaultCostmapState(): CostmapLayerState {
+  return {
+    visible: false,
+    status: 'off',
+    grid: null,
+    message: null,
+    lastUpdateAt: null,
+  }
+}
+
+function createDefaultCostmaps(): Record<CostmapLayer, CostmapLayerState> {
+  return {
+    global: createDefaultCostmapState(),
+    local: createDefaultCostmapState(),
+  }
 }
 
 export interface GridSlice {
@@ -41,6 +67,7 @@ export interface GridSlice {
   scanPointSize: number
   isPointCloudVisible: boolean
   pointCloudPointSize: number
+  costmaps: Record<CostmapLayer, CostmapLayerState>
   centerRobotRequestId: number
   centerPointRequest: CenterPointRequest | null
   relocalizationPose: PoseMessage | null
@@ -65,6 +92,11 @@ export interface GridSlice {
   updateScanPointSize: (delta: number) => void
   setPointCloudVisibility: (visible: boolean) => void
   updatePointCloudPointSize: (delta: number) => void
+  setCostmapVisibility: (layer: CostmapLayer, visible: boolean) => void
+  setCostmapStatus: (layer: CostmapLayer, status: CostmapStatus, message?: string | null) => void
+  setCostmapGrid: (layer: CostmapLayer, grid: CostmapGrid) => void
+  clearCostmap: (layer: CostmapLayer, status: CostmapStatus, message?: string | null) => void
+  resetCostmaps: () => void
   requestCenterRobot: () => void
   requestCenterMap: () => void
   requestCenterPoint: (point: { x: number; y: number }) => void
@@ -145,6 +177,7 @@ export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
   scanPointSize: defaultScanPointSize,
   isPointCloudVisible: false,
   pointCloudPointSize: defaultPointCloudPointSize,
+  costmaps: createDefaultCostmaps(),
   centerRobotRequestId: 0,
   centerPointRequest: null,
   relocalizationPose: null,
@@ -313,6 +346,65 @@ export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
       pointCloudPointSize: Math.min(0.3, Math.max(0.01, Number((state.pointCloudPointSize + delta).toFixed(3)))),
     }))
   },
+  setCostmapVisibility: (layer, visible) => {
+    set(state => ({
+      costmaps: {
+        ...state.costmaps,
+        [layer]: visible
+          ? {
+              visible: true,
+              status: 'waiting',
+              grid: null,
+              message: null,
+              lastUpdateAt: null,
+            }
+          : createDefaultCostmapState(),
+      },
+    }))
+  },
+  setCostmapStatus: (layer, status, message = null) => {
+    set(state => ({
+      costmaps: {
+        ...state.costmaps,
+        [layer]: {
+          ...state.costmaps[layer],
+          status,
+          message,
+        },
+      },
+    }))
+  },
+  setCostmapGrid: (layer, grid) => {
+    set(state => ({
+      costmaps: {
+        ...state.costmaps,
+        [layer]: {
+          ...state.costmaps[layer],
+          status: 'visible',
+          grid,
+          message: null,
+          lastUpdateAt: grid.updatedAt,
+        },
+      },
+    }))
+  },
+  clearCostmap: (layer, status, message = null) => {
+    set(state => ({
+      costmaps: {
+        ...state.costmaps,
+        [layer]: {
+          ...state.costmaps[layer],
+          status,
+          grid: null,
+          message,
+          lastUpdateAt: null,
+        },
+      },
+    }))
+  },
+  resetCostmaps: () => {
+    set({ costmaps: createDefaultCostmaps() })
+  },
   requestCenterRobot: () => {
     set(state => ({
       centerRobotRequestId: state.centerRobotRequestId + 1,
@@ -387,6 +479,7 @@ export const gridSlice: StateCreator<GridSlice> = (set, get) => ({
       scanPointSize: defaultScanPointSize,
       isPointCloudVisible: false,
       pointCloudPointSize: defaultPointCloudPointSize,
+      costmaps: createDefaultCostmaps(),
       centerPointRequest: null,
       relocalizationPose: null,
     })

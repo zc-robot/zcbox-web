@@ -4,6 +4,8 @@ import toast from 'react-hot-toast'
 import { Circle, Group, Layer, Line, Rect, Stage, Text } from 'react-konva'
 import { shallow } from 'zustand/shallow'
 import Door from './Door'
+import CostmapLayerView from './CostmapLayer'
+import CostmapLegend from './CostmapLegend'
 import GridMap from './GridMap'
 import LaserScan from './LaserScan'
 import Lift from './Lift'
@@ -1014,6 +1016,8 @@ const Monitor: React.FC = () => {
           onMouseUp={handleSelectionBoxEnd}
           onClick={handleLayerClick}>
           <GridMap />
+          <CostmapLayerView layer="global" />
+          <CostmapLayerView layer="local" />
           {(gridInfo && displayedRobotPose && currentOp !== 'relocalize')
             && <Robot
               pose={displayedRobotPose} />
@@ -1209,6 +1213,7 @@ const Monitor: React.FC = () => {
           )}
         </Layer>
       </Stage>
+      <CostmapLegend />
       {currentOp === 'waypointLine' && lineWaypointDraft && (
         <div
           className="absolute z-30 left-3 bottom-3 w-74 bg-white border-(solid 1px gray-300) shadow-lg rounded p-3 text-gray-800"

@@ -1,5 +1,6 @@
 import type { ShelfState } from './service/apiServer'
 import type { BondStatusMessage, BuildingMapMessage, FleetDataMessage, FleetDiagnosticStateMessage, LaserScanMessage, MotorStatesMessage, PointCloudMessage, PoseMessage, RmfDoorRequestMessage, RmfDoorStateMessage, RmfLiftRequestMessage, RmfLiftStateMessage, RmfScheduleMarkerCacheMessage, StorageAreaDisplayNameResult, StorageReinitRequestPayload, StorageReinitResult, StorageStateMessage, TaskManagerCancelTaskResult, TaskManagerCreateTaskPayload, TaskManagerCreateTaskResult, TaskManagerDeleteTaskResult, TaskManagerListActionsResult, TaskManagerRunTaskResult, TaskManagerTaskDetail, TaskManagerTaskInfo, TwistCommand, UInt8MultiArrayMessage } from './types'
+import type { CostmapLayer, CostmapPayloadMessage } from './util/costmapModel'
 
 declare global {
   interface ImportMetaEnv {
@@ -162,6 +163,34 @@ declare global {
     | ZenohTelemetryCompressedMapMessage
     | ZenohTelemetryPublishedMessage
     | ZenohTelemetryErrorMessage
+
+  interface ZenohCostmapStartOptions {
+    host: string
+    namespace: string
+    layer: CostmapLayer
+  }
+
+  interface ZenohCostmapStatusMessage {
+    type: 'status'
+    layer: CostmapLayer
+    state: string
+    endpoint?: string
+    keys?: string[]
+    reused?: boolean
+    code?: number | null
+    signal?: string | null
+  }
+
+  interface ZenohCostmapErrorMessage {
+    type: 'error' | 'decode-error' | 'log'
+    layer: CostmapLayer
+    kind?: 'full' | 'update'
+    message?: string
+    key?: string
+    byteLength?: number
+  }
+
+  type ZenohCostmapMessage = CostmapPayloadMessage | ZenohCostmapStatusMessage | ZenohCostmapErrorMessage
 
   interface ZenohMotorStatesStartOptions {
     host: string
@@ -918,9 +947,12 @@ declare global {
       onZenohPointCloud: (callback: (message: ZenohPointCloudMessage) => void) => () => void
       startZenohTelemetry: (options: ZenohTelemetryStartOptions) => Promise<{ ok: boolean }>
       stopZenohTelemetry: () => Promise<{ ok: boolean }>
+      startZenohCostmap: (options: ZenohCostmapStartOptions) => Promise<{ ok: boolean }>
+      stopZenohCostmap: (layer: CostmapLayer) => Promise<{ ok: boolean }>
       publishZenohVelocityCommand: (command?: TwistCommand) => Promise<{ ok: boolean }>
       publishZenohActuatorReset: () => Promise<{ ok: boolean }>
       onZenohTelemetry: (callback: (message: ZenohTelemetryMessage) => void) => () => void
+      onZenohCostmap: (callback: (message: ZenohCostmapMessage) => void) => () => void
       startZenohMotorStates: (options: ZenohMotorStatesStartOptions) => Promise<{ ok: boolean }>
       stopZenohMotorStates: () => Promise<{ ok: boolean }>
       onZenohMotorStates: (callback: (message: ZenohMotorStatesMessage) => void) => () => void

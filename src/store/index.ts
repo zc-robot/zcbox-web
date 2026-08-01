@@ -12,14 +12,28 @@ import { normalizeConnectionHistory, parseRobotNameResponse } from '@/util/robot
 
 // 自定义状态净化函数，用于处理大型地图数据
 function stateSanitizer(state: any) {
+  const sanitizedCostmaps = state.costmaps
+    ? Object.fromEntries(Object.entries(state.costmaps).map(([layer, value]) => {
+      const costmap = value as { grid?: { data?: { length?: number } } | null }
+      const length = costmap.grid?.data?.length
+      return [layer, length
+        ? { ...costmap, grid: { ...costmap.grid, data: `<<COSTMAP_DATA: ${length} cells>>` } }
+        : costmap]
+    }))
+    : state.costmaps
+
   // 如果状态中包含大型地图数据，则用占位符替换
   if (state.mapData && state.mapData.length > 1000000) {
     return {
       ...state,
+      costmaps: sanitizedCostmaps,
       mapData: `<<LARGE_MAP_DATA: ${state.mapData.length} elements>>`,
     }
   }
-  return state
+  return {
+    ...state,
+    costmaps: sanitizedCostmaps,
+  }
 }
 
 export const useBoundStore = create<GridSlice & OperationSlice & ProfileSlice & ParamsSlice>()(persist(

@@ -13,6 +13,7 @@ let mainWindow = null
 let zenohRobotPoseProcess = null
 let zenohPointCloudProcess = null
 let zenohTelemetryProcess = null
+const zenohCostmapProcesses = { global: null, local: null }
 let zenohMotorStatesProcess = null
 let zenohWheelStatesProcess = null
 let zenohFleetDataProcess = null
@@ -26,6 +27,7 @@ let zenohCommandProcess = null
 let zenohRobotPoseKey = null
 let zenohPointCloudKey = null
 let zenohTelemetryKey = null
+const zenohCostmapKeys = { global: null, local: null }
 let zenohMotorStatesKey = null
 let zenohWheelStatesKey = null
 let zenohFleetDataKey = null
@@ -917,6 +919,13 @@ function getZenohTelemetryBridgePath() {
   return path.join(process.resourcesPath, 'app.asar.unpacked', 'desktop', 'zenoh-telemetry-bridge.py')
 }
 
+function getZenohCostmapBridgePath() {
+  if (!app.isPackaged)
+    return path.join(__dirname, 'zenoh-costmap-bridge.py')
+
+  return path.join(process.resourcesPath, 'app.asar.unpacked', 'desktop', 'zenoh-costmap-bridge.py')
+}
+
 function getZenohMotorStateBridgePath() {
   if (!app.isPackaged)
     return path.join(__dirname, 'zenoh-motor-state-bridge.py')
@@ -1040,6 +1049,13 @@ function sendZenohTelemetryMessage(message) {
     return
 
   mainWindow.webContents.send('zenoh-telemetry:message', message)
+}
+
+function sendZenohCostmapMessage(message) {
+  if (!mainWindow || mainWindow.isDestroyed())
+    return
+
+  mainWindow.webContents.send('zenoh-costmap:message', message)
 }
 
 function sendZenohMotorStatesMessage(message) {
@@ -1506,6 +1522,108 @@ function startZenohTelemetryBridge(options) {
   })
 
   zenohTelemetryKey = bridgeKey
+}
+
+function normalizeCostmapLayer(value) {
+  return value === 'global' || value === 'local' ? value : null
+}
+
+function stopZenohCostmapBridge(layerValue) {
+  const layer = normalizeCostmapLayer(layerValue)
+  if (!layer)
+    throw new Error('Zenoh costmap layer must be global or local')
+
+  const bridgeProcess = zenohCostmapProcesses[layer]
+  if (bridgeProcess)
+    bridgeProcess.kill()
+  zenohCostmapProcesses[layer] = null
+  zenohCostmapKeys[layer] = null
+}
+
+function startZenohCostmapBridge(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const namespace = typeof options?.namespace === 'string' ? options.namespace.trim() : ''
+  const layer = normalizeCostmapLayer(options?.layer)
+
+  if (!host || !namespace || !layer)
+    throw new Error('Zenoh costmap requires host, namespace, and a valid layer')
+
+  const bridgeKey = JSON.stringify({ host, namespace, layer })
+  if (zenohCostmapKeys[layer] === bridgeKey && isBridgeRunning(zenohCostmapProcesses[layer])) {
+    sendZenohCostmapMessage({
+      type: 'status',
+      layer,
+      state: 'subscribed',
+      reused: true,
+    })
+    return
+  }
+
+  stopZenohCostmapBridge(layer)
+
+  const python = getPythonInvocation()
+  const pythonPath = process.env.ZCBOX_ZENOH_PYTHONPATH || getBundledZenohPythonPath()
+  const env = { ...process.env }
+  if (pythonPath)
+    env.PYTHONPATH = env.PYTHONPATH ? `${pythonPath}${path.delimiter}${env.PYTHONPATH}` : pythonPath
+
+  const bridgeProcess = spawn(python.command, [
+    ...python.args,
+    getZenohCostmapBridgePath(),
+    '--host',
+    host,
+    '--namespace',
+    namespace,
+    '--layer',
+    layer,
+    '--parent-pid',
+    String(process.pid),
+  ], {
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  })
+  zenohCostmapProcesses[layer] = bridgeProcess
+  zenohCostmapKeys[layer] = bridgeKey
+
+  let stdoutBuffer = ''
+  bridgeProcess.stdout.on('data', (chunk) => {
+    stdoutBuffer += chunk.toString()
+    const lines = stdoutBuffer.split('\n')
+    stdoutBuffer = lines.pop() ?? ''
+
+    for (const line of lines) {
+      if (!line.trim())
+        continue
+
+      try {
+        sendZenohCostmapMessage(JSON.parse(line))
+      }
+      catch {
+        sendZenohCostmapMessage({ type: 'log', layer, message: line })
+      }
+    }
+  })
+
+  bridgeProcess.stderr.on('data', (chunk) => {
+    sendZenohCostmapMessage({ type: 'error', layer, message: chunk.toString() })
+  })
+
+  bridgeProcess.on('error', (error) => {
+    sendZenohCostmapMessage({ type: 'error', layer, message: error.message })
+    if (zenohCostmapProcesses[layer] === bridgeProcess) {
+      zenohCostmapProcesses[layer] = null
+      zenohCostmapKeys[layer] = null
+    }
+  })
+
+  bridgeProcess.on('exit', (code, signal) => {
+    sendZenohCostmapMessage({ type: 'status', layer, state: 'stopped', code, signal })
+    if (zenohCostmapProcesses[layer] === bridgeProcess) {
+      zenohCostmapProcesses[layer] = null
+      zenohCostmapKeys[layer] = null
+    }
+  })
 }
 
 function publishZenohVelocityCommand(command) {
@@ -3298,6 +3416,8 @@ function stopAllZenohBridges() {
   stopZenohRobotPoseBridge()
   stopZenohPointCloudBridge()
   stopZenohTelemetryBridge()
+  stopZenohCostmapBridge('global')
+  stopZenohCostmapBridge('local')
   stopZenohMotorStatesBridge()
   stopZenohWheelStatesBridge()
   stopZenohFleetDataBridge()
@@ -3376,6 +3496,16 @@ ipcMain.handle('zenoh-telemetry:start', (_event, options) => {
 
 ipcMain.handle('zenoh-telemetry:stop', () => {
   stopZenohTelemetryBridge()
+  return { ok: true }
+})
+
+ipcMain.handle('zenoh-costmap:start', (_event, options) => {
+  startZenohCostmapBridge(options)
+  return { ok: true }
+})
+
+ipcMain.handle('zenoh-costmap:stop', (_event, layer) => {
+  stopZenohCostmapBridge(layer)
   return { ok: true }
 })
 

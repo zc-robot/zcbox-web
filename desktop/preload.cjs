@@ -27,6 +27,15 @@ function onZenohTelemetry(callback) {
   }
 }
 
+function onZenohCostmap(callback) {
+  const listener = (_event, message) => callback(message)
+  ipcRenderer.on('zenoh-costmap:message', listener)
+
+  return () => {
+    ipcRenderer.removeListener('zenoh-costmap:message', listener)
+  }
+}
+
 function onZenohMotorStates(callback) {
   const listener = (_event, message) => callback(message)
   ipcRenderer.on('zenoh-motor-states:message', listener)
@@ -128,9 +137,12 @@ contextBridge.exposeInMainWorld('zcDesktop', Object.freeze({
   onZenohPointCloud,
   startZenohTelemetry: options => ipcRenderer.invoke('zenoh-telemetry:start', options),
   stopZenohTelemetry: () => ipcRenderer.invoke('zenoh-telemetry:stop'),
+  startZenohCostmap: options => ipcRenderer.invoke('zenoh-costmap:start', options),
+  stopZenohCostmap: layer => ipcRenderer.invoke('zenoh-costmap:stop', layer),
   publishZenohVelocityCommand: command => ipcRenderer.invoke('zenoh-telemetry:publish-cmd-vel', command),
   publishZenohActuatorReset: () => ipcRenderer.invoke('zenoh-telemetry:publish-actuator-reset'),
   onZenohTelemetry,
+  onZenohCostmap,
   startZenohMotorStates: options => ipcRenderer.invoke('zenoh-motor-states:start', options),
   stopZenohMotorStates: () => ipcRenderer.invoke('zenoh-motor-states:stop'),
   onZenohMotorStates,
