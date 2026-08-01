@@ -110,10 +110,10 @@ function quaternionToYaw(orientation: QuaternionMessage) {
 }
 
 function normalizeOrigin(origin: CostmapOriginMessage): PoseMessage {
-  for (const [field, value] of Object.entries(origin.position))
-    assertFinite(value, `costmap origin position ${field}`)
-  for (const [field, value] of Object.entries(origin.orientation))
-    assertFinite(value, `costmap origin orientation ${field}`)
+  for (const field of ['x', 'y', 'z'] as const)
+    assertFinite(origin.position[field], `costmap origin position ${field}`)
+  for (const field of ['x', 'y', 'z', 'w'] as const)
+    assertFinite(origin.orientation[field], `costmap origin orientation ${field}`)
 
   const normalized = quaternionToYaw(origin.orientation)
   return {

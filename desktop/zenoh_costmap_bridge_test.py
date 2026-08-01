@@ -68,6 +68,17 @@ class CostmapBridgeTest(unittest.TestCase):
             "robot_1/global_costmap/costmap_updates",
         ])
 
+    def test_valid_data_rearms_decode_error_after_throttling(self):
+        bridge = load_bridge()
+        last_error_at = {}
+
+        self.assertTrue(bridge.should_emit_decode_error(last_error_at, "update", 10))
+        self.assertFalse(bridge.should_emit_decode_error(last_error_at, "update", 11))
+
+        bridge.mark_decode_success(last_error_at)
+
+        self.assertTrue(bridge.should_emit_decode_error(last_error_at, "update", 11))
+
     def test_decodes_full_costmap_with_map_geometry_and_cells(self):
         bridge = load_bridge()
         writer = CdrWriter()

@@ -69,11 +69,12 @@ function useCostmapLayerZenoh(layer: CostmapLayer, routeKey: string | null) {
       }
 
       if (message.type === 'error' || message.type === 'decode-error') {
+        if (message.message)
+          console.warn(`${layerLabel(layer)} bridge error`, message.message)
         clearNoDataTimer()
-        const detail = message.message?.trim()
-        clearCostmap(layer, 'error', detail
-          ? `${layerLabel(layer)}: ${detail}`
-          : `${layerLabel(layer)} data is invalid`)
+        clearCostmap(layer, 'error', message.type === 'decode-error'
+          ? `${layerLabel(layer)} data is invalid`
+          : `${layerLabel(layer)} unavailable`)
         return
       }
 
@@ -98,9 +99,9 @@ function useCostmapLayerZenoh(layer: CostmapLayer, routeKey: string | null) {
       catch (error) {
         if (disposed)
           return
-        const detail = error instanceof Error ? error.message : String(error)
+        console.warn(`Failed to start ${layerLabel(layer)}`, error)
         clearNoDataTimer()
-        clearCostmap(layer, 'error', `${layerLabel(layer)} could not start: ${detail}`)
+        clearCostmap(layer, 'error', `${layerLabel(layer)} unavailable`)
       }
     }
 

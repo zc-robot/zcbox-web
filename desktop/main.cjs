@@ -1585,9 +1585,13 @@ function startZenohCostmapBridge(options) {
   })
   zenohCostmapProcesses[layer] = bridgeProcess
   zenohCostmapKeys[layer] = bridgeKey
+  const isCurrentProcess = () => zenohCostmapProcesses[layer] === bridgeProcess
 
   let stdoutBuffer = ''
   bridgeProcess.stdout.on('data', (chunk) => {
+    if (!isCurrentProcess())
+      return
+
     stdoutBuffer += chunk.toString()
     const lines = stdoutBuffer.split('\n')
     stdoutBuffer = lines.pop() ?? ''
@@ -1606,20 +1610,21 @@ function startZenohCostmapBridge(options) {
   })
 
   bridgeProcess.stderr.on('data', (chunk) => {
-    sendZenohCostmapMessage({ type: 'error', layer, message: chunk.toString() })
+    if (isCurrentProcess())
+      sendZenohCostmapMessage({ type: 'error', layer, message: chunk.toString() })
   })
 
   bridgeProcess.on('error', (error) => {
-    sendZenohCostmapMessage({ type: 'error', layer, message: error.message })
-    if (zenohCostmapProcesses[layer] === bridgeProcess) {
+    if (isCurrentProcess()) {
+      sendZenohCostmapMessage({ type: 'error', layer, message: error.message })
       zenohCostmapProcesses[layer] = null
       zenohCostmapKeys[layer] = null
     }
   })
 
   bridgeProcess.on('exit', (code, signal) => {
-    sendZenohCostmapMessage({ type: 'status', layer, state: 'stopped', code, signal })
-    if (zenohCostmapProcesses[layer] === bridgeProcess) {
+    if (isCurrentProcess()) {
+      sendZenohCostmapMessage({ type: 'status', layer, state: 'stopped', code, signal })
       zenohCostmapProcesses[layer] = null
       zenohCostmapKeys[layer] = null
     }

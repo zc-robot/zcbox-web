@@ -85,6 +85,16 @@ test('a full costmap outside the map frame is rejected', () => {
   )
 })
 
+test('a full costmap with a missing origin coordinate is rejected', () => {
+  const message = fullMessage()
+  delete message.info.origin.position.y
+
+  assert.throws(
+    () => applyCostmapMessage(null, message),
+    /costmap origin position y must be finite/,
+  )
+})
+
 test('costmap pixels flip ROS rows and encode cost as layer-colored opacity', () => {
   const base = applyCostmapMessage(null, fullMessage({
     info: {

@@ -54,6 +54,18 @@ def build_costmap_keys(namespace, layer):
     return [f"{prefix}/costmap", f"{prefix}/costmap_updates"]
 
 
+def should_emit_decode_error(last_error_at, key, now, interval=2):
+    previous = last_error_at.get(key)
+    if previous is not None and now - previous <= interval:
+        return False
+    last_error_at[key] = now
+    return True
+
+
+def mark_decode_success(last_error_at):
+    last_error_at.clear()
+
+
 class CdrReader:
     def __init__(self, payload, alignment_base=CDR_HEADER_SIZE):
         self.payload = payload
@@ -266,7 +278,7 @@ def main():
             decoded = decode_occupancy_grid_update_payload(payload) if kind == "update" else decode_occupancy_grid_payload(payload)
         except (UnicodeDecodeError, ValueError, struct.error) as error:
             now = time.monotonic()
-            if now - last_decode_error_at.get(key, 0) > 2:
+            if should_emit_decode_error(last_decode_error_at, key, now):
                 emit({
                     "type": "decode-error",
                     "layer": args.layer,
@@ -275,9 +287,9 @@ def main():
                     "byteLength": len(payload),
                     "message": str(error),
                 })
-                last_decode_error_at[key] = now
             return
 
+        mark_decode_success(last_decode_error_at)
         emit({
             "type": "costmap",
             "layer": args.layer,
