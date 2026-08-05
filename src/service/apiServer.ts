@@ -1,7 +1,7 @@
 import ky from 'ky'
 import { extractLatestRobotParameterYaml, normalizeRobotParametersByHeads, parseRobotParameterHeads, serializeRobotParameterUpdateBody } from './robotParameterPayload'
 import type { RobotParameterNumericType } from './robotParameterPayload'
-import type { CurrentMapData, MapDataDetail, MapListItem, NavProfile, PointAction, PoseMessage, QuaternionMessage, RobotParams, TaskManagerCancelTaskResult, TaskManagerCreateTaskPayload, TaskManagerCreateTaskResult, TaskManagerDeleteTaskResult, TaskManagerListActionsResult, TaskManagerRunTaskResult, TaskManagerTaskDetail, TaskManagerTaskInfo } from '@/types'
+import type { CurrentMapData, MapDataDetail, MapListItem, NavProfile, PointAction, PoseMessage, QuaternionMessage, RobotParams, TaskManagerCancelTaskResult, TaskManagerCreateTaskPayload, TaskManagerCreateTaskResult, TaskManagerDeleteTaskResult, TaskManagerListActionsResult, TaskManagerRenameTaskResult, TaskManagerRunTaskResult, TaskManagerTaskDetail, TaskManagerTaskInfo } from '@/types'
 import { useBoundStore } from '@/store'
 
 interface Resp<T> {
@@ -1005,6 +1005,37 @@ class ApiServer {
       throw new Error(response.message || '取消任务失败')
     if (!response.ok)
       throw new Error(response.message || '任务管理器拒绝取消任务')
+
+    return {
+      ok: response.ok,
+      message: response.message,
+    }
+  }
+
+  renameTask = async (taskId: string, newName: string, options: ZenohTaskServiceOptions = {}): Promise<TaskManagerRenameTaskResult> => {
+    if (!window.zcDesktop?.renameZenohTask)
+      throw new Error('Task renaming is unavailable. Restart the Fleet Operations Console and try again.')
+
+    let response: ZenohTaskRenameResult
+    try {
+      response = await window.zcDesktop.renameZenohTask({
+        host: this.controllerHost,
+        servicePath: options.servicePath,
+        taskId,
+        newName,
+        timeoutMs: options.timeoutMs,
+      })
+    }
+    catch (error) {
+      console.error('Task rename request failed', error)
+      throw new Error('Task Manager did not complete the rename. Check the connection and try again.')
+    }
+    if (!response.success) {
+      console.error('Task rename request failed', response.message)
+      throw new Error('Task Manager did not complete the rename. Check the connection and try again.')
+    }
+    if (!response.ok)
+      throw new Error(response.message || 'Task Manager rejected the new name')
 
     return {
       ok: response.ok,

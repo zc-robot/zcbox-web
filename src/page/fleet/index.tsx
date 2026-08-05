@@ -2170,6 +2170,7 @@ const taskManagerServiceTopics = {
   get: 'get_task',
   create: 'create_task',
   run: 'run_task',
+  rename: 'rename_task',
   cancel: 'task_manager/cancel_task',
   delete: 'delete_task',
 } as const
@@ -4848,22 +4849,103 @@ function TaskManagerUnitTaskRow({ unitTask }: { unitTask: TaskManagerUnitTaskInf
   )
 }
 
+function RenameTaskDialog({
+  draftName,
+  error,
+  isRenaming,
+  onDraftNameChanged,
+  onClose,
+  onSubmit,
+}: {
+  draftName: string
+  error: string
+  isRenaming: boolean
+  onDraftNameChanged: (name: string) => void
+  onClose: () => void
+  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void
+}) {
+  const normalizedName = draftName.trim()
+
+  return (
+    <div className="fixed inset-0 z-110 flex items-center justify-center bg-black/35 px-4 py-6">
+      <form
+        className="w-full max-w-md overflow-hidden rounded-lg bg-white shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="rename-task-title"
+        onSubmit={onSubmit}>
+        <div className="flex items-start justify-between gap-3 border-(b-solid 1px gray-200) px-4 py-3">
+          <div id="rename-task-title" className="font-800 text-gray-900">Rename task</div>
+          <IconButton
+            type="button"
+            icon="i-material-symbols-close-rounded"
+            title="Close"
+            disabled={isRenaming}
+            onClick={onClose}
+          />
+        </div>
+
+        <div className="p-4">
+          <label className="block text-xs font-700 uppercase tracking-wide text-gray-500" htmlFor="rename-task-name">
+            Task name
+          </label>
+          <input
+            id="rename-task-name"
+            autoFocus
+            className={classNames(
+              'mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm outline-none focus:border-emerald-600',
+              error ? 'border-red-300' : 'border-gray-300',
+            )}
+            value={draftName}
+            disabled={isRenaming}
+            aria-invalid={Boolean(error)}
+            aria-describedby={error ? 'rename-task-error' : undefined}
+            onChange={(event) => {
+              onDraftNameChanged(event.target.value)
+            }}
+          />
+          {error && (
+            <div id="rename-task-error" className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm font-700 text-red-700">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-(t-solid 1px gray-200) px-4 py-3">
+          <Button type="button" disabled={isRenaming} onClick={onClose}>Cancel</Button>
+          <Button
+            type="submit"
+            tone="primary"
+            icon={isRenaming ? 'i-material-symbols-progress-activity' : 'i-material-symbols-edit-rounded'}
+            disabled={isRenaming || !normalizedName}>
+            {isRenaming ? 'Renaming...' : 'Rename'}
+          </Button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 function TaskManagerDetail({
   detail,
   isRunning,
   isCanceling,
   isDeleting,
+  isRenaming,
   onRun,
   onCancel,
   onDelete,
+  onRename,
 }: {
   detail: TaskManagerTaskDetail
   isRunning: boolean
   isCanceling: boolean
   isDeleting: boolean
+  isRenaming: boolean
   onRun: (taskId: string) => void
   onCancel: (task: TaskManagerTaskInfo) => void
   onDelete: (task: TaskManagerTaskInfo) => void
+  onRename: (task: TaskManagerTaskInfo) => void
 }) {
   if (!detail.found) {
     return (
@@ -4881,7 +4963,16 @@ function TaskManagerDetail({
       <section className="rounded-lg border-(solid 1px gray-200) bg-white/75 p-3">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
-            <div className="truncate font-800 text-gray-900">{getTaskManagerTaskName(task)}</div>
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="truncate font-800 text-gray-900">{getTaskManagerTaskName(task)}</div>
+              <IconButton
+                type="button"
+                icon={isRenaming ? 'i-material-symbols-progress-activity' : 'i-material-symbols-edit-rounded'}
+                title="Rename task"
+                disabled={isRenaming || !taskDefinitionId}
+                onClick={() => onRename(task)}
+              />
+            </div>
             <div className="mt-0.5 text-xs text-gray-500">{task.robot_name || '--'} · {task.fleet_name || '--'}</div>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -4966,6 +5057,7 @@ function TaskManagerPanel() {
   const taskListServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.list)
   const taskGetServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.get)
   const taskRunServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.run)
+  const taskRenameServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.rename)
   const taskCancelServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.cancel)
   const taskDeleteServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.delete)
   const taskManagerServiceLabel = taskListServicePath && taskGetServicePath
@@ -4979,6 +5071,10 @@ function TaskManagerPanel() {
   const [runningTaskId, setRunningTaskId] = useState('')
   const [cancelingTaskId, setCancelingTaskId] = useState('')
   const [deletingTaskId, setDeletingTaskId] = useState('')
+  const [renamingTaskId, setRenamingTaskId] = useState('')
+  const [renameDialogTask, setRenameDialogTask] = useState<TaskManagerTaskInfo | null>(null)
+  const [renameDraftName, setRenameDraftName] = useState('')
+  const [renameTaskError, setRenameTaskError] = useState('')
   const [taskManagerError, setTaskManagerError] = useState('')
   const detailRequestId = useRef(0)
 
@@ -5006,6 +5102,9 @@ function TaskManagerPanel() {
     setTaskManagerTasks([])
     setSelectedTaskId('')
     setTaskDetail(null)
+    setRenameDialogTask(null)
+    setRenameDraftName('')
+    setRenameTaskError('')
     setTaskManagerError('')
   }, [fleetSiteNamespace.namespace])
 
@@ -5137,6 +5236,69 @@ function TaskManagerPanel() {
     }
   }
 
+  function openRenameTaskDialog(task: TaskManagerTaskInfo) {
+    setRenameDialogTask(task)
+    setRenameDraftName(task.name)
+    setRenameTaskError('')
+  }
+
+  function closeRenameTaskDialog() {
+    if (renamingTaskId)
+      return
+
+    setRenameDialogTask(null)
+    setRenameDraftName('')
+    setRenameTaskError('')
+  }
+
+  async function renameTaskManagerTask(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!renameDialogTask)
+      return
+
+    const taskId = getTaskManagerDefinitionId(renameDialogTask)
+    const newName = renameDraftName.trim()
+    if (!taskId) {
+      setRenameTaskError('This Task is unavailable. Refresh the Task list and try again.')
+      return
+    }
+    if (!newName) {
+      setRenameTaskError('Task name is required')
+      return
+    }
+
+    if (fleetSiteNamespace.status === 'idle' || fleetSiteNamespace.status === 'loading') {
+      setRenameTaskError('Site information is still loading. Try again shortly.')
+      return
+    }
+    if (!taskRenameServicePath) {
+      console.error('Task rename Site lookup failed', fleetSiteNamespace.error)
+      setRenameTaskError('Site information is unavailable. Check the connection and try again.')
+      return
+    }
+
+    setRenamingTaskId(taskId)
+    setRenameTaskError('')
+    try {
+      const response = await apiServer.renameTask(taskId, newName, { servicePath: taskRenameServicePath })
+      setTaskManagerTasks(current => current.map(task => (
+        getTaskManagerDefinitionId(task) === taskId ? { ...task, name: newName } : task
+      )))
+      setTaskDetail(current => current && getTaskManagerDefinitionId(current.task) === taskId
+        ? { ...current, task: { ...current.task, name: newName } }
+        : current)
+      setRenameDialogTask(null)
+      setRenameDraftName('')
+      toast.success(response.message || `Task renamed to "${newName}"`)
+    }
+    catch (error) {
+      setRenameTaskError(errorMessage(error))
+    }
+    finally {
+      setRenamingTaskId('')
+    }
+  }
+
   async function cancelTaskManagerTask(task: TaskManagerTaskInfo) {
     const taskId = getTaskManagerDefinitionId(task)
     if (!taskId)
@@ -5192,7 +5354,8 @@ function TaskManagerPanel() {
   }
 
   return (
-    <Surface>
+    <>
+      <Surface>
       <div className="flex flex-wrap items-center justify-between gap-3 border-(b-solid 1px gray-200) px-4 py-3">
         <div>
           <div className="font-800">Task Manager</div>
@@ -5307,14 +5470,30 @@ function TaskManagerPanel() {
               isRunning={runningTaskId === getTaskManagerDefinitionId(taskDetail.task)}
               isCanceling={cancelingTaskId === (taskDetail.task.task_id || getTaskManagerDefinitionId(taskDetail.task))}
               isDeleting={deletingTaskId === (taskDetail.task.task_id || getTaskManagerDefinitionId(taskDetail.task))}
+              isRenaming={renamingTaskId === getTaskManagerDefinitionId(taskDetail.task)}
               onRun={runTaskManagerTask}
               onCancel={cancelTaskManagerTask}
               onDelete={deleteTaskManagerTask}
+              onRename={openRenameTaskDialog}
             />
           )}
         </div>
       </div>
-    </Surface>
+      </Surface>
+      {renameDialogTask && (
+        <RenameTaskDialog
+          draftName={renameDraftName}
+          error={renameTaskError}
+          isRenaming={renamingTaskId === getTaskManagerDefinitionId(renameDialogTask)}
+          onDraftNameChanged={(name) => {
+            setRenameDraftName(name)
+            setRenameTaskError('')
+          }}
+          onClose={closeRenameTaskDialog}
+          onSubmit={renameTaskManagerTask}
+        />
+      )}
+    </>
   )
 }
 

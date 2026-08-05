@@ -226,6 +226,13 @@ def encode_string_request(value):
     return writer.to_bytes()
 
 
+def encode_rename_task_request(task_id, new_name):
+    writer = CdrWriter()
+    writer.write_string(task_id)
+    writer.write_string(new_name)
+    return writer.to_bytes()
+
+
 def encode_delete_task_request(task_id, force):
     writer = CdrWriter()
     writer.write_string(task_id)
@@ -1271,6 +1278,62 @@ def run_task(session, message):
         emit(response_message)
 
 
+def rename_task(session, message):
+    key = normalize_key(message.get("key"))
+    request_id = str(message.get("requestId") or "")
+    task_id = str(message.get("taskId") or "")
+    new_name = str(message.get("newName") or "")
+
+    response_message = {
+        "type": "service-response",
+        "service": "rename_task",
+        "key": key,
+        "requestId": request_id,
+        "success": False,
+        "ok": False,
+        "message": "no service response",
+    }
+
+    if not key:
+        response_message["message"] = "missing rename_task service key"
+        emit(response_message)
+        return
+    if not task_id:
+        response_message["message"] = "missing task_id"
+        emit(response_message)
+        return
+    if not new_name:
+        response_message["message"] = "missing new_name"
+        emit(response_message)
+        return
+
+    try:
+        replies = session.get(
+            key,
+            timeout=normalized_timeout(message),
+            payload=encode_rename_task_request(task_id, new_name),
+        )
+        received_reply = False
+        for reply in replies:
+            received_reply = True
+            if reply.ok is not None:
+                response_message.update(decode_ok_message_response(reply.ok.payload.to_bytes()))
+                response_message["success"] = True
+                emit(response_message)
+                return
+
+            if reply.err is not None:
+                response_message["message"] = reply.err.payload.to_bytes().decode("utf-8", errors="replace")
+                emit(response_message)
+                return
+
+        if not received_reply:
+            emit(response_message)
+    except Exception as error:
+        response_message["message"] = str(error)
+        emit(response_message)
+
+
 def cancel_task(session, message):
     key = normalize_key(message.get("key"))
     request_id = str(message.get("requestId") or "")
@@ -1607,6 +1670,9 @@ def main():
                 continue
             if message_type == "run_task":
                 run_task(session, message)
+                continue
+            if message_type == "rename_task":
+                rename_task(session, message)
                 continue
             if message_type == "cancel_task":
                 cancel_task(session, message)

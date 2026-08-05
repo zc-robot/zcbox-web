@@ -3,6 +3,8 @@ import importlib.util
 import pathlib
 import struct
 import unittest
+from types import SimpleNamespace
+from unittest import mock
 
 
 BRIDGE_PATH = pathlib.Path(__file__).with_name("zenoh-command-bridge.py")
@@ -91,6 +93,57 @@ def write_pointcloud_response(writer):
 
 
 class TaskInfoDecoderTest(unittest.TestCase):
+    def test_rename_task_request_encodes_definition_id_and_new_name(self):
+        bridge = load_bridge()
+        payload = bridge.encode_rename_task_request("task-definition-1", "Morning delivery")
+        reader = bridge.CdrReader(payload)
+
+        self.assertEqual(reader.read_string(), "task-definition-1")
+        self.assertEqual(reader.read_string(), "Morning delivery")
+
+    def test_rename_task_calls_service_and_emits_response(self):
+        bridge = load_bridge()
+        writer = bridge.CdrWriter()
+        writer.write_bool(True)
+        writer.write_string("renamed")
+
+        class Payload:
+            def to_bytes(self):
+                return writer.to_bytes()
+
+        class Session:
+            def __init__(self):
+                self.request = None
+
+            def get(self, key, *, timeout, payload):
+                self.request = {"key": key, "timeout": timeout, "payload": payload}
+                return [SimpleNamespace(ok=SimpleNamespace(payload=Payload()), err=None)]
+
+        session = Session()
+        emitted = []
+        with mock.patch.object(bridge, "emit", emitted.append):
+            bridge.rename_task(session, {
+                "key": "site-a/rename_task",
+                "requestId": "rename-task-1",
+                "taskId": "task-definition-1",
+                "newName": "Morning delivery",
+                "timeoutSec": 4,
+            })
+
+        request_reader = bridge.CdrReader(session.request["payload"])
+        self.assertEqual(session.request["key"], "site-a/rename_task")
+        self.assertEqual(request_reader.read_string(), "task-definition-1")
+        self.assertEqual(request_reader.read_string(), "Morning delivery")
+        self.assertEqual(emitted, [{
+            "type": "service-response",
+            "service": "rename_task",
+            "key": "site-a/rename_task",
+            "requestId": "rename-task-1",
+            "success": True,
+            "ok": True,
+            "message": "renamed",
+        }])
+
     def test_create_task_request_encodes_current_simple_and_unit_task_fields(self):
         bridge = load_bridge()
         payload = bridge.encode_create_task_request({

@@ -3033,6 +3033,49 @@ async function requestZenohTaskRun(options) {
   return response
 }
 
+async function requestZenohTaskRename(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const servicePath = normalizeZenohTaskServicePath(options?.servicePath, '')
+  const taskId = typeof options?.taskId === 'string' ? options.taskId.trim() : ''
+  const newName = typeof options?.newName === 'string' ? options.newName.trim() : ''
+  const timeoutMs = normalizeZenohServiceTimeout(options?.timeoutMs)
+
+  if (!host || !servicePath)
+    throw new Error('Task rename request requires host and service path')
+  if (!taskId)
+    throw new Error('Task rename request requires task id')
+  if (!newName)
+    throw new Error('Task name is required')
+
+  startZenohCommandBridge(host)
+
+  if (!zenohCommandProcess?.stdin?.writable)
+    throw new Error('Zenoh command bridge is not writable')
+
+  const requestId = nextZenohCommandRequestId('rename_task')
+  const responsePromise = waitForZenohCommandResponse(requestId, timeoutMs)
+  try {
+    zenohCommandProcess.stdin.write(`${JSON.stringify({
+      type: 'rename_task',
+      key: servicePath,
+      requestId,
+      taskId,
+      newName,
+      timeoutSec: timeoutMs / 1000,
+    })}\n`)
+  }
+  catch (error) {
+    cancelPendingZenohCommandRequest(requestId, error)
+    throw error
+  }
+
+  const response = await responsePromise
+  if (!response.success)
+    throw new Error(response.message || 'Failed to rename task')
+
+  return response
+}
+
 async function requestZenohTaskCancel(options) {
   const host = typeof options?.host === 'string' ? options.host.trim() : ''
   const servicePath = normalizeZenohTaskServicePath(options?.servicePath, '')
@@ -3642,6 +3685,10 @@ ipcMain.handle('zenoh-command:run-task', (_event, options) => {
 
 ipcMain.handle('zenoh-command:cancel-task', (_event, options) => {
   return requestZenohTaskCancel(options)
+})
+
+ipcMain.handle('zenoh-command:rename-task', (_event, options) => {
+  return requestZenohTaskRename(options)
 })
 
 ipcMain.handle('zenoh-command:delete-task', (_event, options) => {

@@ -468,6 +468,11 @@ export interface TaskManagerCancelTaskResult {
   message: string,
 }
 
+export interface TaskManagerRenameTaskResult {
+  ok: boolean,
+  message: string,
+}
+
 export interface TaskManagerDeleteTaskResult {
   ok: boolean,
   message: string,
