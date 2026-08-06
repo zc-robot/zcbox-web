@@ -799,17 +799,6 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : `${error}`
 }
 
-function TaskManagerSummaryField({ label, value, title }: { label: string; value: string; title?: string }) {
-  return (
-    <div className="min-w-[8rem] flex-1">
-      <div className="text-[11px] font-700 uppercase text-gray-400">{label}</div>
-      <div className="mt-0.5 min-w-0 break-words text-xs font-700 leading-4 text-gray-700" title={title || value}>
-        {value || '--'}
-      </div>
-    </div>
-  )
-}
-
 function getStorageStatusClass(status: StorageStatus) {
   const classes: Record<StorageStatus, string> = {
     available: 'bg-emerald-50 text-emerald-700',
@@ -4986,7 +4975,7 @@ function ActiveTasksSidebar({ host }: { host: string }) {
 
       {activeTasks.length > 0
         ? (
-            <ul className="divide-y divide-gray-100 border-(t-solid 1px gray-100)">
+            <ul className="m-0 list-none divide-y divide-gray-100 border-(t-solid 1px gray-100) p-0">
               {activeTasks.map((task) => {
                 const taskId = getTaskManagerDefinitionId(task)
                 const isCanceling = cancelingTaskId === taskId
@@ -5556,7 +5545,7 @@ function TaskManagerPanel() {
         <div className="min-w-0 border-(b-solid 1px gray-200) 2xl:border-(b-0 r-solid 1px gray-200)">
           {taskManagerTasks.length > 0
             ? (
-                <div className="grid grid-cols-1 gap-3 p-3 xl:grid-cols-2 2xl:grid-cols-1">
+                <ul className="divide-y divide-gray-200">
                   {taskManagerTasks.map((task) => {
                     const isCancelable = isTaskManagerTaskCancelable(task)
                     const taskDefinitionId = getTaskManagerDefinitionId(task)
@@ -5565,23 +5554,23 @@ function TaskManagerPanel() {
                     const isTaskCanceling = cancelingTaskId === taskStateId
                     const isTaskDeleting = deletingTaskId === taskStateId
                     return (
-                      <div
+                      <li
                         key={task.task_id || `${task.task_definition_id}:${task.created_at_unix_ms}`}
                         className={classNames(
-                          'rounded-lg border-(solid 1px gray-200) bg-white/80 p-3 transition hover:border-emerald-300 hover:bg-emerald-50/35',
-                          selectedTaskId === taskDefinitionId && 'border-emerald-500 bg-emerald-50/70 shadow-sm',
+                          'flex min-w-0 flex-col bg-white/55 transition sm:flex-row sm:items-stretch',
+                          selectedTaskId === taskDefinitionId && 'bg-emerald-50/80 shadow-[inset_3px_0_0_#10b981]',
                         )}
                       >
                         <button
                           type="button"
-                          className="w-full text-left"
+                          className="min-w-0 flex-1 px-4 py-3 text-left transition hover:bg-emerald-50/45"
                           title={task.task_id}
                           onClick={() => selectTaskManagerTask(task)}
                         >
-                          <div className="flex min-w-0 items-start justify-between gap-3">
+                          <div className="flex min-w-0 items-center justify-between gap-3">
                             <div className="min-w-0">
-                              <div className="break-words font-800 leading-5 text-gray-900">{getTaskManagerTaskName(task)}</div>
-                              <div className="mt-1 break-all font-mono text-[11px] leading-4 text-gray-500">{task.task_id || '--'}</div>
+                              <div className="truncate font-800 leading-5 text-gray-900">{getTaskManagerTaskName(task)}</div>
+                              <div className="mt-0.5 truncate font-mono text-[11px] leading-4 text-gray-500">{task.task_id || '--'}</div>
                             </div>
                             <div className="flex shrink-0 items-center gap-2">
                               <Badge className={getTaskManagerStatusClass(task.status)}>{task.status || '--'}</Badge>
@@ -5595,13 +5584,13 @@ function TaskManagerPanel() {
                               />
                             </div>
                           </div>
-                          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2">
-                            <TaskManagerSummaryField label="Robot" value={task.robot_name || '--'} />
-                            <TaskManagerSummaryField label="Fleet" value={task.fleet_name || '--'} />
-                            <TaskManagerSummaryField label="Updated" value={formatUnixMilliseconds(task.updated_at_unix_ms)} />
+                          <div className="mt-2 flex min-w-0 flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                            <span className="min-w-0 truncate"><span className="font-700 text-gray-400">Robot</span> {task.robot_name || '--'}</span>
+                            <span className="min-w-0 truncate"><span className="font-700 text-gray-400">Fleet</span> {task.fleet_name || '--'}</span>
+                            <span className="min-w-0 truncate"><span className="font-700 text-gray-400">Updated</span> {formatUnixMilliseconds(task.updated_at_unix_ms)}</span>
                           </div>
                         </button>
-                        <div className="mt-3 flex flex-wrap items-center justify-end gap-2 border-(t-solid 1px gray-100) pt-3">
+                        <div className="flex shrink-0 items-center justify-end gap-2 border-(t-solid 1px gray-100) px-4 py-3 sm:border-(l-solid 1px gray-100 t-0) sm:px-3">
                           {isCancelable && (
                             <Button
                               type="button"
@@ -5620,10 +5609,10 @@ function TaskManagerPanel() {
                             onClick={() => { deleteTaskManagerTask(task) }}
                           />
                         </div>
-                      </div>
+                      </li>
                     )
                   })}
-                </div>
+                </ul>
               )
             : (
                 <div className="px-4 py-14 text-center text-sm text-gray-500">

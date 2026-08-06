@@ -360,6 +360,7 @@ def main():
 
     try:
         import zenoh
+        from zenoh.ext import HistoryConfig, declare_advanced_subscriber
     except Exception as error:
         emit({
             "type": "error",
@@ -413,7 +414,15 @@ def main():
             "keys": key_exprs,
         })
         session = zenoh.open(config)
-        subscribers = [session.declare_subscriber(key, on_sample) for key in key_exprs]
+        subscribers = [
+            declare_advanced_subscriber(
+                session,
+                key,
+                on_sample,
+                history=HistoryConfig(max_samples=1),
+            )
+            for key in key_exprs
+        ]
         emit({
             "type": "status",
             "state": "subscribed",
