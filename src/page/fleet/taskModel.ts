@@ -1,4 +1,18 @@
-import type { TaskManagerUnitTaskSpec } from '../../types.js'
+import type { TaskManagerTaskInfo, TaskManagerUnitTaskSpec } from '../../types.js'
+
+const cancelableTaskManagerStatuses = new Set(['PENDING', 'RUNNING', 'RECOVERY_REQUIRED'])
+
+export function isActiveTaskManagerTask(task: TaskManagerTaskInfo) {
+  return task.status === 'RUNNING'
+}
+
+export function getActiveTaskManagerTasks(tasks: TaskManagerTaskInfo[]) {
+  return tasks.filter(isActiveTaskManagerTask)
+}
+
+export function isCancelableTaskManagerTask(task: TaskManagerTaskInfo) {
+  return cancelableTaskManagerStatuses.has(task.status)
+}
 
 export type MultiGoToPoseUnitTasksResult =
   | {

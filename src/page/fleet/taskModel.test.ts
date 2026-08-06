@@ -1,6 +1,50 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildMultiGoToPoseUnitTasks } from './taskModel.js'
+import type { TaskManagerTaskInfo } from '../../types.js'
+import { buildMultiGoToPoseUnitTasks, getActiveTaskManagerTasks, isCancelableTaskManagerTask } from './taskModel.js'
+
+function taskManagerTask(status: string, name: string): TaskManagerTaskInfo {
+  return {
+    task_id: `task-${name}`,
+    task_definition_id: `definition-${name}`,
+    latest_task_execution_id: `latest-${name}`,
+    active_task_execution_id: `active-${name}`,
+    name,
+    description: '',
+    robot_name: 'forklift_1',
+    fleet_name: 'forklift',
+    status,
+    created_at_unix_ms: 1,
+    updated_at_unix_ms: 2,
+    execution_created_at_unix_ms: 3,
+    execution_updated_at_unix_ms: 4,
+  }
+}
+
+test('returns every active Task and excludes other lifecycle states', () => {
+  const tasks = [
+    taskManagerTask('CREATED', 'created'),
+    taskManagerTask('PENDING', 'pending'),
+    taskManagerTask('RUNNING', 'running'),
+    taskManagerTask('RECOVERY_REQUIRED', 'recovery'),
+    taskManagerTask('SUCCEEDED', 'succeeded'),
+    taskManagerTask('FAILED', 'failed'),
+    taskManagerTask('CANCELED', 'canceled'),
+  ]
+
+  assert.deepEqual(
+    getActiveTaskManagerTasks(tasks).map(task => task.name),
+    ['running'],
+  )
+})
+
+test('allows cancellation while a Task is submitted, active, or awaiting recovery', () => {
+  assert.deepEqual(
+    ['CREATED', 'PENDING', 'RUNNING', 'RECOVERY_REQUIRED', 'SUCCEEDED', 'FAILED', 'CANCELED']
+      .filter(status => isCancelableTaskManagerTask(taskManagerTask(status, status))),
+    ['PENDING', 'RUNNING', 'RECOVERY_REQUIRED'],
+  )
+})
 
 test('builds ordered go_to_pose Unit Tasks with the live action parameters', () => {
   const result = buildMultiGoToPoseUnitTasks(
