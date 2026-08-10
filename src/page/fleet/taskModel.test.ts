@@ -1,14 +1,19 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { TaskManagerTaskInfo } from '../../types.js'
-import { buildMultiGoToPoseUnitTasks, getActiveTaskManagerTasks, isCancelableTaskManagerTask } from './taskModel.js'
+import { buildMultiGoToPoseUnitTasks, getActiveTaskManagerTasks, getOngoingTaskManagerExecutions, hasActiveTaskManagerExecution, isCancelableTaskManagerTask } from './taskModel.js'
 
-function taskManagerTask(status: string, name: string): TaskManagerTaskInfo {
+function taskManagerTask(
+  status: string,
+  name: string,
+  allowedControls?: TaskManagerTaskInfo['allowed_controls'],
+  activeTaskExecutionId = '',
+): TaskManagerTaskInfo {
   return {
     task_id: `task-${name}`,
     task_definition_id: `definition-${name}`,
     latest_task_execution_id: `latest-${name}`,
-    active_task_execution_id: `active-${name}`,
+    active_task_execution_id: activeTaskExecutionId,
     name,
     description: '',
     robot_name: 'forklift_1',
@@ -18,14 +23,19 @@ function taskManagerTask(status: string, name: string): TaskManagerTaskInfo {
     updated_at_unix_ms: 2,
     execution_created_at_unix_ms: 3,
     execution_updated_at_unix_ms: 4,
+    ...(allowedControls === undefined ? {} : { allowed_controls: allowedControls }),
   }
 }
 
-test('returns every active Task and excludes other lifecycle states', () => {
+test('returns operator-active Tasks without labeling paused or transitional executions as Active', () => {
   const tasks = [
     taskManagerTask('CREATED', 'created'),
     taskManagerTask('PENDING', 'pending'),
     taskManagerTask('RUNNING', 'running'),
+    taskManagerTask('PAUSING', 'pausing'),
+    taskManagerTask('PAUSED', 'paused'),
+    taskManagerTask('RESUMING', 'resuming'),
+    taskManagerTask('CANCELING', 'canceling'),
     taskManagerTask('RECOVERY_REQUIRED', 'recovery'),
     taskManagerTask('SUCCEEDED', 'succeeded'),
     taskManagerTask('FAILED', 'failed'),
@@ -38,12 +48,47 @@ test('returns every active Task and excludes other lifecycle states', () => {
   )
 })
 
+test('recognizes V2 states that still own an active execution', () => {
+  assert.deepEqual(
+    ['CREATED', 'PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RESUMING', 'CANCELING', 'RECOVERY_REQUIRED', 'SUCCEEDED']
+      .filter(status => hasActiveTaskManagerExecution(taskManagerTask(status, status))),
+    ['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RESUMING', 'CANCELING', 'RECOVERY_REQUIRED'],
+  )
+})
+
+test('treats an unknown status with an active execution id conservatively', () => {
+  assert.equal(
+    hasActiveTaskManagerExecution(taskManagerTask('WAITING_FOR_OPERATOR', 'future', [], 'execution-future')),
+    true,
+  )
+})
+
+test('returns ongoing executions without relabeling them as operator-active Tasks', () => {
+  const tasks = [
+    taskManagerTask('CREATED', 'created'),
+    taskManagerTask('RUNNING', 'running'),
+    taskManagerTask('PAUSED', 'paused'),
+    taskManagerTask('WAITING_FOR_OPERATOR', 'future', [], 'execution-future'),
+    taskManagerTask('SUCCEEDED', 'succeeded'),
+  ]
+
+  assert.deepEqual(
+    getOngoingTaskManagerExecutions(tasks).map(task => task.name),
+    ['running', 'paused', 'future'],
+  )
+})
+
 test('allows cancellation while a Task is submitted, active, or awaiting recovery', () => {
   assert.deepEqual(
     ['CREATED', 'PENDING', 'RUNNING', 'RECOVERY_REQUIRED', 'SUCCEEDED', 'FAILED', 'CANCELED']
       .filter(status => isCancelableTaskManagerTask(taskManagerTask(status, status))),
     ['PENDING', 'RUNNING', 'RECOVERY_REQUIRED'],
   )
+})
+
+test('uses the Task Manager allowed controls instead of reconstructing V2 lifecycle rules', () => {
+  assert.equal(isCancelableTaskManagerTask(taskManagerTask('RUNNING', 'blocked', [])), false)
+  assert.equal(isCancelableTaskManagerTask(taskManagerTask('PAUSED', 'cancelable', ['CANCEL', 'RESUME'])), true)
 })
 
 test('builds ordered go_to_pose Unit Tasks with the live action parameters', () => {

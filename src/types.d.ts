@@ -348,6 +348,8 @@ export interface StorageAreaDisplayNameResult {
   layout_revision: number,
 }
 
+export type TaskManagerAllowedControl = 'CANCEL' | 'PAUSE' | 'RESUME' | (string & {})
+
 export interface TaskManagerTaskInfo {
   task_id: string,
   task_definition_id: string,
@@ -357,11 +359,14 @@ export interface TaskManagerTaskInfo {
   description: string,
   robot_name: string,
   fleet_name: string,
+  stop_on_failure?: boolean,
   status: string,
   created_at_unix_ms: number,
   updated_at_unix_ms: number,
   execution_created_at_unix_ms: number,
   execution_updated_at_unix_ms: number,
+  active_transition_id?: string,
+  allowed_controls?: TaskManagerAllowedControl[],
 }
 
 export interface TaskManagerUnitTaskInfo {

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import toast, { Toaster } from 'react-hot-toast'
 import { buildRobotHardwareDiagnosticsView } from './runtimeModel'
-import { buildMultiGoToPoseUnitTasks, getActiveTaskManagerTasks, isCancelableTaskManagerTask } from './taskModel'
+import { buildMultiGoToPoseUnitTasks, getOngoingTaskManagerExecutions, hasActiveTaskManagerExecution, isCancelableTaskManagerTask } from './taskModel'
 import type { FleetHardwareDiagnosticState, FleetRobotHardwareDiagnosticsState } from './runtimeModel'
 import { notifyFleetSiteNamespaceUpdated, prefixFleetSiteTopic, useBuildingMapZenoh, useFleetBondsZenoh, useFleetDataZenoh, useFleetDidoZenoh, useFleetHardwareDiagnosticsZenoh, useFleetRmfStatesZenoh, useFleetSiteNamespace, useFleetWheelStatesZenoh, useInterval } from '@/hooks'
 import apiServer from '@/service/apiServer'
@@ -706,6 +706,9 @@ const taskManagerStatusClass: Record<string, string> = {
   CREATED: 'bg-gray-100 text-gray-700',
   PENDING: 'bg-amber-50 text-amber-700',
   RUNNING: 'bg-emerald-50 text-emerald-700',
+  PAUSING: 'bg-violet-50 text-violet-700',
+  RESUMING: 'bg-sky-50 text-sky-700',
+  CANCELING: 'bg-orange-50 text-orange-700',
   SUCCEEDED: 'bg-blue-50 text-blue-700',
   FAILED: 'bg-red-50 text-red-700',
   CANCELED: 'bg-zinc-100 text-zinc-600',
@@ -4836,7 +4839,7 @@ function TaskManagerUnitTaskRow({ unitTask }: { unitTask: TaskManagerUnitTaskInf
   )
 }
 
-function ActiveTasksSidebar({ host }: { host: string }) {
+function OngoingTaskExecutionsSidebar({ host }: { host: string }) {
   const fleetSiteNamespace = useFleetSiteNamespace()
   const taskListServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.list)
   const taskCancelServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.cancel)
@@ -4851,8 +4854,8 @@ function ActiveTasksSidebar({ host }: { host: string }) {
   const refreshRequestId = useRef(0)
   const hasLoaded = Boolean(host && taskListServicePath && loadedTaskContextKey === taskContextKey)
   const isTaskListStale = hasLoaded && lastSuccessfulRefreshAt != null && now - lastSuccessfulRefreshAt > 3000
-  const activeTasks = useMemo(
-    () => hasLoaded ? getActiveTaskManagerTasks(tasks) : [],
+  const ongoingExecutions = useMemo(
+    () => hasLoaded ? getOngoingTaskManagerExecutions(tasks) : [],
     [hasLoaded, tasks],
   )
 
@@ -4882,7 +4885,7 @@ function ActiveTasksSidebar({ host }: { host: string }) {
       const message = errorMessage(caughtError)
       setRefreshError(message)
       if (showToast)
-        toast.error(`Failed to load active Tasks: ${message}`)
+        toast.error(`Failed to load ongoing executions: ${message}`)
     }
     finally {
       if (refreshRequestId.current === requestId)
@@ -4942,16 +4945,16 @@ function ActiveTasksSidebar({ host }: { host: string }) {
           ? fleetSiteNamespace.error || 'Site unavailable'
           : ''
   const emptyStateMessage = unavailableMessage
-    || (!hasLoaded && isRefreshing ? 'Loading active Tasks...' : '')
-    || (refreshError && !hasLoaded ? 'Active Tasks unavailable' : '')
-    || 'No active Tasks'
+    || (!hasLoaded && isRefreshing ? 'Loading ongoing executions...' : '')
+    || (refreshError && !hasLoaded ? 'Ongoing executions unavailable' : '')
+    || 'No ongoing executions'
 
   return (
     <Surface className="overflow-hidden">
       <div className="flex items-center justify-between gap-2 px-3 py-2.5">
         <div className="min-w-0">
-          <div className="text-xs font-700 text-gray-500">Active Tasks</div>
-          <div className="mt-0.5 text-lg font-800 tabular-nums text-gray-900">{activeTasks.length}</div>
+          <div className="text-xs font-700 text-gray-500">Ongoing executions</div>
+          <div className="mt-0.5 text-lg font-800 tabular-nums text-gray-900">{ongoingExecutions.length}</div>
           {hasLoaded && (
             <div className={classNames('text-[10px]', isTaskListStale ? 'font-700 text-amber-700' : 'text-gray-500')}>
               {isTaskListStale ? 'Stale' : 'Updated'} · {formatAge(lastSuccessfulRefreshAt, now)}
@@ -4961,7 +4964,7 @@ function ActiveTasksSidebar({ host }: { host: string }) {
         <IconButton
           type="button"
           icon={isRefreshing ? 'i-material-symbols-progress-activity animate-spin' : 'i-material-symbols-refresh-rounded'}
-          title="Refresh active Tasks"
+          title="Refresh ongoing executions"
           disabled={isRefreshing || Boolean(cancelingTaskId) || !taskListServicePath}
           onClick={() => { void refreshTasks(true) }}
         />
@@ -4973,32 +4976,35 @@ function ActiveTasksSidebar({ host }: { host: string }) {
         </div>
       )}
 
-      {activeTasks.length > 0
+      {ongoingExecutions.length > 0
         ? (
             <ul className="m-0 list-none divide-y divide-gray-100 border-(t-solid 1px gray-100) p-0">
-              {activeTasks.map((task) => {
+              {ongoingExecutions.map((task) => {
                 const taskId = getTaskManagerDefinitionId(task)
                 const isCanceling = cancelingTaskId === taskId
+                const isCancelable = isTaskManagerTaskCancelable(task)
                 const taskName = getTaskManagerTaskName(task)
                 return (
                   <li key={task.task_id || `${task.task_definition_id}:${task.created_at_unix_ms}`} className="flex items-center gap-2 px-2.5 py-2">
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-xs font-800 text-gray-900" title={taskName}>{taskName}</div>
                       <div className="mt-1 flex min-w-0 items-center gap-1.5">
-                        <Badge className={getTaskManagerStatusClass(task.status)}>Active</Badge>
+                        <Badge className={getTaskManagerStatusClass(task.status)}>{task.status || 'Ongoing'}</Badge>
                         <span className="min-w-0 truncate text-[10px] text-gray-500" title={task.robot_name || undefined}>
                           {task.robot_name || 'Unassigned'}
                         </span>
                       </div>
                     </div>
-                    <IconButton
-                      type="button"
-                      icon={isCanceling ? 'i-material-symbols-progress-activity animate-spin' : 'i-material-symbols-cancel-rounded'}
-                      title={`Cancel ${taskName}`}
-                      tone="danger"
-                      disabled={isRefreshing || Boolean(cancelingTaskId) || !taskId || !taskCancelServicePath}
-                      onClick={() => { void cancelTask(task) }}
-                    />
+                    {isCancelable && (
+                      <IconButton
+                        type="button"
+                        icon={isCanceling ? 'i-material-symbols-progress-activity animate-spin' : 'i-material-symbols-cancel-rounded'}
+                        title={`Cancel ${taskName}`}
+                        tone="danger"
+                        disabled={isRefreshing || Boolean(cancelingTaskId) || !taskId || !taskCancelServicePath}
+                        onClick={() => { void cancelTask(task) }}
+                      />
+                    )}
                   </li>
                 )
               })}
@@ -5122,6 +5128,7 @@ function TaskManagerDetail({
   const task = detail.task
   const taskDefinitionId = getTaskManagerDefinitionId(task)
   const isCancelable = isTaskManagerTaskCancelable(task)
+  const hasActiveExecution = hasActiveTaskManagerExecution(task)
   return (
     <div className="space-y-4">
       <section className="rounded-lg border-(solid 1px gray-200) bg-white/75 p-3">
@@ -5155,15 +5162,15 @@ function TaskManagerDetail({
               type="button"
               tone="primary"
               icon={isRunning ? 'i-material-symbols-progress-activity' : 'i-material-symbols-play-arrow-rounded'}
-              disabled={isRunning || isCanceling || isDeleting || isCancelable || !taskDefinitionId}
+              disabled={isRunning || isCanceling || isDeleting || hasActiveExecution || !taskDefinitionId}
               onClick={() => onRun(taskDefinitionId)}>
               Run
             </Button>
             <IconButton
               icon={isDeleting ? 'i-material-symbols-progress-activity' : 'i-material-symbols-delete-outline-rounded'}
-              title={isCancelable ? 'Cancel current execution before deleting' : 'Delete task'}
+              title={hasActiveExecution ? 'Finish or cancel the current execution before deleting' : 'Delete task'}
               tone="danger"
-              disabled={isRunning || isCanceling || isDeleting || isCancelable || !taskDefinitionId}
+              disabled={isRunning || isCanceling || isDeleting || hasActiveExecution || !taskDefinitionId}
               onClick={() => onDelete(task)}
             />
           </div>
@@ -5548,6 +5555,7 @@ function TaskManagerPanel() {
                 <ul className="divide-y divide-gray-200">
                   {taskManagerTasks.map((task) => {
                     const isCancelable = isTaskManagerTaskCancelable(task)
+                    const hasActiveExecution = hasActiveTaskManagerExecution(task)
                     const taskDefinitionId = getTaskManagerDefinitionId(task)
                     const taskStateId = task.task_id || taskDefinitionId
                     const isTaskRunning = runningTaskId === taskDefinitionId
@@ -5603,9 +5611,9 @@ function TaskManagerPanel() {
                           )}
                           <IconButton
                             icon={isTaskDeleting ? 'i-material-symbols-progress-activity' : 'i-material-symbols-delete-outline-rounded'}
-                            title={isCancelable ? 'Cancel current execution before deleting' : 'Delete task'}
+                            title={hasActiveExecution ? 'Finish or cancel the current execution before deleting' : 'Delete task'}
                             tone="danger"
-                            disabled={isTaskRunning || isTaskCanceling || isTaskDeleting || isCancelable || !taskDefinitionId}
+                            disabled={isTaskRunning || isTaskCanceling || isTaskDeleting || hasActiveExecution || !taskDefinitionId}
                             onClick={() => { deleteTaskManagerTask(task) }}
                           />
                         </div>
@@ -8821,7 +8829,7 @@ const FleetView: React.FC = () => {
               <div className="text-xs text-gray-500">Robots</div>
               <div className="mt-1 text-6 font-800">{robots.length}</div>
             </Surface>
-            <ActiveTasksSidebar host={nestControllerIp} />
+            <OngoingTaskExecutionsSidebar host={nestControllerIp} />
             <Surface className="p-3">
               <div className="text-xs text-gray-500">Storage use</div>
               <div className="mt-1 text-6 font-800">{storageUseLabel}</div>

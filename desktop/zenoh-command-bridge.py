@@ -16,6 +16,9 @@ TASK_STATUSES = {
     "CREATED",
     "PENDING",
     "RUNNING",
+    "PAUSING",
+    "RESUMING",
+    "CANCELING",
     "SUCCEEDED",
     "FAILED",
     "CANCELED",
@@ -609,6 +612,27 @@ def empty_task_info():
     }
 
 
+def decode_lifecycle_task_info(reader):
+    return {
+        "task_id": reader.read_string(),
+        "name": reader.read_string(),
+        "description": reader.read_string(),
+        "robot_name": reader.read_string(),
+        "fleet_name": reader.read_string(),
+        "stop_on_failure": reader.read_bool(),
+        "status": reader.read_string(),
+        "created_at_unix_ms": reader.read_int64(),
+        "updated_at_unix_ms": reader.read_int64(),
+        "task_definition_id": reader.read_string(),
+        "latest_task_execution_id": reader.read_string(),
+        "active_task_execution_id": reader.read_string(),
+        "execution_created_at_unix_ms": reader.read_int64(),
+        "execution_updated_at_unix_ms": reader.read_int64(),
+        "active_transition_id": reader.read_string(),
+        "allowed_controls": reader.read_sequence(lambda item_reader: item_reader.read_string()),
+    }
+
+
 def decode_current_task_info(reader):
     return {
         "task_id": reader.read_string(),
@@ -788,16 +812,17 @@ def decode_legacy_unit_task_info(reader):
     }
 
 
-def decode_task_info_sequence(payload, task_decoder):
+def decode_task_info_sequence(payload, task_decoder, allow_unknown_status=False):
     reader = CdrReader(payload)
     tasks = reader.read_sequence(task_decoder)
-    unknown_statuses = sorted({
-        task.get("status") or ""
-        for task in tasks
-        if not task.get("status") or not is_plausible_task_info(task)
-    })
-    if unknown_statuses:
-        raise ValueError(f"task response did not match TaskInfo status fields: {unknown_statuses}")
+    if not allow_unknown_status:
+        unknown_statuses = sorted({
+            task.get("status") or ""
+            for task in tasks
+            if not task.get("status") or not is_plausible_task_info(task)
+        })
+        if unknown_statuses:
+            raise ValueError(f"task response did not match TaskInfo status fields: {unknown_statuses}")
     if reader.offset < len(payload) and any(payload[reader.offset:]):
         raise ValueError("task response had trailing undecoded fields")
     return tasks
@@ -805,16 +830,17 @@ def decode_task_info_sequence(payload, task_decoder):
 
 def decode_list_tasks_response(payload):
     decoder_errors = []
-    for task_decoder in (
-        decode_current_task_info,
-        decode_current_id_first_task_info,
-        decode_task_info,
-        decode_reordered_task_info,
-        decode_legacy_task_info,
-        decode_legacy_no_fleet_task_info,
+    for task_decoder, allow_unknown_status in (
+        (decode_lifecycle_task_info, True),
+        (decode_current_task_info, False),
+        (decode_current_id_first_task_info, False),
+        (decode_task_info, False),
+        (decode_reordered_task_info, False),
+        (decode_legacy_task_info, False),
+        (decode_legacy_no_fleet_task_info, False),
     ):
         try:
-            return decode_task_info_sequence(payload, task_decoder)
+            return decode_task_info_sequence(payload, task_decoder, allow_unknown_status)
         except Exception as error:
             decoder_errors.append(f"{task_decoder.__name__}: {error}")
 

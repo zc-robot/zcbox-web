@@ -22,6 +22,27 @@ def write_int64(writer, value):
     writer.payload.extend(struct.pack("<q", int(value)))
 
 
+def write_lifecycle_task_info(writer, status="PAUSING"):
+    writer.write_string("task-1")
+    writer.write_string("recoverable_delivery")
+    writer.write_string("Delivery with linked recovery")
+    writer.write_string("cleaner")
+    writer.write_string("nest")
+    writer.write_bool(True)
+    writer.write_string(status)
+    write_int64(writer, 1000)
+    write_int64(writer, 2000)
+    writer.write_string("task-definition-1")
+    writer.write_string("task-execution-1")
+    writer.write_string("task-execution-1")
+    write_int64(writer, 1100)
+    write_int64(writer, 2100)
+    writer.write_string("transition-1")
+    writer.write_uint32(2)
+    writer.write_string("CANCEL")
+    writer.write_string("PAUSE")
+
+
 def write_current_task_info(writer, status="RECOVERY_REQUIRED"):
     writer.write_string("task-1")
     writer.write_string("recoverable_delivery")
@@ -286,14 +307,28 @@ class TaskInfoDecoderTest(unittest.TestCase):
         bridge = load_bridge()
         writer = bridge.CdrWriter()
         writer.write_uint32(1)
-        write_current_task_info(writer)
+        write_lifecycle_task_info(writer)
 
         tasks = bridge.decode_list_tasks_response(writer.to_bytes())
 
-        self.assertEqual(tasks[0]["status"], "RECOVERY_REQUIRED")
+        self.assertEqual(tasks[0]["status"], "PAUSING")
         self.assertEqual(tasks[0]["description"], "Delivery with linked recovery")
+        self.assertTrue(tasks[0]["stop_on_failure"])
         self.assertEqual(tasks[0]["task_definition_id"], "task-definition-1")
         self.assertEqual(tasks[0]["execution_updated_at_unix_ms"], 2100)
+        self.assertEqual(tasks[0]["active_transition_id"], "transition-1")
+        self.assertEqual(tasks[0]["allowed_controls"], ["CANCEL", "PAUSE"])
+
+    def test_list_tasks_keeps_unknown_v2_status_for_forward_compatibility(self):
+        bridge = load_bridge()
+        writer = bridge.CdrWriter()
+        writer.write_uint32(1)
+        write_lifecycle_task_info(writer, status="WAITING_FOR_OPERATOR")
+
+        tasks = bridge.decode_list_tasks_response(writer.to_bytes())
+
+        self.assertEqual(tasks[0]["status"], "WAITING_FOR_OPERATOR")
+        self.assertEqual(tasks[0]["allowed_controls"], ["CANCEL", "PAUSE"])
 
     def test_get_task_decodes_recovery_fields_and_mappings(self):
         bridge = load_bridge()

@@ -1,6 +1,15 @@
 import type { TaskManagerTaskInfo, TaskManagerUnitTaskSpec } from '../../types.js'
 
-const cancelableTaskManagerStatuses = new Set(['PENDING', 'RUNNING', 'RECOVERY_REQUIRED'])
+const taskManagerActiveExecutionStatuses = new Set([
+  'PENDING',
+  'RUNNING',
+  'PAUSING',
+  'PAUSED',
+  'RESUMING',
+  'CANCELING',
+  'RECOVERY_REQUIRED',
+])
+const legacyCancelableTaskManagerStatuses = new Set(['PENDING', 'RUNNING', 'RECOVERY_REQUIRED'])
 
 export function isActiveTaskManagerTask(task: TaskManagerTaskInfo) {
   return task.status === 'RUNNING'
@@ -10,8 +19,19 @@ export function getActiveTaskManagerTasks(tasks: TaskManagerTaskInfo[]) {
   return tasks.filter(isActiveTaskManagerTask)
 }
 
+export function hasActiveTaskManagerExecution(task: TaskManagerTaskInfo) {
+  return Boolean(task.active_task_execution_id) || taskManagerActiveExecutionStatuses.has(task.status)
+}
+
+export function getOngoingTaskManagerExecutions(tasks: TaskManagerTaskInfo[]) {
+  return tasks.filter(hasActiveTaskManagerExecution)
+}
+
 export function isCancelableTaskManagerTask(task: TaskManagerTaskInfo) {
-  return cancelableTaskManagerStatuses.has(task.status)
+  if (task.allowed_controls !== undefined)
+    return task.allowed_controls.includes('CANCEL')
+
+  return legacyCancelableTaskManagerStatuses.has(task.status)
 }
 
 export type MultiGoToPoseUnitTasksResult =
