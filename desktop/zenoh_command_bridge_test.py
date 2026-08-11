@@ -695,6 +695,40 @@ class TaskInfoDecoderTest(unittest.TestCase):
         self.assertEqual(detail["late_execution_signals"][0]["signal_id"], "signal-1")
         self.assertEqual(detail["message"], "found")
 
+    def test_get_task_decodes_editable_main_unit_task_specs(self):
+        bridge = load_bridge()
+        writer = bridge.CdrWriter()
+        writer.write_bool(True)
+        write_lifecycle_task_info(writer, status="CREATED")
+        writer.write_uint32(1)
+        write_lifecycle_unit_task_info(writer)
+        writer.write_uint32(1)
+        writer.write_int32(2)
+        writer.write_string("")
+        writer.write_string("perform_plc_task")
+        writer.write_string("{\"timeout\":200,\"task_index\":1}")
+        writer.write_uint32(0)
+        writer.write_uint32(0)
+        writer.write_uint32(0)
+        for _ in range(4):
+            write_lifecycle_hook(writer, "")
+        writer.write_bool(True)
+        writer.write_string("")
+        writer.write_uint32(0)
+        writer.write_uint32(0)
+        writer.write_uint32(0)
+        writer.write_uint32(0)
+        writer.write_string("found")
+
+        detail = bridge.decode_get_task_response(writer.to_bytes())
+
+        self.assertEqual(detail["unit_task_specs"], [{
+            "seq": 2,
+            "waypoint": "",
+            "action_name": "perform_plc_task",
+            "action_params_json": "{\"timeout\":200,\"task_index\":1}",
+        }])
+
     def test_point_cloud_roi_request_encodes_service_fields(self):
         bridge = load_bridge()
         payload = bridge.encode_point_cloud_roi_request({

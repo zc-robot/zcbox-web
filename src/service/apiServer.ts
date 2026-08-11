@@ -1,6 +1,7 @@
 import ky from 'ky'
 import { extractLatestRobotParameterYaml, normalizeRobotParametersByHeads, parseRobotParameterHeads, serializeRobotParameterUpdateBody } from './robotParameterPayload'
 import type { RobotParameterNumericType } from './robotParameterPayload'
+import { projectTaskManagerTaskDetail } from './taskManagerTaskDetail.js'
 import type { CurrentMapData, MapDataDetail, MapListItem, NavProfile, PointAction, PoseMessage, QuaternionMessage, RobotParams, TaskManagerCancelTaskResult, TaskManagerCreateTaskPayload, TaskManagerCreateTaskResult, TaskManagerDeleteTaskResult, TaskManagerListActionsResult, TaskManagerRenameTaskResult, TaskManagerRunTaskResult, TaskManagerTaskDetail, TaskManagerTaskInfo, TaskManagerUpdateTaskPayload, TaskManagerUpdateTaskResult } from '@/types'
 import { useBoundStore } from '@/store'
 
@@ -937,19 +938,7 @@ class ApiServer {
     if (!response.success)
       throw new Error(response.message || '获取任务详情失败')
 
-    return {
-      found: response.found,
-      task: response.task,
-      unit_tasks: response.unit_tasks,
-      recovery_task_mappings: response.recovery_task_mappings,
-      on_cancel: response.on_cancel,
-      on_pause: response.on_pause,
-      on_finish: response.on_finish,
-      on_resume: response.on_resume,
-      lifecycle_configuration_valid: response.lifecycle_configuration_valid,
-      lifecycle_configuration_error: response.lifecycle_configuration_error,
-      message: response.message,
-    }
+    return projectTaskManagerTaskDetail(response)
   }
 
   createTask = async (task: TaskManagerCreateTaskPayload, options: ZenohTaskServiceOptions = {}): Promise<TaskManagerCreateTaskResult> => {

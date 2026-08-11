@@ -200,6 +200,21 @@ test('builds an isolated editor draft and leaves unavailable main Action paramet
   assert.equal(detail.on_cancel?.unit_tasks[0].waypoint, 'C1')
 })
 
+test('prefills the editor with stored main Action parameters', () => {
+  const detail = editableTaskDetail()
+  detail.unit_task_specs = [{
+    seq: 0,
+    waypoint: '',
+    action_name: 'perform_plc_task',
+    action_params_json: '{"timeout":200,"task_index":1}',
+  }]
+
+  const draft = buildTaskManagerConfigurationDraft(detail)
+
+  assert.equal(draft.unit_tasks[0].action_params_json, '{"timeout":200,"task_index":1}')
+  assert.equal(validateTaskManagerConfigurationDraft(draft), '')
+})
+
 test('blocks updates until unavailable main Action parameters are explicitly supplied', () => {
   const draft = buildTaskManagerConfigurationDraft(editableTaskDetail())
   assert.match(validateTaskManagerConfigurationDraft(draft), /Re-enter them before saving/)

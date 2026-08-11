@@ -24,6 +24,8 @@
     "src/hooks/robotHardwareDiagnosticsSubscription.ts",
     "src/service/robotParameterPayload.ts",
     "src/service/robotParameterPayload.test.ts",
+    "src/service/taskManagerTaskDetail.ts",
+    "src/service/taskManagerTaskDetail.test.ts",
     "src/util/nav2MapYaml.ts",
     "src/util/nav2MapYaml.test.ts",
     "src/util/rmf.ts",

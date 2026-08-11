@@ -405,6 +405,7 @@ export interface TaskManagerTaskDetail {
   found: boolean,
   task: TaskManagerTaskInfo,
   unit_tasks: TaskManagerUnitTaskInfo[],
+  unit_task_specs?: TaskManagerUnitTaskSpec[],
   recovery_task_mappings: TaskManagerRecoveryTaskMappingSpec[],
   on_cancel?: TaskManagerLifecycleHookSpec,
   on_pause?: TaskManagerLifecycleHookSpec,

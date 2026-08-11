@@ -1156,12 +1156,20 @@ def decode_get_task_response_with(
     return response
 
 
-def decode_lifecycle_get_task_response(payload):
+def decode_lifecycle_get_task_response(payload, include_unit_task_specs=False):
     reader = CdrReader(payload)
+    found = reader.read_bool()
+    task = decode_lifecycle_task_info(reader)
+    unit_tasks = reader.read_sequence(decode_lifecycle_unit_task_info)
     response = {
-        "found": reader.read_bool(),
-        "task": decode_lifecycle_task_info(reader),
-        "unit_tasks": reader.read_sequence(decode_lifecycle_unit_task_info),
+        "found": found,
+        "task": task,
+        "unit_tasks": unit_tasks,
+        **(
+            {"unit_task_specs": reader.read_sequence(decode_unit_task_spec)}
+            if include_unit_task_specs
+            else {}
+        ),
         "transitions": reader.read_sequence(decode_task_transition_info),
         "transition_requests": reader.read_sequence(decode_task_transition_request_info),
         "recovery_task_mappings": reader.read_sequence(
@@ -1192,10 +1200,17 @@ def decode_lifecycle_get_task_response(payload):
 
 def decode_get_task_response(payload):
     decoder_errors = []
-    try:
-        return decode_lifecycle_get_task_response(payload)
-    except Exception as error:
-        decoder_errors.append(f"decode_lifecycle_get_task_response: {error}")
+    for include_unit_task_specs in (True, False):
+        try:
+            return decode_lifecycle_get_task_response(
+                payload,
+                include_unit_task_specs=include_unit_task_specs,
+            )
+        except Exception as error:
+            decoder_errors.append(
+                "decode_lifecycle_get_task_response"
+                f"(include_unit_task_specs={include_unit_task_specs}): {error}"
+            )
 
     for task_decoder, unit_task_decoder, include_recovery_mappings in (
         (decode_current_task_info, decode_unit_task_info, True),

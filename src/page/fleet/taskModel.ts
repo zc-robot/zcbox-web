@@ -72,13 +72,15 @@ function copyLifecycleHook(hook: TaskManagerLifecycleHookSpec | undefined) {
 }
 
 export function buildTaskManagerConfigurationDraft(detail: TaskManagerTaskDetail): TaskManagerConfigurationDraft {
+  const storedUnitTasks = detail.unit_task_specs ?? detail.unit_tasks.map(unitTask => ({
+    seq: unitTask.seq,
+    waypoint: unitTask.waypoint,
+    action_name: unitTask.action_name,
+    action_params_json: unitTask.action_params_json ?? (unitTask.action_name ? '' : '{}'),
+  }))
+
   return {
-    unit_tasks: detail.unit_tasks.map(unitTask => ({
-      seq: unitTask.seq,
-      waypoint: unitTask.waypoint,
-      action_name: unitTask.action_name,
-      action_params_json: unitTask.action_params_json ?? (unitTask.action_name ? '' : '{}'),
-    })),
+    unit_tasks: storedUnitTasks.map(copyUnitTaskSpec),
     on_cancel: copyLifecycleHook(detail.on_cancel),
     on_pause: copyLifecycleHook(detail.on_pause),
     on_finish: copyLifecycleHook(detail.on_finish),
