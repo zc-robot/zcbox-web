@@ -6,7 +6,7 @@ import type { FleetHardwareDiagnosticState, FleetRobotHardwareDiagnosticsState }
 import { notifyFleetSiteNamespaceUpdated, prefixFleetSiteTopic, useBuildingMapZenoh, useFleetBondsZenoh, useFleetDataZenoh, useFleetDidoZenoh, useFleetHardwareDiagnosticsZenoh, useFleetRmfStatesZenoh, useFleetSiteNamespace, useFleetWheelStatesZenoh, useInterval } from '@/hooks'
 import apiServer from '@/service/apiServer'
 import { useParamsStore } from '@/store'
-import type { BuildingMapGraphMessage, BuildingMapImageMessage, BuildingMapLevelMessage, BuildingMapMessage, FleetRobotDataMessage, RmfDoorRequestMessage, RmfLiftRequestMessage, StorageAreaLayoutMessage, StorageCellStockMessage, StorageReinitLayoutSpec, StorageShelfMessage, TaskManagerActionInfo, TaskManagerTaskDetail, TaskManagerTaskInfo, TaskManagerUnitTaskInfo, TwistCommand } from '@/types'
+import type { BuildingMapGraphMessage, BuildingMapImageMessage, BuildingMapLevelMessage, BuildingMapMessage, FleetRobotDataMessage, RmfDoorRequestMessage, RmfLiftRequestMessage, StorageAreaLayoutMessage, StorageCellStockMessage, StorageReinitLayoutSpec, StorageShelfMessage, TaskManagerActionInfo, TaskManagerLifecycleHookSpec, TaskManagerTaskDetail, TaskManagerTaskInfo, TaskManagerUnitTaskInfo, TaskManagerUnitTaskSpec, TwistCommand } from '@/types'
 import type { ComposeControlAction, ComposeControlCommandResponse, ComposeControlServiceStatus, ComposeControlStatusResponse, ComposeMapSiteWithFiles, FleetConfigNamespaceData, FleetConfigResponse, FleetConfigWriteResponse } from '@/service/apiServer'
 import type { DidoValue, FleetDidoZenohState, RobotDidoValues } from '@/hooks/useFleetDidoZenoh'
 import type { FleetHardwareDiagnosticsZenohState, HardwareDiagnosticsValue } from '@/hooks/useFleetHardwareDiagnosticsZenoh'
@@ -708,7 +708,9 @@ const taskManagerStatusClass: Record<string, string> = {
   RUNNING: 'bg-emerald-50 text-emerald-700',
   PAUSING: 'bg-violet-50 text-violet-700',
   RESUMING: 'bg-sky-50 text-sky-700',
+  FINISHING: 'bg-indigo-50 text-indigo-700',
   CANCELING: 'bg-orange-50 text-orange-700',
+  RECOVERING: 'bg-teal-50 text-teal-700',
   SUCCEEDED: 'bg-blue-50 text-blue-700',
   FAILED: 'bg-red-50 text-red-700',
   CANCELED: 'bg-zinc-100 text-zinc-600',
@@ -2161,7 +2163,7 @@ const taskManagerServiceTopics = {
   create: 'create_task',
   run: 'run_task',
   rename: 'rename_task',
-  cancel: 'task_manager/cancel_task',
+  cancel: 'task_manager/cancel_task_execution',
   delete: 'delete_task',
 } as const
 
@@ -4839,6 +4841,124 @@ function TaskManagerUnitTaskRow({ unitTask }: { unitTask: TaskManagerUnitTaskInf
   )
 }
 
+function formatTaskManagerActionParameters(value: string) {
+  const parameters = value.trim() || '{}'
+  try {
+    return JSON.stringify(JSON.parse(parameters), null, 2)
+  }
+  catch {
+    return parameters
+  }
+}
+
+function TaskManagerConfiguredUnitTaskRow({ unitTask }: { unitTask: TaskManagerUnitTaskSpec }) {
+  return (
+    <div className="border-(t-solid 1px gray-100) px-3 py-3 text-sm">
+      <div className="font-800 text-gray-900">
+        <span className="mr-2 tabular-nums text-gray-500">#{unitTask.seq}</span>
+        <span className="break-words">{unitTask.waypoint || unitTask.action_name || '--'}</span>
+      </div>
+      {unitTask.waypoint && (
+        <div className="mt-2 grid grid-cols-[4rem_minmax(0,1fr)] gap-2 text-xs">
+          <span className="font-700 text-gray-500">Go to</span>
+          <span className="break-words text-gray-800">{unitTask.waypoint}</span>
+        </div>
+      )}
+      {unitTask.action_name && (
+        <>
+          <div className="mt-2 grid grid-cols-[4rem_minmax(0,1fr)] gap-2 text-xs">
+            <span className="font-700 text-gray-500">Action</span>
+            <span className="break-words text-gray-800">{unitTask.action_name}</span>
+          </div>
+          <div className="mt-2 text-xs">
+            <div className="font-700 text-gray-500">Parameters</div>
+            <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md bg-gray-950 px-2.5 py-2 font-mono text-[11px] leading-4 text-gray-100">{formatTaskManagerActionParameters(unitTask.action_params_json)}</pre>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function TaskManagerConfiguredUnitTaskList({
+  unitTasks,
+  emptyMessage,
+}: {
+  unitTasks: TaskManagerUnitTaskSpec[]
+  emptyMessage: string
+}) {
+  return (
+    <>
+      {unitTasks.length > 0
+        ? unitTasks.map(unitTask => (
+            <TaskManagerConfiguredUnitTaskRow
+              key={`${unitTask.seq}:${unitTask.waypoint}:${unitTask.action_name}`}
+              unitTask={unitTask}
+            />
+        ))
+        : <div className="border-(t-solid 1px gray-100) px-3 py-4 text-xs text-gray-500">{emptyMessage}</div>}
+    </>
+  )
+}
+
+function getTaskManagerLifecyclePolicyLabel(policy: TaskManagerLifecycleHookSpec['policy']) {
+  if (policy === 'best_effort')
+    return 'Best effort'
+  if (policy === 'required')
+    return 'Required'
+  return 'No policy'
+}
+
+const taskManagerLifecycleHooks = [
+  { key: 'on_cancel', label: 'On cancel' },
+  { key: 'on_pause', label: 'On pause' },
+  { key: 'on_finish', label: 'On finish' },
+  { key: 'on_resume', label: 'On resume' },
+] as const
+
+function TaskManagerLifecycleConfiguration({ detail }: { detail: TaskManagerTaskDetail }) {
+  return (
+    <section className="overflow-hidden rounded-lg border-(solid 1px gray-200) bg-white/75">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+        <div className="font-800 text-gray-900">Lifecycle Unit Tasks</div>
+        {detail.lifecycle_configuration_valid !== undefined && (
+          <Badge className={detail.lifecycle_configuration_valid ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}>
+            {detail.lifecycle_configuration_valid ? 'Valid' : 'Invalid'}
+          </Badge>
+        )}
+      </div>
+      {detail.lifecycle_configuration_error && (
+        <div className="border-(t-solid 1px red-100) bg-red-50 px-3 py-2 text-xs text-red-700">
+          The Task Manager reported an invalid lifecycle configuration.
+        </div>
+      )}
+      <div className="grid grid-cols-1 gap-3 border-(t-solid 1px gray-100) p-3">
+        {taskManagerLifecycleHooks.map(({ key, label }) => {
+          const hook = detail[key]
+          return (
+            <section key={key} className="overflow-hidden rounded-lg border-(solid 1px gray-200) bg-white">
+              <div className="flex items-center justify-between gap-2 px-3 py-2">
+                <div className="text-sm font-800 text-gray-900">{label}</div>
+                {hook
+                  ? <Badge className="bg-gray-100 text-gray-700">{getTaskManagerLifecyclePolicyLabel(hook.policy)}</Badge>
+                  : <Badge className="bg-amber-50 text-amber-700">Unavailable</Badge>}
+              </div>
+              {hook
+                ? (
+                    <TaskManagerConfiguredUnitTaskList
+                      unitTasks={hook.unit_tasks}
+                      emptyMessage="No Unit Tasks configured"
+                    />
+                  )
+                : <div className="border-(t-solid 1px gray-100) px-3 py-4 text-xs text-gray-500">This Task Manager did not return this lifecycle configuration.</div>}
+            </section>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
 function OngoingTaskExecutionsSidebar({ host }: { host: string }) {
   const fleetSiteNamespace = useFleetSiteNamespace()
   const taskListServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.list)
@@ -4919,14 +5039,19 @@ function OngoingTaskExecutionsSidebar({ host }: { host: string }) {
 
   async function cancelTask(task: TaskManagerTaskInfo) {
     const taskId = getTaskManagerDefinitionId(task)
-    if (!taskId || !taskCancelServicePath)
+    const taskExecutionId = task.active_task_execution_id || task.latest_task_execution_id
+    if (!taskId || !taskExecutionId || !taskCancelServicePath)
       return
 
     setCancelingTaskId(taskId)
     try {
-      const response = await apiServer.cancelTaskExecution(taskId, { servicePath: taskCancelServicePath })
-      setTasks(current => current.filter(currentTask => getTaskManagerDefinitionId(currentTask) !== taskId))
-      toast.success(response.message || 'Task execution canceled')
+      const response = await apiServer.cancelTaskExecution(taskExecutionId, { servicePath: taskCancelServicePath })
+      setTasks(current => current.map(currentTask => (
+        getTaskManagerDefinitionId(currentTask) === taskId
+          ? { ...currentTask, status: 'CANCELING', active_transition_id: response.transition_id, allowed_controls: [] }
+          : currentTask
+      )))
+      toast.success(response.message || 'Task cancellation accepted')
     }
     catch (cancelError) {
       const message = errorMessage(cancelError)
@@ -4983,6 +5108,7 @@ function OngoingTaskExecutionsSidebar({ host }: { host: string }) {
                 const taskId = getTaskManagerDefinitionId(task)
                 const isCanceling = cancelingTaskId === taskId
                 const isCancelable = isTaskManagerTaskCancelable(task)
+                const taskExecutionId = task.active_task_execution_id || task.latest_task_execution_id
                 const taskName = getTaskManagerTaskName(task)
                 return (
                   <li key={task.task_id || `${task.task_definition_id}:${task.created_at_unix_ms}`} className="flex items-center gap-2 px-2.5 py-2">
@@ -5001,7 +5127,7 @@ function OngoingTaskExecutionsSidebar({ host }: { host: string }) {
                         icon={isCanceling ? 'i-material-symbols-progress-activity animate-spin' : 'i-material-symbols-cancel-rounded'}
                         title={`Cancel ${taskName}`}
                         tone="danger"
-                        disabled={isRefreshing || Boolean(cancelingTaskId) || !taskId || !taskCancelServicePath}
+                        disabled={isRefreshing || Boolean(cancelingTaskId) || !taskId || !taskExecutionId || !taskCancelServicePath}
                         onClick={() => { void cancelTask(task) }}
                       />
                     )}
@@ -5127,6 +5253,7 @@ function TaskManagerDetail({
 
   const task = detail.task
   const taskDefinitionId = getTaskManagerDefinitionId(task)
+  const taskExecutionId = task.active_task_execution_id || task.latest_task_execution_id
   const isCancelable = isTaskManagerTaskCancelable(task)
   const hasActiveExecution = hasActiveTaskManagerExecution(task)
   return (
@@ -5153,7 +5280,7 @@ function TaskManagerDetail({
                 type="button"
                 tone="danger"
                 icon={isCanceling ? 'i-material-symbols-progress-activity' : 'i-material-symbols-cancel-rounded'}
-                disabled={isCanceling || isDeleting || !taskDefinitionId}
+                disabled={isCanceling || isDeleting || !taskDefinitionId || !taskExecutionId}
                 onClick={() => onCancel(task)}>
                 Cancel
               </Button>
@@ -5177,6 +5304,12 @@ function TaskManagerDetail({
         </div>
         {task.description && <div className="mb-3 break-words text-sm text-gray-600">{task.description}</div>}
         <div className="grid grid-cols-1 gap-2 2xl:grid-cols-2">
+          <TaskManagerDetailField label="Robot" value={task.robot_name} />
+          <TaskManagerDetailField label="Fleet" value={task.fleet_name} />
+          <TaskManagerDetailField
+            label="Stop on failure"
+            value={task.stop_on_failure === undefined ? 'Unavailable' : task.stop_on_failure ? 'Yes' : 'No'}
+          />
           <TaskManagerDetailField label="Task ID" value={shortIdentifier(task.task_id)} title={task.task_id} />
           <TaskManagerDetailField label="Definition ID" value={shortIdentifier(task.task_definition_id)} title={task.task_definition_id} />
           <TaskManagerDetailField label="Latest execution" value={shortIdentifier(task.latest_task_execution_id)} title={task.latest_task_execution_id} />
@@ -5203,22 +5336,34 @@ function TaskManagerDetail({
           : <div className="border-(t-solid 1px gray-100) px-3 py-8 text-center text-sm text-gray-500">No unit tasks</div>}
       </section>
 
-      {detail.recovery_task_mappings.length > 0 && (
-        <section className="overflow-hidden rounded-lg border-(solid 1px gray-200) bg-white/75">
-          <div className="px-3 py-2 font-800 text-gray-900">Recovery mappings</div>
-          {detail.recovery_task_mappings.map(mapping => (
-            <div
-              key={`${mapping.recovery_task_index}:${mapping.recovery_task_definition_id}`}
-              className="flex items-center gap-3 border-(t-solid 1px gray-100) px-3 py-2 text-sm"
-            >
-              <span className="w-8 shrink-0 font-800 tabular-nums text-gray-500">{mapping.recovery_task_index}</span>
-              <span className="min-w-0 break-all font-mono text-xs text-gray-700">
-                {mapping.recovery_task_definition_id}
-              </span>
-            </div>
-          ))}
-        </section>
-      )}
+      <section className="overflow-hidden rounded-lg border-(solid 1px gray-200) bg-white/75">
+        <div className="flex items-center justify-between gap-2 px-3 py-2">
+          <div className="font-800 text-gray-900">Recovery mappings</div>
+          <div className="text-xs font-700 text-gray-500">{detail.recovery_task_mappings.length} total</div>
+        </div>
+        {detail.recovery_task_mappings.length > 0
+          ? (
+              <div className="grid grid-cols-1 gap-3 border-(t-solid 1px gray-100) p-3">
+                {detail.recovery_task_mappings.map(mapping => (
+                  <section key={mapping.recovery_task_index} className="overflow-hidden rounded-lg border-(solid 1px gray-200) bg-white">
+                    <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                      <div className="text-sm font-800 text-gray-900">Recovery #{mapping.recovery_task_index}</div>
+                      <div className="text-xs text-gray-500">
+                        {mapping.max_attempts} attempts · {mapping.clear_timeout_sec}s clear timeout
+                      </div>
+                    </div>
+                    <TaskManagerConfiguredUnitTaskList
+                      unitTasks={mapping.unit_tasks}
+                      emptyMessage="No recovery Unit Tasks configured"
+                    />
+                  </section>
+                ))}
+              </div>
+            )
+          : <div className="border-(t-solid 1px gray-100) px-3 py-4 text-xs text-gray-500">No recovery mappings configured</div>}
+      </section>
+
+      <TaskManagerLifecycleConfiguration detail={detail} />
     </div>
   )
 }
@@ -5472,7 +5617,8 @@ function TaskManagerPanel() {
 
   async function cancelTaskManagerTask(task: TaskManagerTaskInfo) {
     const taskId = getTaskManagerDefinitionId(task)
-    if (!taskId)
+    const taskExecutionId = task.active_task_execution_id || task.latest_task_execution_id
+    if (!taskId || !taskExecutionId)
       return
 
     setCancelingTaskId(task.task_id || taskId)
@@ -5481,8 +5627,8 @@ function TaskManagerPanel() {
       if (!requireTaskManagerServicePath(taskCancelServicePath))
         return
 
-      const response = await apiServer.cancelTaskExecution(taskId, { servicePath: taskCancelServicePath })
-      toast.success(response.message || 'Task execution canceled')
+      const response = await apiServer.cancelTaskExecution(taskExecutionId, { servicePath: taskCancelServicePath })
+      toast.success(response.message || 'Task cancellation accepted')
       await refreshTaskManagerStateAfterMutation(taskId)
     }
     catch (error) {
@@ -5557,6 +5703,7 @@ function TaskManagerPanel() {
                     const isCancelable = isTaskManagerTaskCancelable(task)
                     const hasActiveExecution = hasActiveTaskManagerExecution(task)
                     const taskDefinitionId = getTaskManagerDefinitionId(task)
+                    const taskExecutionId = task.active_task_execution_id || task.latest_task_execution_id
                     const taskStateId = task.task_id || taskDefinitionId
                     const isTaskRunning = runningTaskId === taskDefinitionId
                     const isTaskCanceling = cancelingTaskId === taskStateId
@@ -5604,7 +5751,7 @@ function TaskManagerPanel() {
                               type="button"
                               tone="danger"
                               icon={isTaskCanceling ? 'i-material-symbols-progress-activity' : 'i-material-symbols-cancel-rounded'}
-                              disabled={isTaskCanceling || isTaskDeleting || !taskDefinitionId}
+                              disabled={isTaskCanceling || isTaskDeleting || !taskDefinitionId || !taskExecutionId}
                               onClick={() => { cancelTaskManagerTask(task) }}>
                               Cancel
                             </Button>

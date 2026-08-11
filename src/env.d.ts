@@ -594,7 +594,7 @@ declare global {
   interface ZenohTaskCancelOptions {
     host: string
     servicePath?: string
-    taskId: string
+    taskExecutionId: string
     timeoutMs?: number
   }
 

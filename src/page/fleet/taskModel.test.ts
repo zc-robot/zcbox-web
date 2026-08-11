@@ -35,7 +35,9 @@ test('returns operator-active Tasks without labeling paused or transitional exec
     taskManagerTask('PAUSING', 'pausing'),
     taskManagerTask('PAUSED', 'paused'),
     taskManagerTask('RESUMING', 'resuming'),
+    taskManagerTask('FINISHING', 'finishing'),
     taskManagerTask('CANCELING', 'canceling'),
+    taskManagerTask('RECOVERING', 'recovering'),
     taskManagerTask('RECOVERY_REQUIRED', 'recovery'),
     taskManagerTask('SUCCEEDED', 'succeeded'),
     taskManagerTask('FAILED', 'failed'),
@@ -50,9 +52,9 @@ test('returns operator-active Tasks without labeling paused or transitional exec
 
 test('recognizes V2 states that still own an active execution', () => {
   assert.deepEqual(
-    ['CREATED', 'PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RESUMING', 'CANCELING', 'RECOVERY_REQUIRED', 'SUCCEEDED']
+    ['CREATED', 'PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RESUMING', 'FINISHING', 'CANCELING', 'RECOVERING', 'RECOVERY_REQUIRED', 'SUCCEEDED']
       .filter(status => hasActiveTaskManagerExecution(taskManagerTask(status, status))),
-    ['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RESUMING', 'CANCELING', 'RECOVERY_REQUIRED'],
+    ['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RESUMING', 'FINISHING', 'CANCELING', 'RECOVERING', 'RECOVERY_REQUIRED'],
   )
 })
 

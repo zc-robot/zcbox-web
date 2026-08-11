@@ -18,7 +18,9 @@ TASK_STATUSES = {
     "RUNNING",
     "PAUSING",
     "RESUMING",
+    "FINISHING",
     "CANCELING",
+    "RECOVERING",
     "SUCCEEDED",
     "FAILED",
     "CANCELED",
@@ -243,6 +245,13 @@ def encode_delete_task_request(task_id, force):
     return writer.to_bytes()
 
 
+def encode_task_execution_control_request(task_execution_id, request_id):
+    writer = CdrWriter()
+    writer.write_string(task_execution_id)
+    writer.write_string(request_id)
+    return writer.to_bytes()
+
+
 def encode_empty_request():
     return CdrWriter().to_bytes()
 
@@ -263,15 +272,6 @@ def normalized_float64(value, fallback=0.0):
     return parsed if math.isfinite(parsed) else fallback
 
 
-def encode_recovery_lifecycle_action(writer, action):
-    if not isinstance(action, dict):
-        action = {}
-
-    writer.write_string(action.get("action_name"))
-    writer.write_string(action.get("parameters_json", "{}"))
-    writer.write_string(action.get("failure_policy", "required"))
-
-
 def encode_unit_task_spec(writer, unit_task, index):
     if not isinstance(unit_task, dict):
         unit_task = {}
@@ -280,31 +280,6 @@ def encode_unit_task_spec(writer, unit_task, index):
     writer.write_string(unit_task.get("waypoint"))
     writer.write_string(unit_task.get("action_name"))
     writer.write_string(unit_task.get("action_params_json", "{}"))
-    writer.write_string(unit_task.get("recovery_resume_mode", "operator_required"))
-    writer.write_string(unit_task.get("recovery_approach_waypoint"))
-    writer.write_float64(normalized_float64(unit_task.get("recovery_position_tolerance_m"), 0.1))
-    writer.write_bool(unit_task.get("recovery_yaw_tolerance_enabled", False))
-    writer.write_float64(normalized_float64(unit_task.get("recovery_yaw_tolerance_rad"), 0.0))
-    writer.write_int32(normalized_int32(unit_task.get("recovery_max_attempts"), 3))
-    writer.write_float64(normalized_float64(unit_task.get("recovery_clear_timeout_sec"), 300.0))
-
-    on_suspend_actions = (
-        unit_task.get("on_suspend_actions")
-        if isinstance(unit_task.get("on_suspend_actions"), list)
-        else []
-    )
-    writer.write_uint32(len(on_suspend_actions))
-    for action in on_suspend_actions:
-        encode_recovery_lifecycle_action(writer, action)
-
-    before_redispatch_actions = (
-        unit_task.get("before_redispatch_actions")
-        if isinstance(unit_task.get("before_redispatch_actions"), list)
-        else []
-    )
-    writer.write_uint32(len(before_redispatch_actions))
-    for action in before_redispatch_actions:
-        encode_recovery_lifecycle_action(writer, action)
 
 
 def encode_recovery_task_mapping(writer, mapping):
@@ -312,7 +287,23 @@ def encode_recovery_task_mapping(writer, mapping):
         mapping = {}
 
     writer.write_uint8(mapping.get("recovery_task_index", 0))
-    writer.write_string(mapping.get("recovery_task_definition_id"))
+    writer.write_int32(normalized_int32(mapping.get("max_attempts"), 3))
+    writer.write_float64(normalized_float64(mapping.get("clear_timeout_sec"), 300.0))
+    unit_tasks = mapping.get("unit_tasks") if isinstance(mapping.get("unit_tasks"), list) else []
+    writer.write_uint32(len(unit_tasks))
+    for index, unit_task in enumerate(unit_tasks):
+        encode_unit_task_spec(writer, unit_task, index)
+
+
+def encode_lifecycle_hook_spec(writer, hook):
+    if not isinstance(hook, dict):
+        hook = {}
+
+    writer.write_string(hook.get("policy"))
+    unit_tasks = hook.get("unit_tasks") if isinstance(hook.get("unit_tasks"), list) else []
+    writer.write_uint32(len(unit_tasks))
+    for index, unit_task in enumerate(unit_tasks):
+        encode_unit_task_spec(writer, unit_task, index)
 
 
 def encode_set_area_display_name_request(area_index, display_name):
@@ -335,6 +326,7 @@ def encode_create_task_request(task):
     writer.write_string(task.get("description"))
     writer.write_string(task.get("robot_name"))
     writer.write_string(task.get("fleet_name"))
+    writer.write_bool(task.get("stop_on_failure", False))
     writer.write_string(task.get("waypoint"))
     writer.write_string(task.get("action_name"))
     writer.write_string(task.get("parameters_json", "{}"))
@@ -344,6 +336,10 @@ def encode_create_task_request(task):
     writer.write_uint32(len(recovery_task_mappings))
     for mapping in recovery_task_mappings:
         encode_recovery_task_mapping(writer, mapping)
+    encode_lifecycle_hook_spec(writer, task.get("on_cancel"))
+    encode_lifecycle_hook_spec(writer, task.get("on_pause"))
+    encode_lifecycle_hook_spec(writer, task.get("on_finish"))
+    encode_lifecycle_hook_spec(writer, task.get("on_resume"))
     return writer.to_bytes()
 
 
@@ -605,6 +601,7 @@ def empty_task_info():
         "robot_name": "",
         "fleet_name": "",
         "status": "",
+        "aggregate_status": "",
         "created_at_unix_ms": 0,
         "updated_at_unix_ms": 0,
         "execution_created_at_unix_ms": 0,
@@ -612,8 +609,8 @@ def empty_task_info():
     }
 
 
-def decode_lifecycle_task_info(reader):
-    return {
+def decode_lifecycle_task_info_with(reader, include_aggregate_status):
+    task = {
         "task_id": reader.read_string(),
         "name": reader.read_string(),
         "description": reader.read_string(),
@@ -621,6 +618,11 @@ def decode_lifecycle_task_info(reader):
         "fleet_name": reader.read_string(),
         "stop_on_failure": reader.read_bool(),
         "status": reader.read_string(),
+    }
+    task["aggregate_status"] = (
+        reader.read_string() if include_aggregate_status else ""
+    )
+    task.update({
         "created_at_unix_ms": reader.read_int64(),
         "updated_at_unix_ms": reader.read_int64(),
         "task_definition_id": reader.read_string(),
@@ -630,7 +632,16 @@ def decode_lifecycle_task_info(reader):
         "execution_updated_at_unix_ms": reader.read_int64(),
         "active_transition_id": reader.read_string(),
         "allowed_controls": reader.read_sequence(lambda item_reader: item_reader.read_string()),
-    }
+    })
+    return task
+
+
+def decode_lifecycle_task_info(reader):
+    return decode_lifecycle_task_info_with(reader, include_aggregate_status=True)
+
+
+def decode_legacy_lifecycle_task_info(reader):
+    return decode_lifecycle_task_info_with(reader, include_aggregate_status=False)
 
 
 def decode_current_task_info(reader):
@@ -762,6 +773,220 @@ def decode_recovery_task_mapping(reader):
     }
 
 
+def decode_unit_task_spec(reader):
+    return {
+        "seq": reader.read_int32(),
+        "waypoint": reader.read_string(),
+        "action_name": reader.read_string(),
+        "action_params_json": reader.read_string(),
+    }
+
+
+def decode_current_recovery_task_mapping(reader):
+    return {
+        "recovery_task_index": reader.read_uint8(),
+        "max_attempts": reader.read_int32(),
+        "clear_timeout_sec": reader.read_float64(),
+        "unit_tasks": reader.read_sequence(decode_unit_task_spec),
+    }
+
+
+def decode_lifecycle_hook_spec(reader):
+    return {
+        "policy": reader.read_string(),
+        "unit_tasks": reader.read_sequence(decode_unit_task_spec),
+    }
+
+
+def decode_lifecycle_unit_task_info(reader):
+    unit_task = {
+        "unit_id": reader.read_string(),
+        "seq": reader.read_int32(),
+        "waypoint": reader.read_string(),
+        "action_name": reader.read_string(),
+        "status": reader.read_string(),
+        "attempts": reader.read_int32(),
+        "last_error": reader.read_string(),
+        "task_definition_id": reader.read_string(),
+        "task_execution_id": reader.read_string(),
+        "unit_task_definition_id": reader.read_string(),
+        "unit_task_execution_id": reader.read_string(),
+        "execution_request_id": reader.read_string(),
+        "execution_mode": reader.read_string(),
+    }
+    unit_task.update({
+        # Retain the optional legacy fields expected by existing renderer code.
+        "recovery_resume_mode": "",
+        "recovery_approach_waypoint": "",
+        "recovery_position_tolerance_m": 0.0,
+        "recovery_yaw_tolerance_enabled": False,
+        "recovery_yaw_tolerance_rad": 0.0,
+        "recovery_max_attempts": 0,
+        "recovery_clear_timeout_sec": 0.0,
+        "on_suspend_actions": [],
+        "before_redispatch_actions": [],
+    })
+    return unit_task
+
+
+def decode_task_transition_info(reader):
+    return {
+        "transition_id": reader.read_string(),
+        "request_id": reader.read_string(),
+        "task_execution_id": reader.read_string(),
+        "transition_type": reader.read_string(),
+        "status": reader.read_string(),
+        "execution_request_id": reader.read_string(),
+        "error_code": reader.read_string(),
+        "message": reader.read_string(),
+        "origin": reader.read_string(),
+        "resume_unit_task_definition_id": reader.read_string(),
+        "resume_unit_task_execution_id": reader.read_string(),
+        "superseded_by_transition_id": reader.read_string(),
+        "created_at_unix_ms": reader.read_int64(),
+        "updated_at_unix_ms": reader.read_int64(),
+        "finished_at_unix_ms": reader.read_int64(),
+        "pause_pose_captured": reader.read_bool(),
+        "pause_pose_map_name": reader.read_string(),
+        "pause_pose_x": reader.read_float64(),
+        "pause_pose_y": reader.read_float64(),
+        "pause_pose_yaw": reader.read_float64(),
+        "pause_pose_observed_at_unix_ms": reader.read_int64(),
+    }
+
+
+def decode_task_transition_request_info(reader):
+    return {
+        "request_id": reader.read_string(),
+        "task_execution_id": reader.read_string(),
+        "transition_type": reader.read_string(),
+        "disposition": reader.read_string(),
+        "transition_id": reader.read_string(),
+        "error_code": reader.read_string(),
+        "message": reader.read_string(),
+        "created_at_unix_ms": reader.read_int64(),
+        "updated_at_unix_ms": reader.read_int64(),
+    }
+
+
+def decode_lifecycle_unit_task_snapshot_info(reader):
+    return {
+        "snapshot_unit_id": reader.read_string(),
+        "source_unit_task_definition_id": reader.read_string(),
+        "seq": reader.read_int32(),
+        "waypoint": reader.read_string(),
+        "action_name": reader.read_string(),
+        "action_params_json": reader.read_string(),
+    }
+
+
+def decode_lifecycle_configuration_snapshot_info(reader):
+    return {
+        "snapshot_id": reader.read_string(),
+        "parent_task_execution_id": reader.read_string(),
+        "parent_unit_task_definition_id": reader.read_string(),
+        "parent_unit_task_execution_id": reader.read_string(),
+        "phase": reader.read_string(),
+        "policy": reader.read_string(),
+        "created_at_unix_ms": reader.read_int64(),
+        "unit_tasks": reader.read_sequence(decode_lifecycle_unit_task_snapshot_info),
+    }
+
+
+def decode_lifecycle_task_execution_info(reader):
+    return {
+        "link_id": reader.read_string(),
+        "snapshot_id": reader.read_string(),
+        "parent_task_execution_id": reader.read_string(),
+        "parent_unit_task_definition_id": reader.read_string(),
+        "parent_unit_task_execution_id": reader.read_string(),
+        "task_execution_id": reader.read_string(),
+        "phase": reader.read_string(),
+        "policy": reader.read_string(),
+        "status": reader.read_string(),
+        "result": reader.read_string(),
+        "robot_name": reader.read_string(),
+        "fleet_name": reader.read_string(),
+        "execution_mode": reader.read_string(),
+        "attempt": reader.read_int32(),
+        "superseded_by_task_execution_id": reader.read_string(),
+        "recovery_reason": reader.read_string(),
+        "created_at_unix_ms": reader.read_int64(),
+        "updated_at_unix_ms": reader.read_int64(),
+        "finished_at_unix_ms": reader.read_int64(),
+        "unit_tasks": reader.read_sequence(decode_lifecycle_unit_task_info),
+    }
+
+
+def decode_recovery_sequence_execution_info(reader):
+    return {
+        "link_id": reader.read_string(),
+        "interruption_id": reader.read_string(),
+        "mapping_snapshot_id": reader.read_string(),
+        "parent_task_execution_id": reader.read_string(),
+        "task_execution_id": reader.read_string(),
+        "attempt": reader.read_int32(),
+        "status": reader.read_string(),
+        "result": reader.read_string(),
+        "superseded_by_task_execution_id": reader.read_string(),
+        "superseded_by_transition_id": reader.read_string(),
+        "supersession_reason": reader.read_string(),
+        "robot_name": reader.read_string(),
+        "fleet_name": reader.read_string(),
+        "execution_mode": reader.read_string(),
+        "created_at_unix_ms": reader.read_int64(),
+        "updated_at_unix_ms": reader.read_int64(),
+        "finished_at_unix_ms": reader.read_int64(),
+        "unit_tasks": reader.read_sequence(decode_lifecycle_unit_task_info),
+    }
+
+
+def decode_recovery_interruption_info(reader):
+    return {
+        "interruption_id": reader.read_string(),
+        "mapping_snapshot_id": reader.read_string(),
+        "task_execution_id": reader.read_string(),
+        "interrupted_unit_task_definition_id": reader.read_string(),
+        "interrupted_unit_task_execution_id": reader.read_string(),
+        "interrupted_execution_request_id": reader.read_string(),
+        "recovery_task_index": reader.read_uint8(),
+        "lifecycle_state": reader.read_string(),
+        "robot_name": reader.read_string(),
+        "fleet_name": reader.read_string(),
+        "execution_mode": reader.read_string(),
+        "max_attempts": reader.read_int32(),
+        "clear_timeout_sec": reader.read_float64(),
+        "clear_deadline_unix_ms": reader.read_int64(),
+        "replacement_unit_task_execution_id": reader.read_string(),
+        "replacement_execution_request_id": reader.read_string(),
+        "root_interruption_id": reader.read_string(),
+        "root_interrupted_unit_task_execution_id": reader.read_string(),
+        "root_interrupted_execution_request_id": reader.read_string(),
+        "interrupted_work_kind": reader.read_string(),
+        "interrupted_lifecycle_phase": reader.read_string(),
+        "interrupted_lifecycle_link_id": reader.read_string(),
+        "interrupted_transition_id": reader.read_string(),
+        "interrupted_parent_status": reader.read_string(),
+        "continuation_task_execution_id": reader.read_string(),
+        "supersedes_interruption_id": reader.read_string(),
+        "superseded_by_interruption_id": reader.read_string(),
+        "superseded_by_transition_id": reader.read_string(),
+        "supersession_reason": reader.read_string(),
+        "created_at_unix_ms": reader.read_int64(),
+        "updated_at_unix_ms": reader.read_int64(),
+        "attempts": reader.read_sequence(decode_recovery_sequence_execution_info),
+    }
+
+
+def decode_late_execution_signal_info(reader):
+    return {
+        "signal_id": reader.read_string(),
+        "execution_request_id": reader.read_string(),
+        "status": reader.read_string(),
+        "observed_at_unix_ms": reader.read_int64(),
+    }
+
+
 def decode_unit_task_info(reader):
     return {
         "unit_id": reader.read_string(),
@@ -832,6 +1057,7 @@ def decode_list_tasks_response(payload):
     decoder_errors = []
     for task_decoder, allow_unknown_status in (
         (decode_lifecycle_task_info, True),
+        (decode_legacy_lifecycle_task_info, True),
         (decode_current_task_info, False),
         (decode_current_id_first_task_info, False),
         (decode_task_info, False),
@@ -902,8 +1128,47 @@ def decode_get_task_response_with(
     return response
 
 
+def decode_lifecycle_get_task_response(payload):
+    reader = CdrReader(payload)
+    response = {
+        "found": reader.read_bool(),
+        "task": decode_lifecycle_task_info(reader),
+        "unit_tasks": reader.read_sequence(decode_lifecycle_unit_task_info),
+        "transitions": reader.read_sequence(decode_task_transition_info),
+        "transition_requests": reader.read_sequence(decode_task_transition_request_info),
+        "recovery_task_mappings": reader.read_sequence(
+            decode_current_recovery_task_mapping
+        ),
+        "on_cancel": decode_lifecycle_hook_spec(reader),
+        "on_pause": decode_lifecycle_hook_spec(reader),
+        "on_finish": decode_lifecycle_hook_spec(reader),
+        "on_resume": decode_lifecycle_hook_spec(reader),
+        "lifecycle_configuration_valid": reader.read_bool(),
+        "lifecycle_configuration_error": reader.read_string(),
+        "lifecycle_configuration_snapshots": reader.read_sequence(
+            decode_lifecycle_configuration_snapshot_info
+        ),
+        "lifecycle_task_executions": reader.read_sequence(
+            decode_lifecycle_task_execution_info
+        ),
+        "recovery_interruptions": reader.read_sequence(
+            decode_recovery_interruption_info
+        ),
+        "late_execution_signals": reader.read_sequence(decode_late_execution_signal_info),
+        "message": reader.read_string(),
+    }
+    if reader.offset < len(payload) and any(payload[reader.offset:]):
+        raise ValueError("get_task response had trailing undecoded fields")
+    return response
+
+
 def decode_get_task_response(payload):
     decoder_errors = []
+    try:
+        return decode_lifecycle_get_task_response(payload)
+    except Exception as error:
+        decoder_errors.append(f"decode_lifecycle_get_task_response: {error}")
+
     for task_decoder, unit_task_decoder, include_recovery_mappings in (
         (decode_current_task_info, decode_unit_task_info, True),
         (decode_current_id_first_task_info, decode_unit_task_info, True),
@@ -959,6 +1224,19 @@ def decode_ok_message_response(payload):
     }
     if reader.offset < len(payload) and any(payload[reader.offset:]):
         raise ValueError("task response had trailing undecoded fields")
+    return response
+
+
+def decode_task_execution_control_response(payload):
+    reader = CdrReader(payload)
+    response = {
+        "accepted": reader.read_bool(),
+        "transition_id": reader.read_string(),
+        "error_code": reader.read_string(),
+        "message": reader.read_string(),
+    }
+    if reader.offset < len(payload) and any(payload[reader.offset:]):
+        raise ValueError("task control response had trailing undecoded fields")
     return response
 
 
@@ -1363,7 +1641,7 @@ def rename_task(session, message):
 def cancel_task(session, message):
     key = normalize_key(message.get("key"))
     request_id = str(message.get("requestId") or "")
-    task_id = str(message.get("taskId") or "")
+    task_execution_id = str(message.get("taskExecutionId") or "")
 
     response_message = {
         "type": "service-response",
@@ -1371,7 +1649,9 @@ def cancel_task(session, message):
         "key": key,
         "requestId": request_id,
         "success": False,
-        "ok": False,
+        "accepted": False,
+        "transition_id": "",
+        "error_code": "",
         "message": "no service response",
     }
 
@@ -1379,8 +1659,8 @@ def cancel_task(session, message):
         response_message["message"] = "missing cancel_task service key"
         emit(response_message)
         return
-    if not task_id:
-        response_message["message"] = "missing task_id"
+    if not task_execution_id:
+        response_message["message"] = "missing task_execution_id"
         emit(response_message)
         return
 
@@ -1388,13 +1668,15 @@ def cancel_task(session, message):
         replies = session.get(
             key,
             timeout=normalized_timeout(message),
-            payload=encode_string_request(task_id),
+            payload=encode_task_execution_control_request(task_execution_id, request_id),
         )
         received_reply = False
         for reply in replies:
             received_reply = True
             if reply.ok is not None:
-                response_message.update(decode_ok_message_response(reply.ok.payload.to_bytes()))
+                response_message.update(
+                    decode_task_execution_control_response(reply.ok.payload.to_bytes())
+                )
                 response_message["success"] = True
                 emit(response_message)
                 return

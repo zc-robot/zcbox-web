@@ -942,6 +942,12 @@ class ApiServer {
       task: response.task,
       unit_tasks: response.unit_tasks,
       recovery_task_mappings: response.recovery_task_mappings,
+      on_cancel: response.on_cancel,
+      on_pause: response.on_pause,
+      on_finish: response.on_finish,
+      on_resume: response.on_resume,
+      lifecycle_configuration_valid: response.lifecycle_configuration_valid,
+      lifecycle_configuration_error: response.lifecycle_configuration_error,
       message: response.message,
     }
   }
@@ -991,23 +997,25 @@ class ApiServer {
     }
   }
 
-  cancelTaskExecution = async (taskId: string, options: ZenohTaskServiceOptions = {}): Promise<TaskManagerCancelTaskResult> => {
+  cancelTaskExecution = async (taskExecutionId: string, options: ZenohTaskServiceOptions = {}): Promise<TaskManagerCancelTaskResult> => {
     if (!window.zcDesktop?.cancelZenohTask)
       throw new Error('任务取消仅支持桌面应用')
 
     const response = await window.zcDesktop.cancelZenohTask({
       host: this.controllerHost,
       servicePath: options.servicePath,
-      taskId,
+      taskExecutionId,
       timeoutMs: options.timeoutMs,
     })
     if (!response.success)
       throw new Error(response.message || '取消任务失败')
-    if (!response.ok)
+    if (!response.accepted)
       throw new Error(response.message || '任务管理器拒绝取消任务')
 
     return {
-      ok: response.ok,
+      accepted: response.accepted,
+      transition_id: response.transition_id,
+      error_code: response.error_code,
       message: response.message,
     }
   }

@@ -348,7 +348,7 @@ export interface StorageAreaDisplayNameResult {
   layout_revision: number,
 }
 
-export type TaskManagerAllowedControl = 'CANCEL' | 'PAUSE' | 'RESUME' | (string & {})
+export type TaskManagerAllowedControl = 'CANCEL' | 'PAUSE' | 'RESUME' | 'RETRY_LIFECYCLE_HOOK' | 'ACCEPT_LIFECYCLE_FAILURE' | (string & {})
 
 export interface TaskManagerTaskInfo {
   task_id: string,
@@ -361,6 +361,7 @@ export interface TaskManagerTaskInfo {
   fleet_name: string,
   stop_on_failure?: boolean,
   status: string,
+  aggregate_status?: 'SUCCEEDED' | 'FAILED' | 'SKIPPED' | '',
   created_at_unix_ms: number,
   updated_at_unix_ms: number,
   execution_created_at_unix_ms: number,
@@ -381,26 +382,22 @@ export interface TaskManagerUnitTaskInfo {
   task_execution_id: string,
   unit_task_definition_id: string,
   unit_task_execution_id: string,
-  recovery_resume_mode: string,
-  recovery_approach_waypoint: string,
-  recovery_position_tolerance_m: number,
-  recovery_yaw_tolerance_enabled: boolean,
-  recovery_yaw_tolerance_rad: number,
-  recovery_max_attempts: number,
-  recovery_clear_timeout_sec: number,
-  on_suspend_actions: TaskManagerRecoveryLifecycleActionSpec[],
-  before_redispatch_actions: TaskManagerRecoveryLifecycleActionSpec[],
+  execution_request_id: string,
+  execution_mode: string,
+  recovery_resume_mode?: string,
+  recovery_approach_waypoint?: string,
 }
 
 export interface TaskManagerRecoveryTaskMappingSpec {
   recovery_task_index: number,
-  recovery_task_definition_id: string,
+  max_attempts: number,
+  clear_timeout_sec: number,
+  unit_tasks: TaskManagerUnitTaskSpec[],
 }
 
-export interface TaskManagerRecoveryLifecycleActionSpec {
-  action_name: string,
-  parameters_json: string,
-  failure_policy: 'required' | 'best_effort',
+export interface TaskManagerLifecycleHookSpec {
+  policy: 'required' | 'best_effort' | '',
+  unit_tasks: TaskManagerUnitTaskSpec[],
 }
 
 export interface TaskManagerTaskDetail {
@@ -408,6 +405,12 @@ export interface TaskManagerTaskDetail {
   task: TaskManagerTaskInfo,
   unit_tasks: TaskManagerUnitTaskInfo[],
   recovery_task_mappings: TaskManagerRecoveryTaskMappingSpec[],
+  on_cancel?: TaskManagerLifecycleHookSpec,
+  on_pause?: TaskManagerLifecycleHookSpec,
+  on_finish?: TaskManagerLifecycleHookSpec,
+  on_resume?: TaskManagerLifecycleHookSpec,
+  lifecycle_configuration_valid?: boolean,
+  lifecycle_configuration_error?: string,
   message: string,
 }
 
@@ -432,15 +435,6 @@ export interface TaskManagerUnitTaskSpec {
   waypoint: string,
   action_name: string,
   action_params_json: string,
-  recovery_resume_mode?: string,
-  recovery_approach_waypoint?: string,
-  recovery_position_tolerance_m?: number,
-  recovery_yaw_tolerance_enabled?: boolean,
-  recovery_yaw_tolerance_rad?: number,
-  recovery_max_attempts?: number,
-  recovery_clear_timeout_sec?: number,
-  on_suspend_actions?: TaskManagerRecoveryLifecycleActionSpec[],
-  before_redispatch_actions?: TaskManagerRecoveryLifecycleActionSpec[],
 }
 
 export interface TaskManagerCreateTaskPayload {
@@ -448,11 +442,16 @@ export interface TaskManagerCreateTaskPayload {
   description?: string,
   robot_name: string,
   fleet_name: string,
+  stop_on_failure?: boolean,
   waypoint?: string,
   action_name?: string,
   parameters_json?: string,
   unit_tasks: TaskManagerUnitTaskSpec[],
   recovery_task_mappings?: TaskManagerRecoveryTaskMappingSpec[],
+  on_cancel?: TaskManagerLifecycleHookSpec,
+  on_pause?: TaskManagerLifecycleHookSpec,
+  on_finish?: TaskManagerLifecycleHookSpec,
+  on_resume?: TaskManagerLifecycleHookSpec,
 }
 
 export interface TaskManagerCreateTaskResult {
@@ -469,7 +468,9 @@ export interface TaskManagerRunTaskResult {
 }
 
 export interface TaskManagerCancelTaskResult {
-  ok: boolean,
+  accepted: boolean,
+  transition_id: string,
+  error_code: string,
   message: string,
 }
 

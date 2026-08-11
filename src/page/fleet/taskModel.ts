@@ -6,7 +6,9 @@ const taskManagerActiveExecutionStatuses = new Set([
   'PAUSING',
   'PAUSED',
   'RESUMING',
+  'FINISHING',
   'CANCELING',
+  'RECOVERING',
   'RECOVERY_REQUIRED',
 ])
 const legacyCancelableTaskManagerStatuses = new Set(['PENDING', 'RUNNING', 'RECOVERY_REQUIRED'])

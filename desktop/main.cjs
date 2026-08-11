@@ -2828,78 +2828,34 @@ function normalizeTaskJsonObject(value, fieldName) {
   return json
 }
 
-function normalizeRecoveryLifecycleActions(value, fieldName) {
-  const actions = Array.isArray(value) ? value : []
-  return actions.map((action, index) => {
-    const actionName = typeof action?.action_name === 'string' ? action.action_name.trim() : ''
-    if (!actionName)
-      throw new Error(`${fieldName}[${index}] requires action_name`)
-
-    return {
-      action_name: actionName,
-      parameters_json: normalizeTaskJsonObject(action?.parameters_json, `${fieldName}[${index}].parameters_json`),
-      failure_policy: action?.failure_policy === 'best_effort' ? 'best_effort' : 'required',
-    }
-  })
-}
-
-function normalizeCreateTaskUnitTasks(value) {
+function normalizeCreateTaskUnitTasks(value, fieldName = 'unit_tasks') {
   const unitTasks = Array.isArray(value) ? value : []
   return unitTasks.map((unitTask, index) => {
     const seq = Number.isFinite(unitTask?.seq) ? Math.floor(unitTask.seq) : index
     const waypoint = typeof unitTask?.waypoint === 'string' ? unitTask.waypoint.trim() : ''
     const actionName = typeof unitTask?.action_name === 'string' ? unitTask.action_name.trim() : ''
-    const actionParamsJson = normalizeTaskJsonObject(unitTask?.action_params_json, `unit_tasks[${index}].action_params_json`)
-    const requestedResumeMode = typeof unitTask?.recovery_resume_mode === 'string'
-      ? unitTask.recovery_resume_mode.trim()
-      : ''
-    const recoveryResumeMode = [
-      'redispatch',
-      'via_waypoint',
-      'via_pause_pose',
-      'via_waypoint_and_pause_pose',
-      'operator_required',
-    ].includes(requestedResumeMode)
-      ? requestedResumeMode
-      : 'operator_required'
-    const recoveryApproachWaypoint = typeof unitTask?.recovery_approach_waypoint === 'string'
-      ? unitTask.recovery_approach_waypoint.trim()
-      : ''
-    const recoveryPositionToleranceM = Number.isFinite(unitTask?.recovery_position_tolerance_m)
-      ? Number(unitTask.recovery_position_tolerance_m)
-      : 0.1
-    const recoveryYawToleranceRad = Number.isFinite(unitTask?.recovery_yaw_tolerance_rad)
-      ? Number(unitTask.recovery_yaw_tolerance_rad)
-      : 0
-    const recoveryMaxAttempts = Number.isFinite(unitTask?.recovery_max_attempts)
-      ? Math.floor(unitTask.recovery_max_attempts)
-      : 3
-    const recoveryClearTimeoutSec = Number.isFinite(unitTask?.recovery_clear_timeout_sec)
-      ? Number(unitTask.recovery_clear_timeout_sec)
-      : 300
+    const actionParamsJson = normalizeTaskJsonObject(unitTask?.action_params_json, `${fieldName}[${index}].action_params_json`)
+    if (!waypoint && !actionName)
+      throw new Error(`${fieldName}[${index}] requires waypoint or action_name`)
 
     return {
       seq,
       waypoint,
       action_name: actionName,
       action_params_json: actionParamsJson,
-      recovery_resume_mode: recoveryResumeMode,
-      recovery_approach_waypoint: recoveryApproachWaypoint,
-      recovery_position_tolerance_m: recoveryPositionToleranceM,
-      recovery_yaw_tolerance_enabled: Boolean(unitTask?.recovery_yaw_tolerance_enabled),
-      recovery_yaw_tolerance_rad: recoveryYawToleranceRad,
-      recovery_max_attempts: recoveryMaxAttempts,
-      recovery_clear_timeout_sec: recoveryClearTimeoutSec,
-      on_suspend_actions: normalizeRecoveryLifecycleActions(
-        unitTask?.on_suspend_actions,
-        `unit_tasks[${index}].on_suspend_actions`,
-      ),
-      before_redispatch_actions: normalizeRecoveryLifecycleActions(
-        unitTask?.before_redispatch_actions,
-        `unit_tasks[${index}].before_redispatch_actions`,
-      ),
     }
   })
+}
+
+function normalizeLifecycleHook(value, fieldName) {
+  const hook = value && typeof value === 'object' ? value : {}
+  const unitTasks = normalizeCreateTaskUnitTasks(hook.unit_tasks, `${fieldName}.unit_tasks`)
+  const policy = hook.policy === 'best_effort' || hook.policy === 'required'
+    ? hook.policy
+    : ''
+  if (unitTasks.length > 0 && !policy)
+    throw new Error(`${fieldName}.policy must be required or best_effort`)
+  return { policy, unit_tasks: unitTasks }
 }
 
 function normalizeRecoveryTaskMappings(value) {
@@ -2909,20 +2865,26 @@ function normalizeRecoveryTaskMappings(value) {
     const recoveryTaskIndex = Number.isFinite(mapping?.recovery_task_index)
       ? Math.floor(mapping.recovery_task_index)
       : 0
-    const recoveryTaskDefinitionId = typeof mapping?.recovery_task_definition_id === 'string'
-      ? mapping.recovery_task_definition_id.trim()
-      : ''
+    const maxAttempts = Number.isFinite(mapping?.max_attempts) ? Math.floor(mapping.max_attempts) : 3
+    const clearTimeoutSec = Number.isFinite(mapping?.clear_timeout_sec) ? Number(mapping.clear_timeout_sec) : 300
+    const unitTasks = normalizeCreateTaskUnitTasks(mapping?.unit_tasks, `recovery_task_mappings[${index}].unit_tasks`)
     if (recoveryTaskIndex < 1 || recoveryTaskIndex > 255)
       throw new Error(`recovery_task_mappings[${index}].recovery_task_index must be between 1 and 255`)
-    if (!recoveryTaskDefinitionId)
-      throw new Error(`recovery_task_mappings[${index}] requires recovery_task_definition_id`)
+    if (maxAttempts < 1)
+      throw new Error(`recovery_task_mappings[${index}].max_attempts must be at least 1`)
+    if (clearTimeoutSec <= 0)
+      throw new Error(`recovery_task_mappings[${index}].clear_timeout_sec must be positive`)
+    if (unitTasks.length === 0)
+      throw new Error(`recovery_task_mappings[${index}] requires unit_tasks`)
     if (seenIndices.has(recoveryTaskIndex))
       throw new Error(`recovery_task_mappings contains duplicate index ${recoveryTaskIndex}`)
     seenIndices.add(recoveryTaskIndex)
 
     return {
       recovery_task_index: recoveryTaskIndex,
-      recovery_task_definition_id: recoveryTaskDefinitionId,
+      max_attempts: maxAttempts,
+      clear_timeout_sec: clearTimeoutSec,
+      unit_tasks: unitTasks,
     }
   })
 }
@@ -2936,11 +2898,16 @@ async function requestZenohTaskCreate(options) {
   const description = typeof task.description === 'string' ? task.description.trim() : ''
   const robotName = typeof task.robot_name === 'string' ? task.robot_name.trim() : ''
   const fleetName = typeof task.fleet_name === 'string' ? task.fleet_name.trim() : ''
+  const stopOnFailure = task.stop_on_failure === true
   const waypoint = typeof task.waypoint === 'string' ? task.waypoint.trim() : ''
   const actionName = typeof task.action_name === 'string' ? task.action_name.trim() : ''
   const parametersJson = normalizeTaskJsonObject(task.parameters_json, 'parameters_json')
   const unitTasks = normalizeCreateTaskUnitTasks(task.unit_tasks)
   const recoveryTaskMappings = normalizeRecoveryTaskMappings(task.recovery_task_mappings)
+  const onCancel = normalizeLifecycleHook(task.on_cancel, 'on_cancel')
+  const onPause = normalizeLifecycleHook(task.on_pause, 'on_pause')
+  const onFinish = normalizeLifecycleHook(task.on_finish, 'on_finish')
+  const onResume = normalizeLifecycleHook(task.on_resume, 'on_resume')
 
   if (!host || !servicePath)
     throw new Error('Task creation request requires host and service path')
@@ -2973,11 +2940,16 @@ async function requestZenohTaskCreate(options) {
         description,
         robot_name: robotName,
         fleet_name: fleetName,
+        stop_on_failure: stopOnFailure,
         waypoint,
         action_name: actionName,
         parameters_json: parametersJson,
         unit_tasks: unitTasks,
         recovery_task_mappings: recoveryTaskMappings,
+        on_cancel: onCancel,
+        on_pause: onPause,
+        on_finish: onFinish,
+        on_resume: onResume,
       },
       timeoutSec: timeoutMs / 1000,
     })}\n`)
@@ -3079,13 +3051,13 @@ async function requestZenohTaskRename(options) {
 async function requestZenohTaskCancel(options) {
   const host = typeof options?.host === 'string' ? options.host.trim() : ''
   const servicePath = normalizeZenohTaskServicePath(options?.servicePath, '')
-  const taskId = typeof options?.taskId === 'string' ? options.taskId.trim() : ''
+  const taskExecutionId = typeof options?.taskExecutionId === 'string' ? options.taskExecutionId.trim() : ''
   const timeoutMs = normalizeZenohServiceTimeout(options?.timeoutMs)
 
   if (!host || !servicePath)
     throw new Error('Task cancel request requires host and service path')
-  if (!taskId)
-    throw new Error('Task cancel request requires task id')
+  if (!taskExecutionId)
+    throw new Error('Task cancel request requires task execution id')
 
   startZenohCommandBridge(host)
 
@@ -3099,7 +3071,7 @@ async function requestZenohTaskCancel(options) {
       type: 'cancel_task',
       key: servicePath,
       requestId,
-      taskId,
+      taskExecutionId,
       timeoutSec: timeoutMs / 1000,
     })}\n`)
   }
