@@ -282,6 +282,92 @@ class TaskInfoDecoderTest(unittest.TestCase):
             "message": "renamed",
         }])
 
+    def test_update_task_encodes_full_replacement_and_emits_response(self):
+        bridge = load_bridge()
+        response_writer = bridge.CdrWriter()
+        response_writer.write_bool(True)
+        response_writer.write_string("updated")
+
+        class Payload:
+            def to_bytes(self):
+                return response_writer.to_bytes()
+
+        class Session:
+            def __init__(self):
+                self.request = None
+
+            def get(self, key, *, timeout, payload):
+                self.request = {"key": key, "timeout": timeout, "payload": payload}
+                return [SimpleNamespace(ok=SimpleNamespace(payload=Payload()), err=None)]
+
+        session = Session()
+        emitted = []
+        with mock.patch.object(bridge, "emit", emitted.append):
+            bridge.update_task(session, {
+                "key": "site-a/update_task",
+                "requestId": "update-task-1",
+                "timeoutSec": 4,
+                "task": {
+                    "task_id": "task-definition-1",
+                    "name": "Morning cleaning",
+                    "description": "Clean P1 and P2",
+                    "robot_name": "cleaner",
+                    "fleet_name": "nest",
+                    "stop_on_failure": True,
+                    "unit_tasks": [{
+                        "seq": 10,
+                        "waypoint": "P1",
+                        "action_name": "",
+                        "action_params_json": "{}",
+                    }],
+                    "recovery_task_mappings": [],
+                    "on_pause": {
+                        "policy": "required",
+                        "unit_tasks": [{
+                            "seq": 0,
+                            "waypoint": "",
+                            "action_name": "perform_plc_task",
+                            "action_params_json": "{\"task_index\":102}",
+                        }],
+                    },
+                },
+            })
+
+        reader = bridge.CdrReader(session.request["payload"])
+        self.assertEqual(session.request["key"], "site-a/update_task")
+        self.assertEqual(reader.read_string(), "task-definition-1")
+        self.assertEqual(reader.read_string(), "Morning cleaning")
+        self.assertEqual(reader.read_string(), "Clean P1 and P2")
+        self.assertEqual(reader.read_string(), "cleaner")
+        self.assertEqual(reader.read_string(), "nest")
+        self.assertTrue(reader.read_bool())
+        self.assertEqual(reader.read_uint32(), 1)
+        self.assertEqual(reader.read_int32(), 10)
+        self.assertEqual(reader.read_string(), "P1")
+        self.assertEqual(reader.read_string(), "")
+        self.assertEqual(reader.read_string(), "{}")
+        self.assertEqual(reader.read_uint32(), 0)
+        self.assertEqual(reader.read_string(), "")
+        self.assertEqual(reader.read_uint32(), 0)
+        self.assertEqual(reader.read_string(), "required")
+        self.assertEqual(reader.read_uint32(), 1)
+        self.assertEqual(reader.read_int32(), 0)
+        self.assertEqual(reader.read_string(), "")
+        self.assertEqual(reader.read_string(), "perform_plc_task")
+        self.assertEqual(reader.read_string(), "{\"task_index\":102}")
+        for _ in range(2):
+            self.assertEqual(reader.read_string(), "")
+            self.assertEqual(reader.read_uint32(), 0)
+        self.assertEqual(emitted, [{
+            "type": "service-response",
+            "service": "update_task",
+            "key": "site-a/update_task",
+            "requestId": "update-task-1",
+            "success": True,
+            "ok": True,
+            "message": "updated",
+        }])
+
     def test_cancel_task_uses_execution_id_and_idempotency_request_id(self):
         bridge = load_bridge()
         writer = bridge.CdrWriter()

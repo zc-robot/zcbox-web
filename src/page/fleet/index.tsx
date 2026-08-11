@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import toast, { Toaster } from 'react-hot-toast'
 import { buildRobotHardwareDiagnosticsView } from './runtimeModel'
-import { buildMultiGoToPoseUnitTasks, getOngoingTaskManagerExecutions, hasActiveTaskManagerExecution, isCancelableTaskManagerTask } from './taskModel'
+import { buildMultiGoToPoseUnitTasks, buildTaskManagerConfigurationDraft, getOngoingTaskManagerExecutions, hasActiveTaskManagerExecution, isCancelableTaskManagerTask, validateTaskManagerConfigurationDraft } from './taskModel'
+import type { TaskManagerConfigurationDraft, TaskManagerEditableLifecycleHookKey } from './taskModel'
 import type { FleetHardwareDiagnosticState, FleetRobotHardwareDiagnosticsState } from './runtimeModel'
 import { notifyFleetSiteNamespaceUpdated, prefixFleetSiteTopic, useBuildingMapZenoh, useFleetBondsZenoh, useFleetDataZenoh, useFleetDidoZenoh, useFleetHardwareDiagnosticsZenoh, useFleetRmfStatesZenoh, useFleetSiteNamespace, useFleetWheelStatesZenoh, useInterval } from '@/hooks'
 import apiServer from '@/service/apiServer'
@@ -2161,6 +2162,7 @@ const taskManagerServiceTopics = {
   list: 'list_tasks',
   get: 'get_task',
   create: 'create_task',
+  update: 'update_task',
   run: 'run_task',
   rename: 'rename_task',
   cancel: 'task_manager/cancel_task_execution',
@@ -4959,6 +4961,256 @@ function TaskManagerLifecycleConfiguration({ detail }: { detail: TaskManagerTask
   )
 }
 
+function nextTaskManagerUnitTaskSequence(unitTasks: TaskManagerUnitTaskSpec[]) {
+  if (unitTasks.length === 0)
+    return 0
+
+  return Math.max(...unitTasks.map(unitTask => unitTask.seq)) + 10
+}
+
+function TaskManagerUnitTaskSequenceEditor({
+  label,
+  unitTasks,
+  onChange,
+}: {
+  label: string
+  unitTasks: TaskManagerUnitTaskSpec[]
+  onChange: (unitTasks: TaskManagerUnitTaskSpec[]) => void
+}) {
+  function updateUnitTask(index: number, changes: Partial<TaskManagerUnitTaskSpec>) {
+    onChange(unitTasks.map((unitTask, unitTaskIndex) => (
+      unitTaskIndex === index ? { ...unitTask, ...changes } : unitTask
+    )))
+  }
+
+  function addUnitTask() {
+    onChange([...unitTasks, {
+      seq: nextTaskManagerUnitTaskSequence(unitTasks),
+      waypoint: '',
+      action_name: '',
+      action_params_json: '{}',
+    }])
+  }
+
+  return (
+    <section className="overflow-hidden rounded-lg border-(solid 1px gray-200) bg-white">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+        <div>
+          <div className="text-sm font-800 text-gray-900">{label}</div>
+          <div className="text-[11px] text-gray-500">Execution order follows the sequence number.</div>
+        </div>
+        <Button type="button" icon="i-material-symbols-add-rounded" onClick={addUnitTask}>Add Unit Task</Button>
+      </div>
+      {unitTasks.length > 0
+        ? (
+            <div className="divide-y divide-gray-100 border-(t-solid 1px gray-100)">
+              {unitTasks.map((unitTask, index) => {
+                const isMissingActionParameters = Boolean(unitTask.action_name.trim()) && !unitTask.action_params_json.trim()
+                return (
+                  <div key={index} className="space-y-3 px-3 py-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs font-800 text-gray-700">Unit Task {index + 1}</div>
+                      <IconButton
+                        type="button"
+                        icon="i-material-symbols-delete-outline-rounded"
+                        title={`Remove ${label} Unit Task ${index + 1}`}
+                        tone="danger"
+                        onClick={() => onChange(unitTasks.filter((_, unitTaskIndex) => unitTaskIndex !== index))}
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-[7rem_minmax(0,1fr)]">
+                      <label className="space-y-1 text-xs font-700 text-gray-500">
+                        <span>Sequence</span>
+                        <input
+                          className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white px-3 text-sm font-400 text-gray-900 outline-none focus:border-emerald-600"
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={unitTask.seq}
+                          onChange={event => updateUnitTask(index, { seq: Number(event.target.value) })}
+                        />
+                      </label>
+                      <label className="space-y-1 text-xs font-700 text-gray-500">
+                        <span>Waypoint</span>
+                        <input
+                          className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white px-3 text-sm font-400 text-gray-900 outline-none focus:border-emerald-600"
+                          placeholder="Optional when an Action is set"
+                          value={unitTask.waypoint}
+                          onChange={event => updateUnitTask(index, { waypoint: event.target.value })}
+                        />
+                      </label>
+                    </div>
+                    <label className="block space-y-1 text-xs font-700 text-gray-500">
+                      <span>Action</span>
+                      <input
+                        className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white px-3 text-sm font-400 text-gray-900 outline-none focus:border-emerald-600"
+                        placeholder="Optional when a waypoint is set"
+                        value={unitTask.action_name}
+                        onChange={event => updateUnitTask(index, { action_name: event.target.value })}
+                      />
+                    </label>
+                    {unitTask.action_name.trim() && (
+                      <label className="block space-y-1 text-xs font-700 text-gray-500">
+                        <span>Action parameters (JSON object)</span>
+                        <textarea
+                          className={classNames(
+                            'min-h-24 w-full resize-y rounded-lg border bg-gray-950 px-3 py-2 font-mono text-xs font-400 leading-5 text-gray-100 outline-none focus:border-emerald-600',
+                            isMissingActionParameters ? 'border-amber-400' : 'border-gray-700',
+                          )}
+                          placeholder="{\n  &quot;timeout&quot;: 200,\n  &quot;task_index&quot;: 101\n}"
+                          value={unitTask.action_params_json}
+                          onChange={event => updateUnitTask(index, { action_params_json: event.target.value })}
+                        />
+                        {isMissingActionParameters && (
+                          <span className="block rounded-md bg-amber-50 px-2 py-1.5 font-400 leading-4 text-amber-800">
+                            These parameters are not available here. Re-enter them before saving.
+                          </span>
+                        )}
+                      </label>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )
+        : <div className="border-(t-solid 1px gray-100) px-3 py-5 text-center text-xs text-gray-500">No Unit Tasks</div>}
+    </section>
+  )
+}
+
+const taskManagerEditableLifecycleHooks: Array<{ key: TaskManagerEditableLifecycleHookKey; label: string }> = [
+  { key: 'on_cancel', label: 'On cancel' },
+  { key: 'on_pause', label: 'On pause' },
+  { key: 'on_finish', label: 'On finish' },
+  { key: 'on_resume', label: 'On resume' },
+]
+
+function TaskManagerConfigurationDialog({
+  detail,
+  isUpdating,
+  error,
+  onClose,
+  onSubmit,
+}: {
+  detail: TaskManagerTaskDetail
+  isUpdating: boolean
+  error: string
+  onClose: () => void
+  onSubmit: (draft: TaskManagerConfigurationDraft) => void
+}) {
+  const [draft, setDraft] = useState<TaskManagerConfigurationDraft>(() => buildTaskManagerConfigurationDraft(detail))
+  const [validationError, setValidationError] = useState('')
+  const task = detail.task
+  const hasActiveExecution = hasActiveTaskManagerExecution(task)
+
+  function updateDraft(updater: (current: TaskManagerConfigurationDraft) => TaskManagerConfigurationDraft) {
+    setDraft(updater)
+    setValidationError('')
+  }
+
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const nextValidationError = validateTaskManagerConfigurationDraft(draft)
+    setValidationError(nextValidationError)
+    if (nextValidationError)
+      return
+
+    onSubmit(draft)
+  }
+
+  return (
+    <div className="fixed inset-0 z-110 flex items-center justify-center bg-black/35 px-3 py-4 sm:px-6">
+      <form
+        className="flex max-h-[calc(100vh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-xl bg-gray-50 shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="edit-task-configuration-title"
+        onSubmit={submit}>
+        <div className="flex items-start justify-between gap-3 border-(b-solid 1px gray-200) bg-white px-4 py-3">
+          <div className="min-w-0">
+            <div id="edit-task-configuration-title" className="truncate font-800 text-gray-900">Edit {getTaskManagerTaskName(task)}</div>
+            <div className="mt-0.5 text-xs text-gray-500">Main and lifecycle Unit Tasks</div>
+          </div>
+          <IconButton
+            type="button"
+            icon="i-material-symbols-close-rounded"
+            title="Close configuration editor"
+            disabled={isUpdating}
+            onClick={onClose}
+          />
+        </div>
+
+        <div className="flex-1 space-y-4 overflow-y-auto p-4">
+          <div className={classNames(
+            'rounded-lg px-3 py-2 text-sm',
+            hasActiveExecution ? 'bg-amber-50 text-amber-800' : 'bg-blue-50 text-blue-800',
+          )}>
+            Updates affect future runs only. {hasActiveExecution && 'The current execution will not change.'}
+          </div>
+
+          <TaskManagerUnitTaskSequenceEditor
+            label="Main sequence"
+            unitTasks={draft.unit_tasks}
+            onChange={unitTasks => updateDraft(current => ({ ...current, unit_tasks: unitTasks }))}
+          />
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {taskManagerEditableLifecycleHooks.map(({ key, label }) => {
+              const hook = draft[key]
+              return (
+                <div key={key} className="space-y-2">
+                  <label className="flex items-center justify-between gap-3 rounded-lg border-(solid 1px gray-200) bg-white px-3 py-2 text-xs font-700 text-gray-500">
+                    <span>{label} policy</span>
+                    <select
+                      className="h-8 rounded-lg border-(solid 1px gray-300) bg-white px-2 text-xs text-gray-900 outline-none focus:border-emerald-600"
+                      value={hook.policy}
+                      onChange={event => updateDraft(current => ({
+                        ...current,
+                        [key]: {
+                          ...current[key],
+                          policy: event.target.value as TaskManagerLifecycleHookSpec['policy'],
+                        },
+                      }))}>
+                      <option value="">No policy</option>
+                      <option value="required">Required</option>
+                      <option value="best_effort">Best effort</option>
+                    </select>
+                  </label>
+                  <TaskManagerUnitTaskSequenceEditor
+                    label={label}
+                    unitTasks={hook.unit_tasks}
+                    onChange={unitTasks => updateDraft(current => ({
+                      ...current,
+                      [key]: { ...current[key], unit_tasks: unitTasks },
+                    }))}
+                  />
+                </div>
+              )
+            })}
+          </div>
+
+          {(validationError || error) && (
+            <div className="rounded-lg bg-red-50 px-3 py-2 text-sm font-700 text-red-700">
+              {validationError || error}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-(t-solid 1px gray-200) bg-white px-4 py-3">
+          <Button type="button" disabled={isUpdating} onClick={onClose}>Cancel</Button>
+          <Button
+            type="submit"
+            tone="primary"
+            icon={isUpdating ? 'i-material-symbols-progress-activity' : 'i-material-symbols-save-rounded'}
+            disabled={isUpdating}>
+            {isUpdating ? 'Saving...' : 'Save configuration'}
+          </Button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 function OngoingTaskExecutionsSidebar({ host }: { host: string }) {
   const fleetSiteNamespace = useFleetSiteNamespace()
   const taskListServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.list)
@@ -5228,20 +5480,24 @@ function TaskManagerDetail({
   isCanceling,
   isDeleting,
   isRenaming,
+  isUpdating,
   onRun,
   onCancel,
   onDelete,
   onRename,
+  onEditConfiguration,
 }: {
   detail: TaskManagerTaskDetail
   isRunning: boolean
   isCanceling: boolean
   isDeleting: boolean
   isRenaming: boolean
+  isUpdating: boolean
   onRun: (taskId: string) => void
   onCancel: (task: TaskManagerTaskInfo) => void
   onDelete: (task: TaskManagerTaskInfo) => void
   onRename: (task: TaskManagerTaskInfo) => void
+  onEditConfiguration: (detail: TaskManagerTaskDetail) => void
 }) {
   if (!detail.found) {
     return (
@@ -5256,6 +5512,7 @@ function TaskManagerDetail({
   const taskExecutionId = task.active_task_execution_id || task.latest_task_execution_id
   const isCancelable = isTaskManagerTaskCancelable(task)
   const hasActiveExecution = hasActiveTaskManagerExecution(task)
+  const canEditConfiguration = Boolean(task.task_id) && taskManagerEditableLifecycleHooks.every(({ key }) => detail[key] !== undefined)
   return (
     <div className="space-y-4">
       <section className="rounded-lg border-(solid 1px gray-200) bg-white/75 p-3">
@@ -5275,6 +5532,14 @@ function TaskManagerDetail({
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             <Badge className={getTaskManagerStatusClass(task.status)}>{task.status || '--'}</Badge>
+            <Button
+              type="button"
+              icon={isUpdating ? 'i-material-symbols-progress-activity' : 'i-material-symbols-edit-note-rounded'}
+              title={canEditConfiguration ? 'Edit Main and lifecycle Unit Tasks' : 'Configuration editing is unavailable for this Task'}
+              disabled={isUpdating || isDeleting || !taskDefinitionId || !canEditConfiguration}
+              onClick={() => onEditConfiguration(detail)}>
+              Edit configuration
+            </Button>
             {isCancelable && (
               <Button
                 type="button"
@@ -5372,6 +5637,7 @@ function TaskManagerPanel() {
   const fleetSiteNamespace = useFleetSiteNamespace()
   const taskListServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.list)
   const taskGetServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.get)
+  const taskUpdateServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.update)
   const taskRunServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.run)
   const taskRenameServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.rename)
   const taskCancelServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.cancel)
@@ -5388,9 +5654,12 @@ function TaskManagerPanel() {
   const [cancelingTaskId, setCancelingTaskId] = useState('')
   const [deletingTaskId, setDeletingTaskId] = useState('')
   const [renamingTaskId, setRenamingTaskId] = useState('')
+  const [updatingTaskId, setUpdatingTaskId] = useState('')
   const [renameDialogTask, setRenameDialogTask] = useState<TaskManagerTaskInfo | null>(null)
   const [renameDraftName, setRenameDraftName] = useState('')
   const [renameTaskError, setRenameTaskError] = useState('')
+  const [configurationDialogDetail, setConfigurationDialogDetail] = useState<TaskManagerTaskDetail | null>(null)
+  const [configurationUpdateError, setConfigurationUpdateError] = useState('')
   const [taskManagerError, setTaskManagerError] = useState('')
   const detailRequestId = useRef(0)
 
@@ -5421,6 +5690,8 @@ function TaskManagerPanel() {
     setRenameDialogTask(null)
     setRenameDraftName('')
     setRenameTaskError('')
+    setConfigurationDialogDetail(null)
+    setConfigurationUpdateError('')
     setTaskManagerError('')
   }, [fleetSiteNamespace.namespace])
 
@@ -5615,6 +5886,82 @@ function TaskManagerPanel() {
     }
   }
 
+  function openTaskManagerConfigurationDialog(detail: TaskManagerTaskDetail) {
+    setConfigurationDialogDetail(detail)
+    setConfigurationUpdateError('')
+  }
+
+  function closeTaskManagerConfigurationDialog() {
+    if (updatingTaskId)
+      return
+
+    setConfigurationDialogDetail(null)
+    setConfigurationUpdateError('')
+  }
+
+  async function updateTaskManagerConfiguration(draft: TaskManagerConfigurationDraft) {
+    if (!configurationDialogDetail)
+      return
+
+    const task = configurationDialogDetail.task
+    const taskId = task.task_id.trim()
+    const taskDefinitionId = getTaskManagerDefinitionId(task)
+    if (!taskId) {
+      setConfigurationUpdateError('This Task is unavailable. Refresh the Task list and try again.')
+      return
+    }
+
+    const validationError = validateTaskManagerConfigurationDraft(draft)
+    if (validationError) {
+      setConfigurationUpdateError(validationError)
+      return
+    }
+
+    setUpdatingTaskId(taskId)
+    setConfigurationUpdateError('')
+    setTaskManagerError('')
+    try {
+      if (!requireTaskManagerServicePath(taskUpdateServicePath)) {
+        setConfigurationUpdateError(taskManagerSiteNamespaceError(taskUpdateServicePath))
+        return
+      }
+
+      await apiServer.updateTask({
+        task_id: taskId,
+        name: task.name,
+        description: task.description,
+        robot_name: task.robot_name,
+        fleet_name: task.fleet_name,
+        stop_on_failure: task.stop_on_failure === true,
+        unit_tasks: draft.unit_tasks,
+        recovery_task_mappings: configurationDialogDetail.recovery_task_mappings,
+        on_cancel: draft.on_cancel,
+        on_pause: draft.on_pause,
+        on_finish: draft.on_finish,
+        on_resume: draft.on_resume,
+      }, { servicePath: taskUpdateServicePath })
+      setConfigurationDialogDetail(null)
+      toast.success(hasActiveTaskManagerExecution(task)
+        ? 'Configuration saved for future runs; the current execution is unchanged'
+        : 'Task configuration saved')
+      try {
+        await refreshTaskManagerStateAfterMutation(taskDefinitionId)
+      }
+      catch (refreshError) {
+        console.warn('Failed to refresh Task after configuration update', refreshError)
+        setTaskManagerError('Configuration saved, but the Task view could not be refreshed. Refresh the Task list to see the latest configuration.')
+      }
+    }
+    catch (error) {
+      const message = errorMessage(error)
+      setConfigurationUpdateError(message)
+      setTaskManagerError(message)
+    }
+    finally {
+      setUpdatingTaskId('')
+    }
+  }
+
   async function cancelTaskManagerTask(task: TaskManagerTaskInfo) {
     const taskId = getTaskManagerDefinitionId(task)
     const taskExecutionId = task.active_task_execution_id || task.latest_task_execution_id
@@ -5790,10 +6137,12 @@ function TaskManagerPanel() {
               isCanceling={cancelingTaskId === (taskDetail.task.task_id || getTaskManagerDefinitionId(taskDetail.task))}
               isDeleting={deletingTaskId === (taskDetail.task.task_id || getTaskManagerDefinitionId(taskDetail.task))}
               isRenaming={renamingTaskId === getTaskManagerDefinitionId(taskDetail.task)}
+              isUpdating={updatingTaskId === taskDetail.task.task_id}
               onRun={runTaskManagerTask}
               onCancel={cancelTaskManagerTask}
               onDelete={deleteTaskManagerTask}
               onRename={openRenameTaskDialog}
+              onEditConfiguration={openTaskManagerConfigurationDialog}
             />
           )}
         </div>
@@ -5810,6 +6159,15 @@ function TaskManagerPanel() {
           }}
           onClose={closeRenameTaskDialog}
           onSubmit={renameTaskManagerTask}
+        />
+      )}
+      {configurationDialogDetail && (
+        <TaskManagerConfigurationDialog
+          detail={configurationDialogDetail}
+          isUpdating={updatingTaskId === configurationDialogDetail.task.task_id}
+          error={configurationUpdateError}
+          onClose={closeTaskManagerConfigurationDialog}
+          onSubmit={updateTaskManagerConfiguration}
         />
       )}
     </>

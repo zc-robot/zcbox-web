@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { TaskManagerTaskInfo } from '../../types.js'
-import { buildMultiGoToPoseUnitTasks, getActiveTaskManagerTasks, getOngoingTaskManagerExecutions, hasActiveTaskManagerExecution, isCancelableTaskManagerTask } from './taskModel.js'
+import type { TaskManagerTaskDetail, TaskManagerTaskInfo } from '../../types.js'
+import { buildMultiGoToPoseUnitTasks, buildTaskManagerConfigurationDraft, getActiveTaskManagerTasks, getOngoingTaskManagerExecutions, hasActiveTaskManagerExecution, isCancelableTaskManagerTask, validateTaskManagerConfigurationDraft } from './taskModel.js'
 
 function taskManagerTask(
   status: string,
@@ -157,4 +157,66 @@ test('rejects non-finite pose coordinates', () => {
     ok: false,
     error: 'X for Pose #1 must be a finite number.',
   })
+})
+
+function editableTaskDetail(): TaskManagerTaskDetail {
+  return {
+    found: true,
+    task: taskManagerTask('CREATED', 'editable'),
+    unit_tasks: [{
+      unit_id: 'unit-1',
+      seq: 0,
+      waypoint: '',
+      action_name: 'perform_plc_task',
+      status: 'CREATED',
+      attempts: 0,
+      last_error: '',
+      task_definition_id: 'definition-editable',
+      task_execution_id: '',
+      unit_task_definition_id: 'unit-definition-1',
+      unit_task_execution_id: '',
+      execution_request_id: '',
+      execution_mode: '',
+    }],
+    recovery_task_mappings: [],
+    on_cancel: {
+      policy: 'required',
+      unit_tasks: [{ seq: 0, waypoint: 'C1', action_name: '', action_params_json: '{}' }],
+    },
+    on_pause: { policy: '', unit_tasks: [] },
+    on_finish: { policy: '', unit_tasks: [] },
+    on_resume: { policy: '', unit_tasks: [] },
+    message: 'ok',
+  }
+}
+
+test('builds an isolated editor draft and leaves unavailable main Action parameters empty', () => {
+  const detail = editableTaskDetail()
+  const draft = buildTaskManagerConfigurationDraft(detail)
+
+  assert.equal(draft.unit_tasks[0].action_params_json, '')
+  assert.deepEqual(draft.on_cancel, detail.on_cancel)
+  draft.on_cancel.unit_tasks[0].waypoint = 'changed'
+  assert.equal(detail.on_cancel?.unit_tasks[0].waypoint, 'C1')
+})
+
+test('blocks updates until unavailable main Action parameters are explicitly supplied', () => {
+  const draft = buildTaskManagerConfigurationDraft(editableTaskDetail())
+  assert.match(validateTaskManagerConfigurationDraft(draft), /Re-enter them before saving/)
+
+  draft.unit_tasks[0].action_params_json = '{"timeout":200,"task_index":101}'
+  assert.equal(validateTaskManagerConfigurationDraft(draft), '')
+})
+
+test('validates unique non-negative sequences and lifecycle policies', () => {
+  const draft = buildTaskManagerConfigurationDraft(editableTaskDetail())
+  draft.unit_tasks = [
+    { seq: 0, waypoint: 'P1', action_name: '', action_params_json: '{}' },
+    { seq: 0, waypoint: 'P2', action_name: '', action_params_json: '{}' },
+  ]
+  assert.match(validateTaskManagerConfigurationDraft(draft), /more than one Unit Task with sequence 0/)
+
+  draft.unit_tasks[1].seq = 10
+  draft.on_pause.unit_tasks = [{ seq: 0, waypoint: 'P3', action_name: '', action_params_json: '{}' }]
+  assert.match(validateTaskManagerConfigurationDraft(draft), /On pause needs a required or best-effort policy/)
 })

@@ -384,6 +384,7 @@ export interface TaskManagerUnitTaskInfo {
   unit_task_execution_id: string,
   execution_request_id: string,
   execution_mode: string,
+  action_params_json?: string,
   recovery_resume_mode?: string,
   recovery_approach_waypoint?: string,
 }
@@ -458,6 +459,26 @@ export interface TaskManagerCreateTaskResult {
   ok: boolean,
   task_id: string,
   task_definition_id: string,
+  message: string,
+}
+
+export interface TaskManagerUpdateTaskPayload {
+  task_id: string,
+  name: string,
+  description: string,
+  robot_name: string,
+  fleet_name: string,
+  stop_on_failure: boolean,
+  unit_tasks: TaskManagerUnitTaskSpec[],
+  recovery_task_mappings: TaskManagerRecoveryTaskMappingSpec[],
+  on_cancel: TaskManagerLifecycleHookSpec,
+  on_pause: TaskManagerLifecycleHookSpec,
+  on_finish: TaskManagerLifecycleHookSpec,
+  on_resume: TaskManagerLifecycleHookSpec,
+}
+
+export interface TaskManagerUpdateTaskResult {
+  ok: boolean,
   message: string,
 }
 

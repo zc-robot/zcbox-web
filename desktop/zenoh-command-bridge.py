@@ -343,6 +343,34 @@ def encode_create_task_request(task):
     return writer.to_bytes()
 
 
+def encode_update_task_request(task):
+    unit_tasks = task.get("unit_tasks") if isinstance(task.get("unit_tasks"), list) else []
+    recovery_task_mappings = (
+        task.get("recovery_task_mappings")
+        if isinstance(task.get("recovery_task_mappings"), list)
+        else []
+    )
+
+    writer = CdrWriter()
+    writer.write_string(task.get("task_id"))
+    writer.write_string(task.get("name"))
+    writer.write_string(task.get("description"))
+    writer.write_string(task.get("robot_name"))
+    writer.write_string(task.get("fleet_name"))
+    writer.write_bool(task.get("stop_on_failure", False))
+    writer.write_uint32(len(unit_tasks))
+    for index, unit_task in enumerate(unit_tasks):
+        encode_unit_task_spec(writer, unit_task, index)
+    writer.write_uint32(len(recovery_task_mappings))
+    for mapping in recovery_task_mappings:
+        encode_recovery_task_mapping(writer, mapping)
+    encode_lifecycle_hook_spec(writer, task.get("on_cancel"))
+    encode_lifecycle_hook_spec(writer, task.get("on_pause"))
+    encode_lifecycle_hook_spec(writer, task.get("on_finish"))
+    encode_lifecycle_hook_spec(writer, task.get("on_resume"))
+    return writer.to_bytes()
+
+
 def normalized_storage_uint32(value, fallback=0):
     try:
         parsed = int(value)
@@ -1530,6 +1558,57 @@ def create_task(session, message):
         emit(response_message)
 
 
+def update_task(session, message):
+    key = normalize_key(message.get("key"))
+    request_id = str(message.get("requestId") or "")
+    task = message.get("task") if isinstance(message.get("task"), dict) else {}
+
+    response_message = {
+        "type": "service-response",
+        "service": "update_task",
+        "key": key,
+        "requestId": request_id,
+        "success": False,
+        "ok": False,
+        "message": "no service response",
+    }
+
+    if not key:
+        response_message["message"] = "missing update_task service key"
+        emit(response_message)
+        return
+    if not str(task.get("task_id") or "").strip():
+        response_message["message"] = "missing task_id"
+        emit(response_message)
+        return
+
+    try:
+        replies = session.get(
+            key,
+            timeout=normalized_timeout(message),
+            payload=encode_update_task_request(task),
+        )
+        received_reply = False
+        for reply in replies:
+            received_reply = True
+            if reply.ok is not None:
+                response_message.update(decode_ok_message_response(reply.ok.payload.to_bytes()))
+                response_message["success"] = True
+                emit(response_message)
+                return
+
+            if reply.err is not None:
+                response_message["message"] = reply.err.payload.to_bytes().decode("utf-8", errors="replace")
+                emit(response_message)
+                return
+
+        if not received_reply:
+            emit(response_message)
+    except Exception as error:
+        response_message["message"] = str(error)
+        emit(response_message)
+
+
 def run_task(session, message):
     key = normalize_key(message.get("key"))
     request_id = str(message.get("requestId") or "")
@@ -1975,6 +2054,9 @@ def main():
                 continue
             if message_type == "create_task":
                 create_task(session, message)
+                continue
+            if message_type == "update_task":
+                update_task(session, message)
                 continue
             if message_type == "run_task":
                 run_task(session, message)

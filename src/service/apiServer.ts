@@ -1,7 +1,7 @@
 import ky from 'ky'
 import { extractLatestRobotParameterYaml, normalizeRobotParametersByHeads, parseRobotParameterHeads, serializeRobotParameterUpdateBody } from './robotParameterPayload'
 import type { RobotParameterNumericType } from './robotParameterPayload'
-import type { CurrentMapData, MapDataDetail, MapListItem, NavProfile, PointAction, PoseMessage, QuaternionMessage, RobotParams, TaskManagerCancelTaskResult, TaskManagerCreateTaskPayload, TaskManagerCreateTaskResult, TaskManagerDeleteTaskResult, TaskManagerListActionsResult, TaskManagerRenameTaskResult, TaskManagerRunTaskResult, TaskManagerTaskDetail, TaskManagerTaskInfo } from '@/types'
+import type { CurrentMapData, MapDataDetail, MapListItem, NavProfile, PointAction, PoseMessage, QuaternionMessage, RobotParams, TaskManagerCancelTaskResult, TaskManagerCreateTaskPayload, TaskManagerCreateTaskResult, TaskManagerDeleteTaskResult, TaskManagerListActionsResult, TaskManagerRenameTaskResult, TaskManagerRunTaskResult, TaskManagerTaskDetail, TaskManagerTaskInfo, TaskManagerUpdateTaskPayload, TaskManagerUpdateTaskResult } from '@/types'
 import { useBoundStore } from '@/store'
 
 interface Resp<T> {
@@ -972,6 +972,31 @@ class ApiServer {
       task_id: response.task_id,
       task_definition_id: response.task_definition_id,
       message: response.message,
+    }
+  }
+
+  updateTask = async (task: TaskManagerUpdateTaskPayload, options: ZenohTaskServiceOptions = {}): Promise<TaskManagerUpdateTaskResult> => {
+    if (!window.zcDesktop?.updateZenohTask)
+      throw new Error('Task updating is unavailable. Restart the Fleet Operations Console and try again.')
+
+    const response = await window.zcDesktop.updateZenohTask({
+      host: this.controllerHost,
+      servicePath: options.servicePath,
+      task,
+      timeoutMs: options.timeoutMs,
+    })
+    if (!response.success) {
+      console.error('Task configuration update did not complete', response.message)
+      throw new Error('Task configuration could not be saved. Check the connection and try again.')
+    }
+    if (!response.ok) {
+      console.warn('Task configuration update was rejected', response.message)
+      throw new Error('Task configuration was rejected. Review the Unit Tasks and try again.')
+    }
+
+    return {
+      ok: response.ok,
+      message: '',
     }
   }
 

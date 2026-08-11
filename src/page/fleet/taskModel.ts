@@ -1,4 +1,4 @@
-import type { TaskManagerTaskInfo, TaskManagerUnitTaskSpec } from '../../types.js'
+import type { TaskManagerLifecycleHookSpec, TaskManagerTaskDetail, TaskManagerTaskInfo, TaskManagerUnitTaskSpec } from '../../types.js'
 
 const taskManagerActiveExecutionStatuses = new Set([
   'PENDING',
@@ -34,6 +34,114 @@ export function isCancelableTaskManagerTask(task: TaskManagerTaskInfo) {
     return task.allowed_controls.includes('CANCEL')
 
   return legacyCancelableTaskManagerStatuses.has(task.status)
+}
+
+export type TaskManagerEditableLifecycleHookKey = 'on_cancel' | 'on_pause' | 'on_finish' | 'on_resume'
+
+export interface TaskManagerConfigurationDraft {
+  unit_tasks: TaskManagerUnitTaskSpec[]
+  on_cancel: TaskManagerLifecycleHookSpec
+  on_pause: TaskManagerLifecycleHookSpec
+  on_finish: TaskManagerLifecycleHookSpec
+  on_resume: TaskManagerLifecycleHookSpec
+}
+
+function emptyLifecycleHook(): TaskManagerLifecycleHookSpec {
+  return {
+    policy: '',
+    unit_tasks: [],
+  }
+}
+
+function copyUnitTaskSpec(unitTask: TaskManagerUnitTaskSpec): TaskManagerUnitTaskSpec {
+  return {
+    seq: unitTask.seq,
+    waypoint: unitTask.waypoint,
+    action_name: unitTask.action_name,
+    action_params_json: unitTask.action_params_json,
+  }
+}
+
+function copyLifecycleHook(hook: TaskManagerLifecycleHookSpec | undefined) {
+  return hook
+    ? {
+        policy: hook.policy,
+        unit_tasks: hook.unit_tasks.map(copyUnitTaskSpec),
+      }
+    : emptyLifecycleHook()
+}
+
+export function buildTaskManagerConfigurationDraft(detail: TaskManagerTaskDetail): TaskManagerConfigurationDraft {
+  return {
+    unit_tasks: detail.unit_tasks.map(unitTask => ({
+      seq: unitTask.seq,
+      waypoint: unitTask.waypoint,
+      action_name: unitTask.action_name,
+      action_params_json: unitTask.action_params_json ?? (unitTask.action_name ? '' : '{}'),
+    })),
+    on_cancel: copyLifecycleHook(detail.on_cancel),
+    on_pause: copyLifecycleHook(detail.on_pause),
+    on_finish: copyLifecycleHook(detail.on_finish),
+    on_resume: copyLifecycleHook(detail.on_resume),
+  }
+}
+
+function validateUnitTaskSequence(unitTasks: TaskManagerUnitTaskSpec[], label: string, required: boolean) {
+  if (required && unitTasks.length === 0)
+    return `${label} requires at least one Unit Task.`
+
+  const sequences = new Set<number>()
+  for (const [index, unitTask] of unitTasks.entries()) {
+    if (!Number.isInteger(unitTask.seq) || unitTask.seq < 0)
+      return `${label} Unit Task ${index + 1} needs a non-negative integer sequence.`
+    if (sequences.has(unitTask.seq))
+      return `${label} has more than one Unit Task with sequence ${unitTask.seq}.`
+    sequences.add(unitTask.seq)
+
+    const waypoint = unitTask.waypoint.trim()
+    const actionName = unitTask.action_name.trim()
+    if (!waypoint && !actionName)
+      return `${label} Unit Task #${unitTask.seq} needs a waypoint or Action.`
+
+    if (actionName && !unitTask.action_params_json.trim())
+      return `${label} Unit Task #${unitTask.seq} needs Action parameters. Re-enter them before saving this configuration.`
+
+    const parameters = unitTask.action_params_json.trim() || '{}'
+    try {
+      const parsed = JSON.parse(parameters)
+      if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed))
+        return `${label} Unit Task #${unitTask.seq} Action parameters must be a JSON object.`
+    }
+    catch {
+      return `${label} Unit Task #${unitTask.seq} Action parameters must be valid JSON.`
+    }
+  }
+
+  return ''
+}
+
+export function validateTaskManagerConfigurationDraft(draft: TaskManagerConfigurationDraft) {
+  const mainError = validateUnitTaskSequence(draft.unit_tasks, 'Main sequence', true)
+  if (mainError)
+    return mainError
+
+  const lifecycleHooks: Array<[TaskManagerEditableLifecycleHookKey, string]> = [
+    ['on_cancel', 'On cancel'],
+    ['on_pause', 'On pause'],
+    ['on_finish', 'On finish'],
+    ['on_resume', 'On resume'],
+  ]
+  for (const [key, label] of lifecycleHooks) {
+    const hook = draft[key]
+    if (hook.unit_tasks.length > 0 && hook.policy !== 'required' && hook.policy !== 'best_effort')
+      return `${label} needs a required or best-effort policy.`
+
+    const hookError = validateUnitTaskSequence(hook.unit_tasks, label, false)
+    if (hookError)
+      return hookError
+  }
+
+  return ''
 }
 
 export type MultiGoToPoseUnitTasksResult =

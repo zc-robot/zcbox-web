@@ -2966,6 +2966,76 @@ async function requestZenohTaskCreate(options) {
   return response
 }
 
+async function requestZenohTaskUpdate(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const servicePath = normalizeZenohTaskServicePath(options?.servicePath, '')
+  const timeoutMs = normalizeZenohServiceTimeout(options?.timeoutMs)
+  const task = options?.task && typeof options.task === 'object' ? options.task : {}
+  const taskId = typeof task.task_id === 'string' ? task.task_id.trim() : ''
+  const name = typeof task.name === 'string' ? task.name.trim() : ''
+  const description = typeof task.description === 'string' ? task.description.trim() : ''
+  const robotName = typeof task.robot_name === 'string' ? task.robot_name.trim() : ''
+  const fleetName = typeof task.fleet_name === 'string' ? task.fleet_name.trim() : ''
+  const stopOnFailure = task.stop_on_failure === true
+  const unitTasks = normalizeCreateTaskUnitTasks(task.unit_tasks)
+  const recoveryTaskMappings = normalizeRecoveryTaskMappings(task.recovery_task_mappings)
+  const onCancel = normalizeLifecycleHook(task.on_cancel, 'on_cancel')
+  const onPause = normalizeLifecycleHook(task.on_pause, 'on_pause')
+  const onFinish = normalizeLifecycleHook(task.on_finish, 'on_finish')
+  const onResume = normalizeLifecycleHook(task.on_resume, 'on_resume')
+
+  if (!host || !servicePath)
+    throw new Error('Task update request requires host and service path')
+  if (!taskId)
+    throw new Error('Task update request requires task id')
+  if (!robotName)
+    throw new Error('Task update request requires robot name')
+  if (!fleetName)
+    throw new Error('Task update request requires fleet name')
+  if (unitTasks.length === 0)
+    throw new Error('Task update request requires at least one unit task')
+
+  startZenohCommandBridge(host)
+
+  if (!zenohCommandProcess?.stdin?.writable)
+    throw new Error('Zenoh command bridge is not writable')
+
+  const requestId = nextZenohCommandRequestId('update_task')
+  const responsePromise = waitForZenohCommandResponse(requestId, timeoutMs)
+  try {
+    zenohCommandProcess.stdin.write(`${JSON.stringify({
+      type: 'update_task',
+      key: servicePath,
+      requestId,
+      task: {
+        task_id: taskId,
+        name,
+        description,
+        robot_name: robotName,
+        fleet_name: fleetName,
+        stop_on_failure: stopOnFailure,
+        unit_tasks: unitTasks,
+        recovery_task_mappings: recoveryTaskMappings,
+        on_cancel: onCancel,
+        on_pause: onPause,
+        on_finish: onFinish,
+        on_resume: onResume,
+      },
+      timeoutSec: timeoutMs / 1000,
+    })}\n`)
+  }
+  catch (error) {
+    cancelPendingZenohCommandRequest(requestId, error)
+    throw error
+  }
+
+  const response = await responsePromise
+  if (!response.success)
+    throw new Error(response.message || 'Failed to update task')
+
+  return response
+}
+
 async function requestZenohTaskRun(options) {
   const host = typeof options?.host === 'string' ? options.host.trim() : ''
   const servicePath = normalizeZenohTaskServicePath(options?.servicePath, '')
@@ -3649,6 +3719,10 @@ ipcMain.handle('zenoh-command:get-task', (_event, options) => {
 
 ipcMain.handle('zenoh-command:create-task', (_event, options) => {
   return requestZenohTaskCreate(options)
+})
+
+ipcMain.handle('zenoh-command:update-task', (_event, options) => {
+  return requestZenohTaskUpdate(options)
 })
 
 ipcMain.handle('zenoh-command:run-task', (_event, options) => {
