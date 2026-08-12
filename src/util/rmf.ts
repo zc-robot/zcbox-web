@@ -630,7 +630,14 @@ function buildVertexLine(x: number, y: number, name = '', attributes: Array<[str
 
 function buildPointVertexLine(point: NavPoint, source: RmfExportLevelSource) {
   const pixelPoint = navPointToLevelPixel(point, source)
-  const attributes: Array<[string, boolean | number | string | Array<boolean | number | string>]> = []
+  const alignedRotation = source.pixelTransform
+    ? rotateMapObjectDegrees(point.rotation, source.pixelTransform)
+    : point.rotation
+  const rawYaw = -alignedRotation * Math.PI / 180
+  const yaw = Math.atan2(Math.sin(rawYaw), Math.cos(rawYaw))
+  const attributes: Array<[string, boolean | number | string | Array<boolean | number | string>]> = [
+    ['orientation', [3, yaw]],
+  ]
   if (point.is_charger)
     attributes.push(['is_charger', [4, true]])
   if (point.is_parking_spot)

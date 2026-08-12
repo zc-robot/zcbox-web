@@ -112,6 +112,57 @@ test('lift rectangle corners preserve the deployment lift orientation', () => {
   ])
 })
 
+test('RMF export writes waypoint orientation as yaw radians', () => {
+  const waypointProfile = profile('L1', lift())
+  waypointProfile.data.waypoints = [{
+    uid: 'waypoint-a',
+    name: 'Waypoint A',
+    x: 4,
+    y: 5,
+    rotation: 90,
+  }]
+
+  const yaml = buildRmfBuildingYaml([{
+    levelName: 'L1',
+    drawingFilename: 'L1.png',
+    gridInfo: gridInfo(),
+    profile: waypointProfile,
+  }], {
+    buildingName: 'Orientation Site',
+  })
+
+  assert.match(yaml, /"Waypoint A", \{orientation: \[3, -1\.571\]\}/)
+})
+
+test('RMF export applies level alignment rotation to waypoint orientation', () => {
+  const waypointProfile = profile('L1', lift())
+  waypointProfile.data.waypoints = [{
+    uid: 'waypoint-a',
+    name: 'Aligned Waypoint',
+    x: 4,
+    y: 5,
+    rotation: 170,
+  }]
+
+  const yaml = buildRmfBuildingYaml([{
+    levelName: 'L1',
+    drawingFilename: 'L1.png',
+    gridInfo: gridInfo(),
+    pixelTransform: {
+      translateX: 0,
+      translateY: 0,
+      rotation: 30,
+      centerX: 200,
+      centerY: 200,
+    },
+    profile: waypointProfile,
+  }], {
+    buildingName: 'Aligned Orientation Site',
+  })
+
+  assert.match(yaml, /"Aligned Waypoint", \{orientation: \[3, 2\.793\]\}/)
+})
+
 test('RMF export writes visual lift alignment fiducials per level', () => {
   const levelOneLift = lift({ uid: 'lift-l1', level_name: 'L1', x: 4, y: 5, rotation: 0 })
   const levelTwoLift = lift({ uid: 'lift-l2', level_name: 'L2', x: 8, y: 6, rotation: 90 })
