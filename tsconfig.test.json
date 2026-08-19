@@ -19,6 +19,8 @@
     "src/page/fleet/taskModel.test.ts",
     "src/page/home/parameterModel.ts",
     "src/page/home/parameterModel.test.ts",
+    "src/service/dockingPose.ts",
+    "src/service/dockingPose.test.ts",
     "src/hooks/robotHardwareDiagnosticsModel.ts",
     "src/hooks/robotHardwareDiagnosticsModel.test.ts",
     "src/hooks/robotHardwareDiagnosticsSubscription.ts",

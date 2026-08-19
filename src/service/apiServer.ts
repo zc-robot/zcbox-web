@@ -2,6 +2,7 @@ import ky from 'ky'
 import { extractLatestRobotParameterYaml, normalizeRobotParametersByHeads, parseRobotParameterHeads, serializeRobotParameterUpdateBody } from './robotParameterPayload'
 import type { RobotParameterNumericType } from './robotParameterPayload'
 import { projectTaskManagerTaskDetail } from './taskManagerTaskDetail.js'
+import type { CalculateDockingPoseData, CalculateDockingPoseRequest } from './dockingPose'
 import type { CurrentMapData, MapDataDetail, MapListItem, NavProfile, PointAction, PoseMessage, QuaternionMessage, RobotParams, TaskManagerCancelTaskResult, TaskManagerCreateTaskPayload, TaskManagerCreateTaskResult, TaskManagerDeleteTaskResult, TaskManagerListActionsResult, TaskManagerRenameTaskResult, TaskManagerRunTaskResult, TaskManagerTaskDetail, TaskManagerTaskInfo, TaskManagerUpdateTaskPayload, TaskManagerUpdateTaskResult } from '@/types'
 import { useBoundStore } from '@/store'
 
@@ -830,6 +831,31 @@ class ApiServer {
   submitProfile = async (data: object) => {
     const json = await this.client.post('deploy/saveDeploymentProfile', { json: data }).json()
     return json
+  }
+
+  calculateDockingPose = async (request: CalculateDockingPoseRequest) => {
+    let json: Resp<CalculateDockingPoseData>
+    try {
+      json = await this.client.post('deploy/calculateDockingPose', {
+        json: request,
+      }).json<Resp<CalculateDockingPoseData>>()
+    }
+    catch (error) {
+      const response = typeof error === 'object' && error !== null && 'response' in error
+        ? (error as { response?: Response }).response
+        : undefined
+      if (response) {
+        const body = await response.clone().json().catch(() => null) as { message?: unknown } | null
+        if (typeof body?.message === 'string' && body.message.trim())
+          throw new Error(body.message)
+      }
+      throw error
+    }
+
+    if (json.code !== 0 || !json.data)
+      throw new Error(json.message || 'Failed to calculate the docking-start pose')
+
+    return json.data
   }
 
   changeMap = async (mapId: number) => {

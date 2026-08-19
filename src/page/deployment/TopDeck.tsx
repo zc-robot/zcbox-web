@@ -14,9 +14,10 @@ import LidarScanControls from '@/components/LidarScanControls'
 import PointCloudControls from '@/components/PointCloudControls'
 import { useGridStore, useOperationStore, useParamsStore, useProfileStore } from '@/store'
 import apiServer from '@/service/apiServer'
+import { createDockingPoseRequest, createDockingWaypoint } from '@/service/dockingPose'
 import type { GridInfoMessage, NavPoint, NavProfile, PointMessage, RobotStatus } from '@/types'
 import { useKeyPress } from '@/hooks'
-import { parseFiniteNumber, parseRobotStatus } from '@/util'
+import { parseFiniteNumber, parseRobotStatus, uid } from '@/util'
 import { canvasAngleToQuaternion, convertMapRasterToPngBlob, parseMapRaster, renderAlignedMapRasterToPngBlob } from '@/util/transform'
 import { buildAlignedNav2MapYaml, resolveAlignedNav2MapResolution } from '@/util/nav2MapYaml'
 import { buildRmfBuildingYaml, createAlignedMapImageLayout, createGridInfoWithImageDimensions, sanitizeRmfFileName, transformNavProfileToAlignedMapFrame } from '@/util/rmf'
@@ -26,6 +27,12 @@ type ExecuteWaypointNavType = 'auto' | 'manually'
 type NavigationRestartState = 'restarting' | 'succeeded' | 'failed'
 
 const EXECUTABLE_ROBOT_STATUSES = new Set<RobotStatus>(['idle', 'succeeded', 'failed', 'canceled'])
+const CHARGER_SIDE_LABELS = {
+  front: '前侧',
+  back: '后侧',
+  left: '左侧',
+  right: '右侧',
+}
 
 export interface TopDeckProps {
   mapId: number
@@ -98,6 +105,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const [navigationRestartState, setNavigationRestartState] = useState<NavigationRestartState>('restarting')
   const navigationTransitionReadyRef = useRef<((ready: boolean) => void) | null>(null)
   const [showExecuteOptions, setShowExecuteOptions] = useState(false)
+  const [isCalculatingDockingPose, setIsCalculatingDockingPose] = useState(false)
   const [rmfUploadHost, setRmfUploadHost] = useState(() => apiServer.defaultRmfWebVizHost)
   const [isUploadingRmf, setIsUploadingRmf] = useState(false)
   const [executePreciseXY, setExecutePreciseXY] = useState('0.05')
@@ -135,17 +143,22 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     updateOp: state.updateOp,
     openPointEditor: state.openPointEditor,
   }))
-  const { currentProfile, currentTask, currentPoints, addProfiles, appendCurrentProfilePointFromPose, updateCurrentProfilePoints, rotateCurrentProfileLineWaypoints } = useProfileStore(state => ({
+  const { currentProfile, currentTask, currentPoints, addProfiles, appendCurrentProfilePoint, appendCurrentProfilePointFromPose, updateCurrentProfilePoints, rotateCurrentProfileLineWaypoints } = useProfileStore(state => ({
     currentProfile: state.currentProfile,
     currentTask: state.getCurrentTask,
     currentPoints: state.currentProfilePoints,
     addProfiles: state.addProfiles,
+    appendCurrentProfilePoint: state.appendCurrentProfilePoint,
     appendCurrentProfilePointFromPose: state.appendCurrentProfilePointFromPose,
     updateCurrentProfilePoints: state.updateCurrentProfilePoints,
     rotateCurrentProfileLineWaypoints: state.rotateCurrentProfileLineWaypoints,
   }))
   const pointActions = useParamsStore(state => state.pointActions)
   const nestControllerIp = useParamsStore(state => state.nestControllerIp)
+  const pointMap = new Map(currentPoints().map(point => [point.uid, point]))
+  const selectedWaypoints = selectedPointIds
+    .map(id => pointMap.get(id))
+    .filter((point): point is NavPoint => point != null)
   const handleNavigationTransitionReady = useCallback(() => {
     navigationTransitionReadyRef.current?.(true)
   }, [])
@@ -243,6 +256,42 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     toast.success('已采集当前位置为路径点')
   }
 
+  const createDockingStartWaypoint = async () => {
+    if (isCalculatingDockingPose)
+      return
+
+    if (!currentProfile()) {
+      toast.error('请先选择配置')
+      return
+    }
+
+    if (selectedWaypoints.length !== 1) {
+      toast.error('请选择一个表示最终停靠位姿的路径点')
+      return
+    }
+
+    const loadingToast = toast.loading('正在计算对接起点...')
+    setIsCalculatingDockingPose(true)
+    try {
+      const result = await apiServer.calculateDockingPose(createDockingPoseRequest(selectedWaypoints[0]))
+      const id = uid('Point')
+      appendCurrentProfilePoint(createDockingWaypoint(id, result))
+      updateOp('select')
+      selectPoint(id)
+      openPointEditor(id)
+      toast.dismiss(loadingToast)
+      toast.success(`已创建对接起点（充电器在机器人${CHARGER_SIDE_LABELS[result.charger_side]}，偏移 ${result.offset_distance} m）`)
+    }
+    catch (error) {
+      toast.dismiss(loadingToast)
+      console.error('创建对接起点失败:', error)
+      toast.error('创建对接起点失败，请检查机器人几何和充电器配置')
+    }
+    finally {
+      setIsCalculatingDockingPose(false)
+    }
+  }
+
   const applyRedistributedWaypoints = (spacing?: number) => {
     if (selectedPointIds.length < 2) {
       toast.error('请先选择至少两个路径点')
@@ -275,14 +324,6 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     setShowRedistributeModal(true)
   }
 
-  const getSelectedWaypoints = () => {
-    const pointMap = new Map(currentPoints().map(point => [point.uid, point]))
-    return selectedPointIds
-      .map(id => pointMap.get(id))
-      .filter((point): point is NavPoint => point != null)
-  }
-
-  const selectedWaypoints = getSelectedWaypoints()
   const selectedWaypointRedistributionSpacing = getWaypointRedistributionSpacing(selectedWaypoints)
 
   const getSelectedWaypointsForNavigation = () => {
@@ -984,6 +1025,12 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           onClick={captureRobotWaypoint}>
           <div className="i-material-symbols-add-location-outline panel-icon" />
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">添加路径点</span>
+        </div>
+        <div
+          className={`panel-item group bg-emerald-600 hover:bg-emerald-700 ${isCalculatingDockingPose || selectedWaypoints.length !== 1 ? 'opacity-45' : ''}`}
+          onClick={createDockingStartWaypoint}>
+          <div className={`${isCalculatingDockingPose ? 'i-material-symbols-progress-activity-rounded animate-spin' : 'i-material-symbols-ev-station-outline-rounded'} panel-icon`} />
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">从选中的最终停靠位姿创建对接起点</span>
         </div>
         <div
           className={`${currentOp === 'waypoint' ? 'panel-item-enabled' : 'panel-item'} group`}
