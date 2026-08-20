@@ -2,22 +2,14 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createDockingPoseRequest, createDockingWaypoint } from './dockingPose.js'
 
-test('converts the selected final docked waypoint into the ROS map frame', () => {
+test('uses the Robot current pose as the final docked pose in the ROS map frame', () => {
   const request = createDockingPoseRequest({
-    uid: 'Point_docked',
-    name: '最终停靠位姿',
-    x: 22.63,
-    y: 57.76,
-    rotation: -0.07 * 180 / Math.PI,
+    position: { x: 22.63, y: -57.76, z: 0 },
+    orientation: { x: 0, y: 0, z: 0.0349928546, w: 0.9993875625 },
+    pyr: { pitch: 0, roll: 0, yaw: 0.07 },
   })
 
-  assert.deepEqual({
-    ...request,
-    docked_pose: {
-      ...request.docked_pose,
-      yaw: Number(request.docked_pose.yaw.toFixed(12)),
-    },
-  }, {
+  assert.deepEqual(request, {
     frame_id: 'map',
     docked_pose: {
       x: 22.63,

@@ -265,15 +265,15 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
       return
     }
 
-    if (selectedWaypoints.length !== 1) {
-      toast.error('请选择一个表示最终停靠位姿的路径点')
+    if (!robotInfo || !hasLivePose) {
+      toast.error('暂无机器人位姿')
       return
     }
 
     const loadingToast = toast.loading('正在计算对接起点...')
     setIsCalculatingDockingPose(true)
     try {
-      const result = await apiServer.calculateDockingPose(createDockingPoseRequest(selectedWaypoints[0]))
+      const result = await apiServer.calculateDockingPose(createDockingPoseRequest(robotInfo.pose))
       const id = uid('Point')
       appendCurrentProfilePoint(createDockingWaypoint(id, result))
       updateOp('select')
@@ -1027,10 +1027,10 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">添加路径点</span>
         </div>
         <div
-          className={`panel-item group bg-emerald-600 hover:bg-emerald-700 ${isCalculatingDockingPose || selectedWaypoints.length !== 1 ? 'opacity-45' : ''}`}
+          className={`panel-item group bg-emerald-600 hover:bg-emerald-700 ${isCalculatingDockingPose || !robotInfo || !hasLivePose ? 'opacity-45' : ''}`}
           onClick={createDockingStartWaypoint}>
           <div className={`${isCalculatingDockingPose ? 'i-material-symbols-progress-activity-rounded animate-spin' : 'i-material-symbols-ev-station-outline-rounded'} panel-icon`} />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">从选中的最终停靠位姿创建对接起点</span>
+          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">从机器人当前位姿创建对接起点</span>
         </div>
         <div
           className={`${currentOp === 'waypoint' ? 'panel-item-enabled' : 'panel-item'} group`}
