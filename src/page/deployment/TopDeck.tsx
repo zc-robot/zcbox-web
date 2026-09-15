@@ -930,16 +930,19 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
       toast.dismiss(uploadToast)
       uploadToast = undefined
 
-      referenceToast = toast.loading('正在更新参考坐标...')
-      await apiServer.updateFleetReferenceCoordinates(
+      referenceToast = toast.loading('正在检查参考坐标更新...')
+      const referenceResponse = await apiServer.updateFleetReferenceCoordinates(
         selectedLevels.map(({ selection }) => selection.map.name),
         false,
       )
+      const referenceData = referenceResponse.data && typeof referenceResponse.data === 'object'
+        ? referenceResponse.data as { skipped?: boolean }
+        : null
 
       setShowExportModal(false)
       toast.dismiss(referenceToast)
       referenceToast = undefined
-      toast.success('导航图已上传，参考坐标已更新')
+      toast.success(referenceData?.skipped ? '导航图已上传；参考坐标请在站点配置中更新并 Apply' : '导航图已上传，参考坐标已更新')
     }
     catch (error) {
       toast.dismiss(loadingToast)

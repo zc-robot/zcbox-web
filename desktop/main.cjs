@@ -110,25 +110,56 @@ function normalizeComposeControlPath(value) {
   const normalizedPath = requestPath.startsWith('/') ? requestPath : `/${requestPath}`
   const pathname = normalizedPath.split('?')[0]
   const isAllowed = pathname === '/health'
-    || pathname === '/api/compose/allowed-files'
-    || pathname === '/api/compose/ps'
-    || pathname === '/api/compose/status'
-    || pathname === '/api/compose/config'
-    || pathname === '/api/compose/logs'
-    || pathname === '/api/compose/logs/stream'
-    || /^\/api\/compose\/(?:up|down|stop|restart)$/.test(pathname)
-    || pathname === '/api/fleet-config'
-    || pathname === '/api/fleet-config/namespace'
-    || pathname === '/api/fleet-config/reference-coordinates'
-    || pathname === '/api/maps/sites'
-    || /^\/api\/maps\/[^/]+\/files$/.test(pathname)
-    || /^\/api\/maps\/[^/]+\/download$/.test(pathname)
-    || /^\/api\/maps\/[^/]+\/(?:png|yaml|file)\/.+$/.test(pathname)
+    || pathname === '/api/v1/status'
+    || pathname === '/api/v1/setup'
+    || pathname === '/api/v1/site'
+    || pathname === '/api/v1/site/config/raw'
+    || pathname === '/api/v1/site/zenoh'
+    || pathname === '/api/v1/profile'
+    || pathname === '/api/v1/profile/export'
+    || pathname === '/api/v1/profile/refresh'
+    || pathname === '/api/v1/apply'
+    || pathname === '/api/v1/operations'
+    || /^\/api\/v1\/operations\/[^/]+(?:\/decision)?$/.test(pathname)
+    || pathname === '/api/v1/containers'
+    || pathname === '/api/v1/containers/operations'
+    || pathname === '/api/v1/storage/reset'
+    || pathname === '/api/v1/maps/files'
+    || pathname === '/api/v1/maps/inspect'
+    || pathname === '/api/v1/maps/download'
+    || pathname === '/api/v1/maps/generate'
+    || pathname === '/api/v1/logs/services'
+    || pathname === '/api/v1/logs/history'
+    || pathname === '/api/v1/logs/stream'
+    || pathname === '/api/v1/audit'
+    || pathname === '/api/v1/audit/export'
+    || pathname === '/api/v1/audit/runtime-command-observations'
+    || pathname === '/api/v1/maintenance/restart-app'
 
   if (!isAllowed)
     throw new Error(`Compose control path is not allowed: ${normalizedPath}`)
 
   return normalizedPath
+}
+
+function summarizeHttpErrorBody(body) {
+  if (typeof body === 'string')
+    return body.trim()
+
+  if (body && typeof body === 'object') {
+    for (const field of ['error', 'message', 'detail', 'stderr', 'stdout']) {
+      const value = body[field]
+      if (typeof value === 'string' && value.trim())
+        return value.trim()
+    }
+
+    try {
+      return JSON.stringify(body)
+    }
+    catch {}
+  }
+
+  return ''
 }
 
 async function requestCameraGateway(options) {
@@ -190,7 +221,7 @@ async function requestComposeControl(options) {
     accept: 'application/json',
   }
   if (token)
-    headers.authorization = `Bearer ${token}`
+    headers['x-api-key'] = token
   const hasJsonBody = method !== 'GET' && options?.json !== undefined
   if (hasJsonBody)
     headers['content-type'] = 'application/json'
@@ -218,9 +249,10 @@ async function requestComposeControl(options) {
   }
 
   if (!response.ok) {
-    const message = typeof body === 'object' && body !== null && 'error' in body
-      ? body.error
-      : `Compose control request failed: ${response.status}`
+    const statusText = response.statusText ? ` ${response.statusText}` : ''
+    const responseMessage = summarizeHttpErrorBody(body)
+    const detail = responseMessage ? `: ${responseMessage}` : ''
+    const message = `Compose control request failed: ${method} ${url.toString()} returned ${response.status}${statusText}${detail}`
     throw new Error(message)
   }
 
@@ -2835,6 +2867,11 @@ function normalizeCreateTaskUnitTasks(value, fieldName = 'unit_tasks') {
     const waypoint = typeof unitTask?.waypoint === 'string' ? unitTask.waypoint.trim() : ''
     const actionName = typeof unitTask?.action_name === 'string' ? unitTask.action_name.trim() : ''
     const actionParamsJson = normalizeTaskJsonObject(unitTask?.action_params_json, `${fieldName}[${index}].action_params_json`)
+    const usePreciseNav = unitTask?.use_precise_nav === true
+    const distanceGoalTolerance = Number.isFinite(unitTask?.distance_goal_tolerance) ? Number(unitTask.distance_goal_tolerance) : 0
+    const yawGoalTolerance = Number.isFinite(unitTask?.yaw_goal_tolerance) ? Number(unitTask.yaw_goal_tolerance) : 0
+    const targetTfFrame = typeof unitTask?.target_tf_frame === 'string' ? unitTask.target_tf_frame.trim() : ''
+    const minLinearVelocity = Number.isFinite(unitTask?.min_linear_velocity) ? Number(unitTask.min_linear_velocity) : 0
     if (!waypoint && !actionName)
       throw new Error(`${fieldName}[${index}] requires waypoint or action_name`)
 
@@ -2843,6 +2880,11 @@ function normalizeCreateTaskUnitTasks(value, fieldName = 'unit_tasks') {
       waypoint,
       action_name: actionName,
       action_params_json: actionParamsJson,
+      use_precise_nav: usePreciseNav,
+      distance_goal_tolerance: distanceGoalTolerance,
+      yaw_goal_tolerance: yawGoalTolerance,
+      target_tf_frame: targetTfFrame,
+      min_linear_velocity: minLinearVelocity,
     }
   })
 }
@@ -3153,6 +3195,68 @@ async function requestZenohTaskCancel(options) {
   const response = await responsePromise
   if (!response.success)
     throw new Error(response.message || 'Failed to cancel task')
+
+  return response
+}
+
+async function requestZenohTaskResolveRecovery(options) {
+  const host = typeof options?.host === 'string' ? options.host.trim() : ''
+  const servicePath = normalizeZenohTaskServicePath(options?.servicePath, '')
+  const resolution = options?.resolution && typeof options.resolution === 'object' ? options.resolution : {}
+  const taskExecutionId = typeof resolution.task_execution_id === 'string' ? resolution.task_execution_id.trim() : ''
+  const action = typeof resolution.action === 'string' ? resolution.action.trim() : ''
+  const allowedActions = new Set([
+    'retry_lifecycle_hook',
+    'accept_lifecycle_failure',
+    'create_retry_execution',
+    'mark_succeeded',
+    'mark_failed',
+    'cancel',
+  ])
+  const retryFromUnitTaskDefinitionId = action === 'create_retry_execution' && typeof resolution.retry_from_unit_task_definition_id === 'string'
+    ? resolution.retry_from_unit_task_definition_id.trim()
+    : ''
+  const retryFromSeq = action === 'create_retry_execution' && Number.isFinite(resolution.retry_from_seq)
+    ? Math.floor(resolution.retry_from_seq)
+    : 0
+  const timeoutMs = normalizeZenohServiceTimeout(options?.timeoutMs)
+
+  if (!host || !servicePath)
+    throw new Error('Recovery resolution request requires host and service path')
+  if (!taskExecutionId)
+    throw new Error('Recovery resolution request requires task execution id')
+  if (!allowedActions.has(action))
+    throw new Error('Recovery resolution request has an unsupported action')
+  if (retryFromSeq < 0 || retryFromSeq > 0x7FFFFFFF)
+    throw new Error('Recovery retry sequence must be a non-negative 32-bit integer')
+
+  startZenohCommandBridge(host)
+
+  if (!zenohCommandProcess?.stdin?.writable)
+    throw new Error('Zenoh command bridge is not writable')
+
+  const requestId = nextZenohCommandRequestId('resolve_recovery')
+  const responsePromise = waitForZenohCommandResponse(requestId, timeoutMs)
+  try {
+    zenohCommandProcess.stdin.write(`${JSON.stringify({
+      type: 'resolve_recovery',
+      key: servicePath,
+      requestId,
+      taskExecutionId,
+      action,
+      retryFromUnitTaskDefinitionId,
+      retryFromSeq,
+      timeoutSec: timeoutMs / 1000,
+    })}\n`)
+  }
+  catch (error) {
+    cancelPendingZenohCommandRequest(requestId, error)
+    throw error
+  }
+
+  const response = await responsePromise
+  if (!response.success)
+    throw new Error(response.message || 'Failed to resolve task recovery')
 
   return response
 }
@@ -3731,6 +3835,10 @@ ipcMain.handle('zenoh-command:run-task', (_event, options) => {
 
 ipcMain.handle('zenoh-command:cancel-task', (_event, options) => {
   return requestZenohTaskCancel(options)
+})
+
+ipcMain.handle('zenoh-command:resolve-recovery', (_event, options) => {
+  return requestZenohTaskResolveRecovery(options)
 })
 
 ipcMain.handle('zenoh-command:rename-task', (_event, options) => {

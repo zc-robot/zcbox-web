@@ -29,6 +29,14 @@ TASK_STATUSES = {
     "RECOVERY_REQUIRED",
     "ARCHIVED",
 }
+RECOVERY_ACTIONS = {
+    "retry_lifecycle_hook",
+    "accept_lifecycle_failure",
+    "create_retry_execution",
+    "mark_succeeded",
+    "mark_failed",
+    "cancel",
+}
 POINT_FIELD_DATATYPES = {
     1: ("b", 1),
     2: ("B", 1),
@@ -252,6 +260,15 @@ def encode_task_execution_control_request(task_execution_id, request_id):
     return writer.to_bytes()
 
 
+def encode_resolve_recovery_request(resolution):
+    writer = CdrWriter()
+    writer.write_string(resolution.get("taskExecutionId"))
+    writer.write_string(resolution.get("action"))
+    writer.write_string(resolution.get("retryFromUnitTaskDefinitionId"))
+    writer.write_int32(normalized_int32(resolution.get("retryFromSeq")))
+    return writer.to_bytes()
+
+
 def encode_empty_request():
     return CdrWriter().to_bytes()
 
@@ -280,6 +297,17 @@ def encode_unit_task_spec(writer, unit_task, index):
     writer.write_string(unit_task.get("waypoint"))
     writer.write_string(unit_task.get("action_name"))
     writer.write_string(unit_task.get("action_params_json", "{}"))
+    writer.write_bool(unit_task.get("use_precise_nav", False))
+    writer.write_float64(
+        normalized_float64(unit_task.get("distance_goal_tolerance"), 0.0)
+    )
+    writer.write_float64(
+        normalized_float64(unit_task.get("yaw_goal_tolerance"), 0.0)
+    )
+    writer.write_string(unit_task.get("target_tf_frame"))
+    writer.write_float64(
+        normalized_float64(unit_task.get("min_linear_velocity"), 0.0)
+    )
 
 
 def encode_recovery_task_mapping(writer, mapping):
@@ -801,28 +829,53 @@ def decode_recovery_task_mapping(reader):
     }
 
 
-def decode_unit_task_spec(reader):
-    return {
+def decode_unit_task_spec_with(reader, include_precise_nav_fields):
+    unit_task = {
         "seq": reader.read_int32(),
         "waypoint": reader.read_string(),
         "action_name": reader.read_string(),
         "action_params_json": reader.read_string(),
     }
+    if include_precise_nav_fields:
+        unit_task.update({
+            "use_precise_nav": reader.read_bool(),
+            "distance_goal_tolerance": reader.read_float64(),
+            "yaw_goal_tolerance": reader.read_float64(),
+            "target_tf_frame": reader.read_string(),
+            "min_linear_velocity": reader.read_float64(),
+        })
+    else:
+        unit_task.update({
+            "use_precise_nav": False,
+            "distance_goal_tolerance": 0.0,
+            "yaw_goal_tolerance": 0.0,
+            "target_tf_frame": "",
+            "min_linear_velocity": 0.0,
+        })
+    return unit_task
 
 
-def decode_current_recovery_task_mapping(reader):
+def decode_unit_task_spec(reader):
+    return decode_unit_task_spec_with(reader, include_precise_nav_fields=True)
+
+
+def decode_legacy_unit_task_spec(reader):
+    return decode_unit_task_spec_with(reader, include_precise_nav_fields=False)
+
+
+def decode_current_recovery_task_mapping(reader, unit_task_decoder=decode_unit_task_spec):
     return {
         "recovery_task_index": reader.read_uint8(),
         "max_attempts": reader.read_int32(),
         "clear_timeout_sec": reader.read_float64(),
-        "unit_tasks": reader.read_sequence(decode_unit_task_spec),
+        "unit_tasks": reader.read_sequence(unit_task_decoder),
     }
 
 
-def decode_lifecycle_hook_spec(reader):
+def decode_lifecycle_hook_spec(reader, unit_task_decoder=decode_unit_task_spec):
     return {
         "policy": reader.read_string(),
-        "unit_tasks": reader.read_sequence(decode_unit_task_spec),
+        "unit_tasks": reader.read_sequence(unit_task_decoder),
     }
 
 
@@ -1156,29 +1209,41 @@ def decode_get_task_response_with(
     return response
 
 
-def decode_lifecycle_get_task_response(payload, include_unit_task_specs=False):
+def decode_lifecycle_get_task_response(
+    payload,
+    include_unit_task_specs=False,
+    include_precise_nav_fields=True,
+):
     reader = CdrReader(payload)
     found = reader.read_bool()
     task = decode_lifecycle_task_info(reader)
     unit_tasks = reader.read_sequence(decode_lifecycle_unit_task_info)
+    unit_task_spec_decoder = (
+        decode_unit_task_spec
+        if include_precise_nav_fields
+        else decode_legacy_unit_task_spec
+    )
     response = {
         "found": found,
         "task": task,
         "unit_tasks": unit_tasks,
         **(
-            {"unit_task_specs": reader.read_sequence(decode_unit_task_spec)}
+            {"unit_task_specs": reader.read_sequence(unit_task_spec_decoder)}
             if include_unit_task_specs
             else {}
         ),
         "transitions": reader.read_sequence(decode_task_transition_info),
         "transition_requests": reader.read_sequence(decode_task_transition_request_info),
         "recovery_task_mappings": reader.read_sequence(
-            decode_current_recovery_task_mapping
+            lambda item_reader: decode_current_recovery_task_mapping(
+                item_reader,
+                unit_task_spec_decoder,
+            )
         ),
-        "on_cancel": decode_lifecycle_hook_spec(reader),
-        "on_pause": decode_lifecycle_hook_spec(reader),
-        "on_finish": decode_lifecycle_hook_spec(reader),
-        "on_resume": decode_lifecycle_hook_spec(reader),
+        "on_cancel": decode_lifecycle_hook_spec(reader, unit_task_spec_decoder),
+        "on_pause": decode_lifecycle_hook_spec(reader, unit_task_spec_decoder),
+        "on_finish": decode_lifecycle_hook_spec(reader, unit_task_spec_decoder),
+        "on_resume": decode_lifecycle_hook_spec(reader, unit_task_spec_decoder),
         "lifecycle_configuration_valid": reader.read_bool(),
         "lifecycle_configuration_error": reader.read_string(),
         "lifecycle_configuration_snapshots": reader.read_sequence(
@@ -1200,17 +1265,21 @@ def decode_lifecycle_get_task_response(payload, include_unit_task_specs=False):
 
 def decode_get_task_response(payload):
     decoder_errors = []
-    for include_unit_task_specs in (True, False):
-        try:
-            return decode_lifecycle_get_task_response(
-                payload,
-                include_unit_task_specs=include_unit_task_specs,
-            )
-        except Exception as error:
-            decoder_errors.append(
-                "decode_lifecycle_get_task_response"
-                f"(include_unit_task_specs={include_unit_task_specs}): {error}"
-            )
+    for include_precise_nav_fields in (True, False):
+        for include_unit_task_specs in (False, True):
+            try:
+                return decode_lifecycle_get_task_response(
+                    payload,
+                    include_unit_task_specs=include_unit_task_specs,
+                    include_precise_nav_fields=include_precise_nav_fields,
+                )
+            except Exception as error:
+                decoder_errors.append(
+                    "decode_lifecycle_get_task_response"
+                    f"(include_unit_task_specs={include_unit_task_specs}, "
+                    f"include_precise_nav_fields={include_precise_nav_fields}): "
+                    f"{error}"
+                )
 
     for task_decoder, unit_task_decoder, include_recovery_mappings in (
         (decode_current_task_info, decode_unit_task_info, True),
@@ -1280,6 +1349,28 @@ def decode_task_execution_control_response(payload):
     }
     if reader.offset < len(payload) and any(payload[reader.offset:]):
         raise ValueError("task control response had trailing undecoded fields")
+    return response
+
+
+def decode_resolve_recovery_response(payload):
+    reader = CdrReader(payload)
+    ok = reader.read_bool()
+    task_execution_id = reader.read_string()
+    extra_strings = []
+    while reader.offset < len(payload) and any(payload[reader.offset:]):
+        try:
+            extra_strings.append(reader.read_string())
+        except Exception:
+            # Section 8.3 only guarantees ok and task_execution_id. Treat any
+            # newer response fields as optional instead of failing an action
+            # that the Task Manager has already completed.
+            break
+
+    response = {
+        "ok": ok,
+        "task_execution_id": task_execution_id,
+        "message": next((value for value in reversed(extra_strings) if value), ""),
+    }
     return response
 
 
@@ -1787,6 +1878,65 @@ def cancel_task(session, message):
         emit(response_message)
 
 
+def resolve_recovery(session, message):
+    key = normalize_key(message.get("key"))
+    request_id = str(message.get("requestId") or "")
+    task_execution_id = str(message.get("taskExecutionId") or "")
+    action = str(message.get("action") or "")
+
+    response_message = {
+        "type": "service-response",
+        "service": "resolve_recovery",
+        "key": key,
+        "requestId": request_id,
+        "success": False,
+        "ok": False,
+        "task_execution_id": "",
+        "message": "no service response",
+    }
+
+    if not key:
+        response_message["message"] = "missing resolve_recovery service key"
+        emit(response_message)
+        return
+    if not task_execution_id:
+        response_message["message"] = "missing task_execution_id"
+        emit(response_message)
+        return
+    if action not in RECOVERY_ACTIONS:
+        response_message["message"] = "unsupported recovery action"
+        emit(response_message)
+        return
+
+    try:
+        replies = session.get(
+            key,
+            timeout=normalized_timeout(message),
+            payload=encode_resolve_recovery_request(message),
+        )
+        received_reply = False
+        for reply in replies:
+            received_reply = True
+            if reply.ok is not None:
+                response_message.update(
+                    decode_resolve_recovery_response(reply.ok.payload.to_bytes())
+                )
+                response_message["success"] = True
+                emit(response_message)
+                return
+
+            if reply.err is not None:
+                response_message["message"] = reply.err.payload.to_bytes().decode("utf-8", errors="replace")
+                emit(response_message)
+                return
+
+        if not received_reply:
+            emit(response_message)
+    except Exception as error:
+        response_message["message"] = str(error)
+        emit(response_message)
+
+
 def delete_task(session, message):
     key = normalize_key(message.get("key"))
     request_id = str(message.get("requestId") or "")
@@ -2081,6 +2231,9 @@ def main():
                 continue
             if message_type == "cancel_task":
                 cancel_task(session, message)
+                continue
+            if message_type == "resolve_recovery":
+                resolve_recovery(session, message)
                 continue
             if message_type == "delete_task":
                 delete_task(session, message)

@@ -104,8 +104,9 @@ function formatRmfUploadEndpoint(targetHost: string) {
     const url = new URL(/^https?:\/\//i.test(trimmedHost) ? trimmedHost : `http://${trimmedHost}`)
     if (!url.port)
       url.port = '4999'
-    url.pathname = '/api/map/building_yaml'
+    url.pathname = '/api/v1/maps/files'
     url.search = ''
+    url.searchParams.set('filename', 'map.building.yaml')
     url.hash = ''
     return url.toString()
   }

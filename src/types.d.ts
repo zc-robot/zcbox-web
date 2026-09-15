@@ -348,7 +348,9 @@ export interface StorageAreaDisplayNameResult {
   layout_revision: number,
 }
 
-export type TaskManagerAllowedControl = 'CANCEL' | 'PAUSE' | 'RESUME' | 'RETRY_LIFECYCLE_HOOK' | 'ACCEPT_LIFECYCLE_FAILURE' | (string & {})
+export type TaskManagerAllowedControl = 'CANCEL' | 'PAUSE' | 'RESUME' | 'RETRY_LIFECYCLE_HOOK' | 'ACCEPT_LIFECYCLE_FAILURE' | 'CREATE_RETRY_EXECUTION' | 'MARK_SUCCEEDED' | 'MARK_FAILED' | (string & {})
+
+export type TaskManagerRecoveryAction = 'retry_lifecycle_hook' | 'accept_lifecycle_failure' | 'create_retry_execution' | 'mark_succeeded' | 'mark_failed' | 'cancel'
 
 export interface TaskManagerTaskInfo {
   task_id: string,
@@ -401,6 +403,41 @@ export interface TaskManagerLifecycleHookSpec {
   unit_tasks: TaskManagerUnitTaskSpec[],
 }
 
+export interface TaskManagerLifecycleTaskExecutionInfo {
+  parent_task_execution_id: string,
+  task_execution_id: string,
+  phase: string,
+  policy: string,
+  status: string,
+  result: string,
+  recovery_reason: string,
+  updated_at_unix_ms: number,
+  unit_tasks: TaskManagerUnitTaskInfo[],
+}
+
+export interface TaskManagerRecoverySequenceExecutionInfo {
+  task_execution_id: string,
+  attempt: number,
+  status: string,
+  result: string,
+  supersession_reason: string,
+  updated_at_unix_ms: number,
+  unit_tasks: TaskManagerUnitTaskInfo[],
+}
+
+export interface TaskManagerRecoveryInterruptionInfo {
+  interruption_id: string,
+  task_execution_id: string,
+  recovery_task_index: number,
+  lifecycle_state: string,
+  interrupted_work_kind: string,
+  interrupted_lifecycle_phase: string,
+  interrupted_parent_status: string,
+  supersession_reason: string,
+  updated_at_unix_ms: number,
+  attempts: TaskManagerRecoverySequenceExecutionInfo[],
+}
+
 export interface TaskManagerTaskDetail {
   found: boolean,
   task: TaskManagerTaskInfo,
@@ -413,6 +450,8 @@ export interface TaskManagerTaskDetail {
   on_resume?: TaskManagerLifecycleHookSpec,
   lifecycle_configuration_valid?: boolean,
   lifecycle_configuration_error?: string,
+  lifecycle_task_executions?: TaskManagerLifecycleTaskExecutionInfo[],
+  recovery_interruptions?: TaskManagerRecoveryInterruptionInfo[],
   message: string,
 }
 
@@ -437,6 +476,11 @@ export interface TaskManagerUnitTaskSpec {
   waypoint: string,
   action_name: string,
   action_params_json: string,
+  use_precise_nav?: boolean,
+  distance_goal_tolerance?: number,
+  yaw_goal_tolerance?: number,
+  target_tf_frame?: string,
+  min_linear_velocity?: number,
 }
 
 export interface TaskManagerCreateTaskPayload {
@@ -493,6 +537,19 @@ export interface TaskManagerCancelTaskResult {
   accepted: boolean,
   transition_id: string,
   error_code: string,
+  message: string,
+}
+
+export interface TaskManagerResolveRecoveryPayload {
+  task_execution_id: string,
+  action: TaskManagerRecoveryAction,
+  retry_from_unit_task_definition_id?: string,
+  retry_from_seq?: number,
+}
+
+export interface TaskManagerResolveRecoveryResult {
+  ok: boolean,
+  task_execution_id: string,
   message: string,
 }
 

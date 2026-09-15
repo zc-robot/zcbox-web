@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Robot Depth Video Pipeline — Quick Reference</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div class="eyebrow">Quick reference · Current tree 0b24fde</div>
+      <h1>Robot depth-video pipeline</h1>
+      <p class="lede">Use this sheet to identify the next boundary to inspect without conflating gateway activation, RTSP output, preview rendering, snapshot polling, or point-cloud ROI.</p>
+    </header>
+
+    <h2>Address derivation</h2>
+    <pre><code>Robot mode connection: &lt;robot-controller-ip&gt;
+wsDomain:              ws://&lt;robot-controller-ip&gt;:1234
+cameraGatewayHost:     hostname(wsDomain)
+cameraGatewayBaseUrl:  http://&lt;robot-controller-ip&gt;:8083</code></pre>
+
+    <h2>Control path</h2>
+    <pre><code>Open modal
+  → GET /api/v1/sources
+  → choose source
+  → POST source.paths.start
+  → mark active + show returned RTSP URL
+
+Stop / close / unmount
+  → POST source.paths.stop</code></pre>
+
+    <h2>Render-path switch</h2>
+    <table>
+      <thead><tr><th>Condition</th><th>Primitive</th><th>Input</th></tr></thead>
+      <tbody>
+        <tr><td>Depth + color enabled</td><td><code>&lt;canvas&gt;</code></td><td>Repeated snapshots when active</td></tr>
+        <tr><td>Active + color disabled</td><td><code>&lt;img&gt;</code></td><td><code>source.paths.preview</code></td></tr>
+        <tr><td>Inactive + non-colorized</td><td><code>&lt;img&gt;</code></td><td>One cache-busted snapshot</td></tr>
+        <tr><td>RTSP URL</td><td>No in-app player</td><td>Displayed only</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Colored-depth loop</h2>
+    <pre><code>fetch snapshot bytes through Electron IPC
+  → base64 data URL
+  → decode with HTMLImageElement
+  → drawImage(canvas)
+  → getImageData() as 8-bit RGBA
+  → ignore alpha=0 and luminance≤4
+  → find luminance p02 and p98
+  → normalize + interpolate palette
+  → putImageData()
+  → wait 125 ms after completion
+  → repeat while active</code></pre>
+
+    <div class="callout warning">
+      <strong>Semantic limit:</strong> displayed color is relative per-frame luminance, not calibrated metric depth. The effective rate is below 8 fps because request, decode, and processing time precede the 125 ms delay.
+    </div>
+
+    <h2>Fast fault isolation</h2>
+    <table>
+      <thead><tr><th>Observation</th><th>Inspect</th></tr></thead>
+      <tbody>
+        <tr><td>No source list</td><td>Host derivation, port 8083, Electron request bridge</td></tr>
+        <tr><td>Unavailable source</td><td>Gateway metadata and upstream camera adapter</td></tr>
+        <tr><td>Cannot start</td><td>Source-specific start path and gateway response</td></tr>
+        <tr><td>Colored stream freezes</td><td>Snapshot binary fetch, image decode, polling effect</td></tr>
+        <tr><td>Preview works but color does not</td><td>Canvas readback and colormap</td></tr>
+        <tr><td>RTSP works externally but app does not</td><td>Preview/snapshot path; RTSP is not the app player</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Source trail</h2>
+    <ul class="source-list">
+      <li><a href="../src/page/App.tsx">Host setup: <code>src/page/App.tsx</code></a></li>
+      <li><a href="../src/service/apiServer.ts">Gateway adapter: <code>src/service/apiServer.ts</code></a></li>
+      <li><a href="../desktop/main.cjs">Desktop transport: <code>desktop/main.cjs</code></a></li>
+      <li><a href="../desktop/preload.cjs">IPC exposure: <code>desktop/preload.cjs</code></a></li>
+      <li><a href="../src/components/CameraStreamControls.tsx">Playback and colorization: <code>src/components/CameraStreamControls.tsx</code></a></li>
+    </ul>
+
+    <footer>
+      <a href="../lessons/0001-trace-robot-depth-video-stream.html">Return to lesson 0001 →</a>
+      <p>Keep the five boundaries separate: discovery, activation, transport, decoding, colorization.</p>
+    </footer>
+  </main>
+</body>
+</html>

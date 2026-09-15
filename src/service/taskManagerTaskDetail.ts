@@ -13,6 +13,8 @@ export function projectTaskManagerTaskDetail(response: TaskManagerTaskDetail): T
     on_resume: response.on_resume,
     lifecycle_configuration_valid: response.lifecycle_configuration_valid,
     lifecycle_configuration_error: response.lifecycle_configuration_error,
+    lifecycle_task_executions: response.lifecycle_task_executions,
+    recovery_interruptions: response.recovery_interruptions,
     message: response.message,
   }
 }

@@ -1,0 +1,96 @@
+coordinate_system: reference_image
+crowd_sim:
+  agent_groups:
+    - {agents_name: [], agents_number: 0, group_id: 0, profile_selector: external_agent, state_selector: external_static, x: 0, y: 0}
+  agent_profiles:
+    - {ORCA_tau: 1, ORCA_tauObst: 0.40000000000000002, class: 1, max_accel: 0, max_angle_vel: 0, max_neighbors: 10, max_speed: 0, name: external_agent, neighbor_dist: 5, obstacle_set: 1, pref_speed: 0, r: 0.25}
+  enable: 0
+  goal_sets: []
+  model_types: []
+  obstacle_set: {class: 1, file_name: "", type: nav_mesh}
+  states:
+    - {final: 1, goal_set: -1, name: external_static, navmesh_file_name: ""}
+  transitions: []
+  update_time_step: 0.10000000000000001
+graphs:
+  {}
+levels:
+  "L3":
+    doors:
+      - [22, 23, {motion_axis: [1, "start"], motion_degrees: [3, 0], motion_direction: [2, 1], name: [1, "Door1"], plugin: [1, "normal"], right_left_ratio: [3, 1], type: [1, "sliding"]}]
+    drawing:
+      filename: "L3.png"
+    elevation: 0
+    fiducials:
+      - [24, 24, F1]
+      - [483, 24, F2]
+      - [253.5, 1421, F3]
+    lanes:
+      - [8, 9, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+      - [4, 5, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+      - [5, 6, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+      - [6, 7, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+      - [4, 11, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+      - [11, 10, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+      - [11, 3, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+      - [11, 12, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+      - [12, 9, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+      - [13, 14, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+      - [14, 15, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+      - [15, 16, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+      - [16, 17, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+      - [10, 13, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+      - [18, 19, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+      - [19, 20, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+      - [12, 18, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+    layers:
+      {}
+    measurements:
+      - [0, 1, {distance: [3, 1]}]
+    vertices:
+      - [20, 20, 0, ""]
+      - [40, 20, 0, ""]
+      - [357.792, 791.538, 0, "路径点 6lm", {orientation: [3, 0]}]
+      - [442, 1153.3, 0, "C1", {orientation: [3, 0], is_charger: [4, true]}]
+      - [435.511, 1255.701, 0, "路径点 tt8", {orientation: [3, 0]}]
+      - [482.511, 1255.201, 0, "路径点 ajj", {orientation: [3, 0]}]
+      - [482.011, 1306.201, 0, "路径点 iqf", {orientation: [3, 0]}]
+      - [134, 1313.2, 0, "toilet", {orientation: [3, 0]}]
+      - [201, 1191.8, 0, "office", {orientation: [3, 0]}]
+      - [286, 1225.3, 0, "meeting_room", {orientation: [3, 0]}]
+      - [310, 1170.8, 0, "area_1_shelf_1_入口", {orientation: [3, 3.042]}]
+      - [426.593, 1153.161, 0, "路径点 ikv", {orientation: [3, 0]}]
+      - [392.6, 1229, 0, "area_2_shelf_1_入口", {orientation: [3, 0]}]
+      - [298.391, 1169.05, 0, "area_1_shelf_1_column_5", {orientation: [3, 3.098]}]
+      - [278.141, 1168.175, 0, "area_1_shelf_1_column_4", {orientation: [3, 3.098]}]
+      - [257.891, 1167.3, 0, "area_1_shelf_1_column_3", {orientation: [3, 3.098]}]
+      - [237.641, 1166.425, 0, "area_1_shelf_1_column_2", {orientation: [3, 3.098]}]
+      - [217.391, 1165.55, 0, "area_1_shelf_1_column_1", {orientation: [3, 3.098]}]
+      - [385.33, 1222.653, 0, "area_2_shelf_1_column_3", {orientation: [3, 2.847]}]
+      - [365.58, 1216.653, 0, "area_2_shelf_1_column_2", {orientation: [3, 2.847]}]
+      - [345.83, 1210.653, 0, "area_2_shelf_1_column_1", {orientation: [3, 2.847]}]
+      - [486.2, 1386.4, 0, "", {lift_cabin: [1, "Lift1"]}]
+      - [465, 1242.2, 0, ""]
+      - [465, 1266.2, 0, ""]
+lifts:
+  "Lift1":
+    depth: 1.4
+    doors:
+      door_front:
+        door_type: 2
+        motion_axis_orientation: 0
+        width: 0.77
+        x: 0
+        y: -0.7
+    highest_floor: "L3"
+    initial_floor_name: "L3"
+    level_doors:
+      "L3": [door_front]
+    lowest_floor: "L3"
+    plugins: true
+    reference_floor_name: "L3"
+    width: 1.4
+    x: 486.2
+    y: 1386.4
+    yaw: 3.141593
+name: "L3"

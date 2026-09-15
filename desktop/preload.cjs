@@ -179,6 +179,7 @@ contextBridge.exposeInMainWorld('zcDesktop', Object.freeze({
   updateZenohTask: options => ipcRenderer.invoke('zenoh-command:update-task', options),
   runZenohTask: options => ipcRenderer.invoke('zenoh-command:run-task', options),
   cancelZenohTask: options => ipcRenderer.invoke('zenoh-command:cancel-task', options),
+  resolveZenohTaskRecovery: options => ipcRenderer.invoke('zenoh-command:resolve-recovery', options),
   renameZenohTask: options => ipcRenderer.invoke('zenoh-command:rename-task', options),
   deleteZenohTask: options => ipcRenderer.invoke('zenoh-command:delete-task', options),
   setZenohStorageAreaDisplayName: options => ipcRenderer.invoke('zenoh-command:set-area-display-name', options),

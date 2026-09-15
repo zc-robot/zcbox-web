@@ -97,15 +97,49 @@ def write_current_unit_task_info(writer):
     write_recovery_lifecycle_action(writer, "start_tool", "{\"tool\":\"brush\"}", "best_effort")
 
 
-def write_lifecycle_hook(writer, policy, unit_tasks=None):
+def write_unit_task_spec(writer, unit_task=None, include_precise_nav_fields=True):
+    unit_task = unit_task or {}
+    writer.write_int32(unit_task.get("seq", 0))
+    writer.write_string(unit_task.get("waypoint", ""))
+    writer.write_string(unit_task.get("action_name", ""))
+    writer.write_string(unit_task.get("action_params_json", "{}"))
+    if include_precise_nav_fields:
+        writer.write_bool(unit_task.get("use_precise_nav", False))
+        writer.write_float64(unit_task.get("distance_goal_tolerance", 0.0))
+        writer.write_float64(unit_task.get("yaw_goal_tolerance", 0.0))
+        writer.write_string(unit_task.get("target_tf_frame", ""))
+        writer.write_float64(unit_task.get("min_linear_velocity", 0.0))
+
+
+def read_unit_task_spec(reader):
+    return {
+        "seq": reader.read_int32(),
+        "waypoint": reader.read_string(),
+        "action_name": reader.read_string(),
+        "action_params_json": reader.read_string(),
+        "use_precise_nav": reader.read_bool(),
+        "distance_goal_tolerance": reader.read_float64(),
+        "yaw_goal_tolerance": reader.read_float64(),
+        "target_tf_frame": reader.read_string(),
+        "min_linear_velocity": reader.read_float64(),
+    }
+
+
+def write_lifecycle_hook(
+    writer,
+    policy,
+    unit_tasks=None,
+    include_precise_nav_fields=True,
+):
     writer.write_string(policy)
     unit_tasks = unit_tasks or []
     writer.write_uint32(len(unit_tasks))
     for index, unit_task in enumerate(unit_tasks):
-        writer.write_int32(unit_task.get("seq", index))
-        writer.write_string(unit_task.get("waypoint", ""))
-        writer.write_string(unit_task.get("action_name", ""))
-        writer.write_string(unit_task.get("action_params_json", "{}"))
+        write_unit_task_spec(
+            writer,
+            {"seq": index, **unit_task},
+            include_precise_nav_fields=include_precise_nav_fields,
+        )
 
 
 def write_lifecycle_unit_task_info(writer):
@@ -319,6 +353,11 @@ class TaskInfoDecoderTest(unittest.TestCase):
                         "waypoint": "P1",
                         "action_name": "",
                         "action_params_json": "{}",
+                        "use_precise_nav": True,
+                        "distance_goal_tolerance": 0.12,
+                        "yaw_goal_tolerance": 0.24,
+                        "target_tf_frame": "cleaning_target",
+                        "min_linear_velocity": 0.05,
                     }],
                     "recovery_task_mappings": [],
                     "on_pause": {
@@ -342,19 +381,33 @@ class TaskInfoDecoderTest(unittest.TestCase):
         self.assertEqual(reader.read_string(), "nest")
         self.assertTrue(reader.read_bool())
         self.assertEqual(reader.read_uint32(), 1)
-        self.assertEqual(reader.read_int32(), 10)
-        self.assertEqual(reader.read_string(), "P1")
-        self.assertEqual(reader.read_string(), "")
-        self.assertEqual(reader.read_string(), "{}")
+        self.assertEqual(read_unit_task_spec(reader), {
+            "seq": 10,
+            "waypoint": "P1",
+            "action_name": "",
+            "action_params_json": "{}",
+            "use_precise_nav": True,
+            "distance_goal_tolerance": 0.12,
+            "yaw_goal_tolerance": 0.24,
+            "target_tf_frame": "cleaning_target",
+            "min_linear_velocity": 0.05,
+        })
         self.assertEqual(reader.read_uint32(), 0)
         self.assertEqual(reader.read_string(), "")
         self.assertEqual(reader.read_uint32(), 0)
         self.assertEqual(reader.read_string(), "required")
         self.assertEqual(reader.read_uint32(), 1)
-        self.assertEqual(reader.read_int32(), 0)
-        self.assertEqual(reader.read_string(), "")
-        self.assertEqual(reader.read_string(), "perform_plc_task")
-        self.assertEqual(reader.read_string(), "{\"task_index\":102}")
+        self.assertEqual(read_unit_task_spec(reader), {
+            "seq": 0,
+            "waypoint": "",
+            "action_name": "perform_plc_task",
+            "action_params_json": "{\"task_index\":102}",
+            "use_precise_nav": False,
+            "distance_goal_tolerance": 0.0,
+            "yaw_goal_tolerance": 0.0,
+            "target_tf_frame": "",
+            "min_linear_velocity": 0.0,
+        })
         for _ in range(2):
             self.assertEqual(reader.read_string(), "")
             self.assertEqual(reader.read_uint32(), 0)
@@ -413,6 +466,67 @@ class TaskInfoDecoderTest(unittest.TestCase):
             "message": "accepted",
         }])
 
+    def test_resolve_recovery_encodes_resolution_and_emits_execution_id(self):
+        bridge = load_bridge()
+        writer = bridge.CdrWriter()
+        writer.write_bool(True)
+        writer.write_string("task-execution-retry-1")
+        writer.write_string("")
+        writer.write_string("retry created")
+
+        class Payload:
+            def to_bytes(self):
+                return writer.to_bytes()
+
+        class Session:
+            def __init__(self):
+                self.request = None
+
+            def get(self, key, *, timeout, payload):
+                self.request = {"key": key, "timeout": timeout, "payload": payload}
+                return [SimpleNamespace(ok=SimpleNamespace(payload=Payload()), err=None)]
+
+        session = Session()
+        emitted = []
+        with mock.patch.object(bridge, "emit", emitted.append):
+            bridge.resolve_recovery(session, {
+                "key": "site-a/resolve_recovery",
+                "requestId": "resolve-recovery-1",
+                "taskExecutionId": "task-execution-1",
+                "action": "create_retry_execution",
+                "retryFromUnitTaskDefinitionId": "unit-definition-2",
+                "retryFromSeq": 20,
+                "timeoutSec": 4,
+            })
+
+        request_reader = bridge.CdrReader(session.request["payload"])
+        self.assertEqual(request_reader.read_string(), "task-execution-1")
+        self.assertEqual(request_reader.read_string(), "create_retry_execution")
+        self.assertEqual(request_reader.read_string(), "unit-definition-2")
+        self.assertEqual(request_reader.read_int32(), 20)
+        self.assertEqual(emitted, [{
+            "type": "service-response",
+            "service": "resolve_recovery",
+            "key": "site-a/resolve_recovery",
+            "requestId": "resolve-recovery-1",
+            "success": True,
+            "ok": True,
+            "task_execution_id": "task-execution-retry-1",
+            "message": "retry created",
+        }])
+
+    def test_resolve_recovery_response_accepts_documented_result_without_message(self):
+        bridge = load_bridge()
+        writer = bridge.CdrWriter()
+        writer.write_bool(True)
+        writer.write_string("task-execution-1")
+
+        self.assertEqual(bridge.decode_resolve_recovery_response(writer.to_bytes()), {
+            "ok": True,
+            "task_execution_id": "task-execution-1",
+            "message": "",
+        })
+
     def test_create_task_request_encodes_current_lifecycle_fields(self):
         bridge = load_bridge()
         payload = bridge.encode_create_task_request({
@@ -429,6 +543,11 @@ class TaskInfoDecoderTest(unittest.TestCase):
                 "waypoint": "",
                 "action_name": "perform_plc_task",
                 "action_params_json": "{\"task_index\":3}",
+                "use_precise_nav": True,
+                "distance_goal_tolerance": 0.1,
+                "yaw_goal_tolerance": 0.2,
+                "target_tf_frame": "tool_target",
+                "min_linear_velocity": 0.03,
             }],
             "recovery_task_mappings": [{
                 "recovery_task_index": 1,
@@ -462,25 +581,46 @@ class TaskInfoDecoderTest(unittest.TestCase):
         self.assertEqual(reader.read_string(), "")
         self.assertEqual(reader.read_string(), "{}")
         self.assertEqual(reader.read_uint32(), 1)
-        self.assertEqual(reader.read_int32(), 2)
-        self.assertEqual(reader.read_string(), "")
-        self.assertEqual(reader.read_string(), "perform_plc_task")
-        self.assertEqual(reader.read_string(), "{\"task_index\":3}")
+        self.assertEqual(read_unit_task_spec(reader), {
+            "seq": 2,
+            "waypoint": "",
+            "action_name": "perform_plc_task",
+            "action_params_json": "{\"task_index\":3}",
+            "use_precise_nav": True,
+            "distance_goal_tolerance": 0.1,
+            "yaw_goal_tolerance": 0.2,
+            "target_tf_frame": "tool_target",
+            "min_linear_velocity": 0.03,
+        })
         self.assertEqual(reader.read_uint32(), 1)
         self.assertEqual(reader.read_uint8(), 1)
         self.assertEqual(reader.read_int32(), 5)
         self.assertAlmostEqual(reader.read_float64(), 180.0)
         self.assertEqual(reader.read_uint32(), 1)
-        self.assertEqual(reader.read_int32(), 0)
-        self.assertEqual(reader.read_string(), "C1")
-        self.assertEqual(reader.read_string(), "")
-        self.assertEqual(reader.read_string(), "{}")
+        self.assertEqual(read_unit_task_spec(reader), {
+            "seq": 0,
+            "waypoint": "C1",
+            "action_name": "",
+            "action_params_json": "{}",
+            "use_precise_nav": False,
+            "distance_goal_tolerance": 0.0,
+            "yaw_goal_tolerance": 0.0,
+            "target_tf_frame": "",
+            "min_linear_velocity": 0.0,
+        })
         self.assertEqual(reader.read_string(), "required")
         self.assertEqual(reader.read_uint32(), 1)
-        self.assertEqual(reader.read_int32(), 0)
-        self.assertEqual(reader.read_string(), "C2")
-        self.assertEqual(reader.read_string(), "")
-        self.assertEqual(reader.read_string(), "{}")
+        self.assertEqual(read_unit_task_spec(reader), {
+            "seq": 0,
+            "waypoint": "C2",
+            "action_name": "",
+            "action_params_json": "{}",
+            "use_precise_nav": False,
+            "distance_goal_tolerance": 0.0,
+            "yaw_goal_tolerance": 0.0,
+            "target_tf_frame": "",
+            "min_linear_velocity": 0.0,
+        })
         for _ in range(3):
             self.assertEqual(reader.read_string(), "")
             self.assertEqual(reader.read_uint32(), 0)
@@ -652,11 +792,22 @@ class TaskInfoDecoderTest(unittest.TestCase):
         writer.write_int32(4)
         writer.write_float64(240.0)
         writer.write_uint32(1)
-        writer.write_int32(0)
-        writer.write_string("C1")
-        writer.write_string("")
-        writer.write_string("{}")
-        write_lifecycle_hook(writer, "required", [{"waypoint": "C1"}])
+        write_unit_task_spec(writer, {
+            "waypoint": "C1",
+            "use_precise_nav": True,
+            "distance_goal_tolerance": 0.08,
+            "yaw_goal_tolerance": 0.16,
+            "target_tf_frame": "cleaning_target",
+            "min_linear_velocity": 0.04,
+        })
+        write_lifecycle_hook(writer, "required", [{
+            "waypoint": "C1",
+            "use_precise_nav": True,
+            "distance_goal_tolerance": 0.1,
+            "yaw_goal_tolerance": 0.2,
+            "target_tf_frame": "pause_target",
+            "min_linear_velocity": 0.05,
+        }])
         write_lifecycle_hook(writer, "best_effort")
         write_lifecycle_hook(writer, "")
         write_lifecycle_hook(writer, "required")
@@ -682,7 +833,16 @@ class TaskInfoDecoderTest(unittest.TestCase):
         self.assertEqual(detail["transitions"][0]["origin"], "operator")
         self.assertEqual(detail["transition_requests"][0]["disposition"], "ACCEPTED")
         self.assertEqual(detail["recovery_task_mappings"][0]["max_attempts"], 4)
+        self.assertTrue(detail["recovery_task_mappings"][0]["unit_tasks"][0]["use_precise_nav"])
+        self.assertAlmostEqual(
+            detail["recovery_task_mappings"][0]["unit_tasks"][0]["distance_goal_tolerance"],
+            0.08,
+        )
         self.assertEqual(detail["on_cancel"]["unit_tasks"][0]["waypoint"], "C1")
+        self.assertEqual(
+            detail["on_cancel"]["unit_tasks"][0]["target_tf_frame"],
+            "pause_target",
+        )
         self.assertEqual(detail["on_cancel"]["policy"], "required")
         self.assertEqual(detail["on_pause"], {"policy": "best_effort", "unit_tasks": []})
         self.assertEqual(detail["on_finish"], {"policy": "", "unit_tasks": []})
@@ -711,7 +871,11 @@ class TaskInfoDecoderTest(unittest.TestCase):
         writer.write_uint32(0)
         writer.write_uint32(0)
         for _ in range(4):
-            write_lifecycle_hook(writer, "")
+            write_lifecycle_hook(
+                writer,
+                "",
+                include_precise_nav_fields=False,
+            )
         writer.write_bool(True)
         writer.write_string("")
         writer.write_uint32(0)
@@ -727,6 +891,11 @@ class TaskInfoDecoderTest(unittest.TestCase):
             "waypoint": "",
             "action_name": "perform_plc_task",
             "action_params_json": "{\"timeout\":200,\"task_index\":1}",
+            "use_precise_nav": False,
+            "distance_goal_tolerance": 0.0,
+            "yaw_goal_tolerance": 0.0,
+            "target_tf_frame": "",
+            "min_linear_velocity": 0.0,
         }])
 
     def test_point_cloud_roi_request_encodes_service_fields(self):

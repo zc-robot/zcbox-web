@@ -1,4 +1,4 @@
-import type { TaskManagerLifecycleHookSpec, TaskManagerTaskDetail, TaskManagerTaskInfo, TaskManagerUnitTaskSpec } from '../../types.js'
+import type { TaskManagerLifecycleHookSpec, TaskManagerRecoveryAction, TaskManagerTaskDetail, TaskManagerTaskInfo, TaskManagerUnitTaskInfo, TaskManagerUnitTaskSpec } from '../../types.js'
 
 const taskManagerActiveExecutionStatuses = new Set([
   'PENDING',
@@ -11,7 +11,7 @@ const taskManagerActiveExecutionStatuses = new Set([
   'RECOVERING',
   'RECOVERY_REQUIRED',
 ])
-const legacyCancelableTaskManagerStatuses = new Set(['PENDING', 'RUNNING', 'RECOVERY_REQUIRED'])
+const legacyCancelableTaskManagerStatuses = new Set(['PENDING', 'RUNNING'])
 
 export function isActiveTaskManagerTask(task: TaskManagerTaskInfo) {
   return task.status === 'RUNNING'
@@ -30,10 +30,200 @@ export function getOngoingTaskManagerExecutions(tasks: TaskManagerTaskInfo[]) {
 }
 
 export function isCancelableTaskManagerTask(task: TaskManagerTaskInfo) {
+  if (task.status === 'RECOVERY_REQUIRED')
+    return false
+
   if (task.allowed_controls !== undefined)
     return task.allowed_controls.includes('CANCEL')
 
   return legacyCancelableTaskManagerStatuses.has(task.status)
+}
+
+export interface TaskManagerRecoveryActionOption {
+  action: TaskManagerRecoveryAction
+  label: string
+  description: string
+  requiresConfirmation?: boolean
+}
+
+const operatorRecoveryActions: Array<TaskManagerRecoveryActionOption & { control: string }> = [
+  {
+    control: 'RETRY_LIFECYCLE_HOOK',
+    action: 'retry_lifecycle_hook',
+    label: 'Retry lifecycle hook',
+    description: 'Restart the failed required lifecycle hook from its first Unit Task.',
+  },
+  {
+    control: 'CREATE_RETRY_EXECUTION',
+    action: 'create_retry_execution',
+    label: 'Create retry execution',
+    description: 'Create a new Task Execution, optionally starting from a selected Unit Task.',
+  },
+  {
+    control: 'CANCEL',
+    action: 'cancel',
+    label: 'Cancel execution',
+    description: 'End the recovery-required Task Execution as canceled.',
+  },
+]
+
+const failedOnCancelLifecycleHookRecoveryActions: TaskManagerRecoveryActionOption[] = [
+  {
+    action: 'retry_lifecycle_hook',
+    label: 'Retry on-cancel cleanup',
+    description: 'Run the required on-cancel cleanup hook again.',
+    requiresConfirmation: false,
+  },
+  {
+    action: 'accept_lifecycle_failure',
+    label: 'Skip cleanup and finish cancellation',
+    description: 'Accept the failed on-cancel cleanup hook and finish this Task Execution as canceled.',
+    requiresConfirmation: true,
+  },
+]
+
+export function getTaskManagerRecoveryActions(task: TaskManagerTaskInfo): TaskManagerRecoveryActionOption[] {
+  if (task.status !== 'RECOVERY_REQUIRED' || task.allowed_controls === undefined)
+    return []
+
+  return operatorRecoveryActions
+    .filter(option => task.allowed_controls?.includes(option.control))
+    .map(({ action, label, description, requiresConfirmation }) => ({ action, label, description, requiresConfirmation }))
+}
+
+export interface TaskManagerRecoveryFailureSummary {
+  stage: string
+  error: string
+}
+
+interface RecoveryFailureCandidate extends TaskManagerRecoveryFailureSummary {
+  updatedAt: number
+}
+
+function unitTaskFailure(unitTasks: TaskManagerUnitTaskInfo[]) {
+  return [...unitTasks]
+    .reverse()
+    .find(unitTask => unitTask.last_error.trim())
+}
+
+function explicitFailureState(...values: string[]) {
+  return values.find((value) => {
+    const normalized = value.trim().toUpperCase()
+    return normalized.includes('FAIL')
+      || normalized.includes('ERROR')
+      || normalized.includes('TIMEOUT')
+      || normalized.includes('EXHAUST')
+      || normalized.includes('REJECT')
+      || normalized === 'RECOVERY_REQUIRED'
+  })?.trim() ?? ''
+}
+
+export function hasFailedRequiredOnCancelLifecycleHook(detail: TaskManagerTaskDetail) {
+  if (detail.task.status !== 'RECOVERY_REQUIRED')
+    return false
+
+  const taskExecutionId = detail.task.active_task_execution_id || detail.task.latest_task_execution_id
+  return (detail.lifecycle_task_executions ?? []).some((execution) => {
+    if (taskExecutionId && execution.parent_task_execution_id !== taskExecutionId)
+      return false
+
+    return execution.phase.trim() === 'on_cancel'
+      && execution.policy.trim() === 'required'
+      && execution.status.trim().toUpperCase() === 'FAILED'
+  })
+}
+
+export function getTaskManagerRecoveryActionsForDetail(detail: TaskManagerTaskDetail): TaskManagerRecoveryActionOption[] {
+  if (hasFailedRequiredOnCancelLifecycleHook(detail))
+    return failedOnCancelLifecycleHookRecoveryActions
+
+  return getTaskManagerRecoveryActions(detail.task)
+}
+
+export function getTaskManagerRecoveryFailureSummary(detail: TaskManagerTaskDetail): TaskManagerRecoveryFailureSummary {
+  const taskExecutionId = detail.task.active_task_execution_id || detail.task.latest_task_execution_id
+  const failedRequiredOnCancelLifecycleHook = (detail.lifecycle_task_executions ?? []).find((execution) => {
+    if (taskExecutionId && execution.parent_task_execution_id !== taskExecutionId)
+      return false
+
+    return execution.phase.trim() === 'on_cancel'
+      && execution.policy.trim() === 'required'
+      && execution.status.trim().toUpperCase() === 'FAILED'
+  })
+  if (detail.task.status === 'RECOVERY_REQUIRED' && failedRequiredOnCancelLifecycleHook) {
+    const failedUnitTask = unitTaskFailure(failedRequiredOnCancelLifecycleHook.unit_tasks)
+    return {
+      stage: 'Lifecycle hook: on_cancel',
+      error: failedRequiredOnCancelLifecycleHook.recovery_reason.trim()
+        || failedUnitTask?.last_error.trim()
+        || explicitFailureState(failedRequiredOnCancelLifecycleHook.result, failedRequiredOnCancelLifecycleHook.status)
+        || 'Required on-cancel cleanup failed.',
+    }
+  }
+
+  const candidates: RecoveryFailureCandidate[] = []
+
+  for (const execution of detail.lifecycle_task_executions ?? []) {
+    if (taskExecutionId && execution.parent_task_execution_id !== taskExecutionId)
+      continue
+
+    const failedUnitTask = unitTaskFailure(execution.unit_tasks)
+    const error = execution.recovery_reason.trim()
+      || failedUnitTask?.last_error.trim()
+      || explicitFailureState(execution.result, execution.status)
+    if (!error)
+      continue
+
+    candidates.push({
+      stage: execution.phase ? `Lifecycle hook: ${execution.phase}` : 'Lifecycle hook',
+      error,
+      updatedAt: execution.updated_at_unix_ms,
+    })
+  }
+
+  for (const interruption of detail.recovery_interruptions ?? []) {
+    if (taskExecutionId && interruption.task_execution_id !== taskExecutionId)
+      continue
+
+    const latestAttempt = [...interruption.attempts]
+      .sort((left, right) => right.updated_at_unix_ms - left.updated_at_unix_ms)[0]
+    const failedUnitTask = latestAttempt ? unitTaskFailure(latestAttempt.unit_tasks) : undefined
+    const error = failedUnitTask?.last_error.trim()
+      || latestAttempt?.supersession_reason.trim()
+      || interruption.supersession_reason.trim()
+      || explicitFailureState(latestAttempt?.result ?? '', latestAttempt?.status ?? '')
+      || interruption.lifecycle_state.trim()
+    const interruptedStage = interruption.interrupted_lifecycle_phase.trim()
+      || interruption.interrupted_work_kind.trim()
+      || interruption.lifecycle_state.trim()
+    const recoveryLabel = interruption.recovery_task_index > 0
+      ? `Recovery #${interruption.recovery_task_index}`
+      : 'Recovery'
+
+    candidates.push({
+      stage: interruptedStage ? `${recoveryLabel}: ${interruptedStage}` : recoveryLabel,
+      error: error || 'No detailed error was included in the Task Manager snapshot.',
+      updatedAt: Math.max(interruption.updated_at_unix_ms, latestAttempt?.updated_at_unix_ms ?? 0),
+    })
+  }
+
+  for (const unitTask of detail.unit_tasks) {
+    if (!unitTask.last_error.trim())
+      continue
+    candidates.push({
+      stage: `Unit Task #${unitTask.seq}`,
+      error: unitTask.last_error.trim(),
+      updatedAt: 0,
+    })
+  }
+
+  const latest = candidates.sort((left, right) => right.updatedAt - left.updatedAt)[0]
+  return latest
+    ? { stage: latest.stage, error: latest.error }
+    : {
+        stage: 'Recovery',
+        error: 'No detailed recovery error was included in the Task Manager snapshot.',
+      }
 }
 
 export type TaskManagerEditableLifecycleHookKey = 'on_cancel' | 'on_pause' | 'on_finish' | 'on_resume'
@@ -54,12 +244,7 @@ function emptyLifecycleHook(): TaskManagerLifecycleHookSpec {
 }
 
 function copyUnitTaskSpec(unitTask: TaskManagerUnitTaskSpec): TaskManagerUnitTaskSpec {
-  return {
-    seq: unitTask.seq,
-    waypoint: unitTask.waypoint,
-    action_name: unitTask.action_name,
-    action_params_json: unitTask.action_params_json,
-  }
+  return { ...unitTask }
 }
 
 function copyLifecycleHook(hook: TaskManagerLifecycleHookSpec | undefined) {

@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import toast, { Toaster } from 'react-hot-toast'
 import { buildRobotHardwareDiagnosticsView } from './runtimeModel'
-import { buildMultiGoToPoseUnitTasks, buildTaskManagerConfigurationDraft, getOngoingTaskManagerExecutions, hasActiveTaskManagerExecution, isCancelableTaskManagerTask, validateTaskManagerConfigurationDraft } from './taskModel'
+import { buildMultiGoToPoseUnitTasks, buildTaskManagerConfigurationDraft, getOngoingTaskManagerExecutions, getTaskManagerRecoveryActionsForDetail, getTaskManagerRecoveryFailureSummary, hasActiveTaskManagerExecution, hasFailedRequiredOnCancelLifecycleHook, isCancelableTaskManagerTask, validateTaskManagerConfigurationDraft } from './taskModel'
 import type { TaskManagerConfigurationDraft, TaskManagerEditableLifecycleHookKey } from './taskModel'
 import type { FleetHardwareDiagnosticState, FleetRobotHardwareDiagnosticsState } from './runtimeModel'
 import { notifyFleetSiteNamespaceUpdated, prefixFleetSiteTopic, useBuildingMapZenoh, useFleetBondsZenoh, useFleetDataZenoh, useFleetDidoZenoh, useFleetHardwareDiagnosticsZenoh, useFleetRmfStatesZenoh, useFleetSiteNamespace, useFleetWheelStatesZenoh, useInterval } from '@/hooks'
 import apiServer from '@/service/apiServer'
 import { useParamsStore } from '@/store'
-import type { BuildingMapGraphMessage, BuildingMapImageMessage, BuildingMapLevelMessage, BuildingMapMessage, FleetRobotDataMessage, RmfDoorRequestMessage, RmfLiftRequestMessage, StorageAreaLayoutMessage, StorageCellStockMessage, StorageReinitLayoutSpec, StorageShelfMessage, TaskManagerActionInfo, TaskManagerLifecycleHookSpec, TaskManagerTaskDetail, TaskManagerTaskInfo, TaskManagerUnitTaskInfo, TaskManagerUnitTaskSpec, TwistCommand } from '@/types'
+import type { BuildingMapGraphMessage, BuildingMapImageMessage, BuildingMapLevelMessage, BuildingMapMessage, FleetRobotDataMessage, RmfDoorRequestMessage, RmfLiftRequestMessage, StorageAreaLayoutMessage, StorageCellStockMessage, StorageReinitLayoutSpec, StorageShelfMessage, TaskManagerActionInfo, TaskManagerLifecycleHookSpec, TaskManagerRecoveryAction, TaskManagerResolveRecoveryPayload, TaskManagerTaskDetail, TaskManagerTaskInfo, TaskManagerUnitTaskInfo, TaskManagerUnitTaskSpec, TwistCommand } from '@/types'
 import type { ComposeControlAction, ComposeControlCommandResponse, ComposeControlServiceStatus, ComposeControlStatusResponse, ComposeMapSiteWithFiles, FleetConfigNamespaceData, FleetConfigResponse, FleetConfigWriteResponse } from '@/service/apiServer'
 import type { DidoValue, FleetDidoZenohState, RobotDidoValues } from '@/hooks/useFleetDidoZenoh'
 import type { FleetHardwareDiagnosticsZenohState, HardwareDiagnosticsValue } from '@/hooks/useFleetHardwareDiagnosticsZenoh'
@@ -802,7 +802,8 @@ function shortIdentifier(value: string) {
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : `${error}`
+  const message = error instanceof Error ? error.message : `${error}`
+  return message.replace(/^Error invoking remote method '[^']+': Error: /, '')
 }
 
 function getStorageStatusClass(status: StorageStatus) {
@@ -2166,6 +2167,7 @@ const taskManagerServiceTopics = {
   run: 'run_task',
   rename: 'rename_task',
   cancel: 'task_manager/cancel_task_execution',
+  resolveRecovery: 'resolve_recovery',
   delete: 'delete_task',
 } as const
 
@@ -5474,6 +5476,237 @@ function RenameTaskDialog({
   )
 }
 
+function ResolveRecoveryDialog({
+  detail,
+  error,
+  isResolving,
+  onClose,
+  onSubmit,
+}: {
+  detail: TaskManagerTaskDetail
+  error: string
+  isResolving: boolean
+  onClose: () => void
+  onSubmit: (resolution: TaskManagerResolveRecoveryPayload) => void
+}) {
+  const task = detail.task
+  const taskExecutionId = task.active_task_execution_id || task.latest_task_execution_id
+  const recoveryActions = getTaskManagerRecoveryActionsForDetail(detail)
+  const failure = getTaskManagerRecoveryFailureSummary(detail)
+  const isOnCancelCleanupRecovery = hasFailedRequiredOnCancelLifecycleHook(detail)
+  const [action, setAction] = useState<TaskManagerRecoveryAction>(recoveryActions[0]?.action ?? 'cancel')
+  const [retryFromUnitTaskDefinitionId, setRetryFromUnitTaskDefinitionId] = useState('')
+  const [isConfirmed, setIsConfirmed] = useState(false)
+  const retryUnitTasks = Array.from(new Map(
+    detail.unit_tasks
+      .filter(unitTask => unitTask.unit_task_definition_id)
+      .map(unitTask => [unitTask.unit_task_definition_id, unitTask]),
+  ).values()).sort((left, right) => left.seq - right.seq)
+  const selectedRetryUnitTask = retryUnitTasks.find(unitTask => unitTask.unit_task_definition_id === retryFromUnitTaskDefinitionId)
+  const selectedRecoveryAction = recoveryActions.find(option => option.action === action)
+  const needsConfirmation = selectedRecoveryAction?.requiresConfirmation ?? true
+  const onCancelCleanupActionIcon: Record<TaskManagerRecoveryAction, string> = {
+    retry_lifecycle_hook: 'i-material-symbols-refresh-rounded',
+    accept_lifecycle_failure: 'i-material-symbols-skip-next-rounded',
+    create_retry_execution: 'i-material-symbols-build-circle-outline-rounded',
+    mark_succeeded: 'i-material-symbols-check-circle-rounded',
+    mark_failed: 'i-material-symbols-error-rounded',
+    cancel: 'i-material-symbols-cancel-rounded',
+  }
+  const hasRestrictedControls = task.allowed_controls?.some(control => (
+    control === 'MARK_SUCCEEDED'
+    || control === 'MARK_FAILED'
+    || (control === 'ACCEPT_LIFECYCLE_FAILURE' && !recoveryActions.some(option => option.action === 'accept_lifecycle_failure'))
+  )) ?? false
+
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    submitRecoveryAction(action)
+  }
+
+  function submitRecoveryAction(nextAction: TaskManagerRecoveryAction) {
+    const nextRecoveryAction = recoveryActions.find(option => option.action === nextAction)
+    const nextNeedsConfirmation = nextRecoveryAction?.requiresConfirmation ?? true
+    if (!taskExecutionId || !nextRecoveryAction || (nextNeedsConfirmation && !isConfirmed))
+      return
+
+    onSubmit({
+      task_execution_id: taskExecutionId,
+      action: nextAction,
+      retry_from_unit_task_definition_id: nextAction === 'create_retry_execution' ? retryFromUnitTaskDefinitionId : '',
+      retry_from_seq: nextAction === 'create_retry_execution' ? selectedRetryUnitTask?.seq ?? 0 : 0,
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 z-110 flex items-center justify-center bg-black/40 px-3 py-4 sm:px-6">
+      <form
+        className="flex max-h-[calc(100vh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-gray-50 shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="resolve-recovery-title"
+        onSubmit={submit}>
+        <div className="flex items-start justify-between gap-3 border-(b-solid 1px orange-200) bg-orange-50 px-4 py-3">
+          <div className="min-w-0">
+            <div id="resolve-recovery-title" className="font-800 text-orange-950">Resolve required recovery</div>
+            <div className="mt-0.5 text-xs text-orange-800">This action can end or replace the current Task Execution.</div>
+          </div>
+          <IconButton
+            type="button"
+            icon="i-material-symbols-close-rounded"
+            title="Close recovery resolution"
+            disabled={isResolving}
+            onClick={onClose}
+          />
+        </div>
+
+        <div className="flex-1 space-y-4 overflow-y-auto p-4">
+          <section className="grid grid-cols-1 gap-2 rounded-lg border-(solid 1px gray-200) bg-white p-3 sm:grid-cols-2">
+            <TaskManagerDetailField label="Robot" value={task.robot_name || 'Unavailable'} />
+            <TaskManagerDetailField label="Task" value={getTaskManagerTaskName(task)} />
+            <div className="sm:col-span-2">
+              <TaskManagerDetailField label="Task execution ID" value={taskExecutionId || 'Unavailable'} title={taskExecutionId} />
+            </div>
+            <TaskManagerDetailField label="Failure stage" value={failure.stage} />
+            <TaskManagerDetailField label="Error information" value={failure.error} title={failure.error} />
+          </section>
+
+          {isOnCancelCleanupRecovery
+            ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {recoveryActions.map(option => (
+                    <section key={option.action} className="flex flex-col gap-3 rounded-lg border-(solid 1px gray-200) bg-white p-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-800 text-gray-900">{option.label}</div>
+                        <div className="mt-1 text-xs leading-5 text-gray-600">{option.description}</div>
+                      </div>
+                      {option.action === 'accept_lifecycle_failure' && (
+                        <label className="flex items-start gap-3 rounded-lg border-(solid 1px orange-200) bg-orange-50 p-3 text-sm text-orange-950">
+                          <input
+                            className="mt-1"
+                            type="checkbox"
+                            checked={isConfirmed}
+                            disabled={isResolving}
+                            onChange={event => setIsConfirmed(event.target.checked)}
+                          />
+                          <span>I understand this skips the configured on-cancel cleanup operation.</span>
+                        </label>
+                      )}
+                      <Button
+                        type="button"
+                        tone={option.action === 'accept_lifecycle_failure' ? 'danger' : 'primary'}
+                        icon={isResolving ? 'i-material-symbols-progress-activity' : onCancelCleanupActionIcon[option.action]}
+                        disabled={isResolving || !taskExecutionId || (option.requiresConfirmation === true && !isConfirmed)}
+                        onClick={() => submitRecoveryAction(option.action)}>
+                        {isResolving ? 'Resolving...' : option.label}
+                      </Button>
+                    </section>
+                  ))}
+                </div>
+              )
+            : (
+                <>
+                  <fieldset className="space-y-2" disabled={isResolving}>
+                    <legend className="mb-2 text-xs font-700 uppercase tracking-wide text-gray-500">Recovery action</legend>
+                    {recoveryActions.map(option => (
+                      <label
+                        key={option.action}
+                        className={classNames(
+                          'flex cursor-pointer items-start gap-3 rounded-lg border bg-white p-3 transition',
+                          action === option.action ? 'border-emerald-500 ring-1 ring-emerald-200' : 'border-gray-200 hover:border-gray-300',
+                        )}>
+                        <input
+                          className="mt-1"
+                          type="radio"
+                          name="recovery-action"
+                          value={option.action}
+                          checked={action === option.action}
+                          onChange={() => {
+                            setAction(option.action)
+                            setIsConfirmed(false)
+                          }}
+                        />
+                        <span>
+                          <span className="block text-sm font-800 text-gray-900">{option.label}</span>
+                          <span className="mt-0.5 block text-xs leading-5 text-gray-600">{option.description}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </fieldset>
+
+                  {action === 'create_retry_execution' && (
+                    <div className="rounded-lg border-(solid 1px gray-200) bg-white p-3">
+                      <label className="block text-xs font-700 uppercase tracking-wide text-gray-500" htmlFor="recovery-retry-from-unit-task">
+                        Retry from Unit Task
+                      </label>
+                      <select
+                        id="recovery-retry-from-unit-task"
+                        className="mt-2 h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm outline-none focus:border-emerald-600"
+                        value={retryFromUnitTaskDefinitionId}
+                        disabled={isResolving}
+                        onChange={(event) => {
+                          setRetryFromUnitTaskDefinitionId(event.target.value)
+                          setIsConfirmed(false)
+                        }}>
+                        <option value="">Beginning of Task</option>
+                        {retryUnitTasks.map(unitTask => (
+                          <option key={unitTask.unit_task_definition_id} value={unitTask.unit_task_definition_id}>
+                            #{unitTask.seq} · {unitTask.waypoint || unitTask.action_name || 'Unit Task'}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {hasRestrictedControls && (
+                    <div className="rounded-lg bg-gray-100 px-3 py-2 text-xs leading-5 text-gray-600">
+                      Privileged recovery overrides are not available in this operator console.
+                    </div>
+                  )}
+
+                  {needsConfirmation && (
+                    <label className="flex items-start gap-3 rounded-lg border-(solid 1px orange-200) bg-orange-50 p-3 text-sm text-orange-950">
+                      <input
+                        className="mt-1"
+                        type="checkbox"
+                        checked={isConfirmed}
+                        disabled={isResolving}
+                        onChange={event => setIsConfirmed(event.target.checked)}
+                      />
+                      <span>
+                        {action === 'accept_lifecycle_failure'
+                          ? 'I understand this skips the configured on-cancel cleanup operation and finishes cancellation.'
+                          : 'I confirm the Robot, Task, execution ID, failure details, and selected recovery action above.'}
+                      </span>
+                    </label>
+                  )}
+                </>
+              )}
+
+          {error && (
+            <div className="rounded-lg bg-red-50 px-3 py-2 text-sm font-700 text-red-700">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-(t-solid 1px gray-200) bg-white px-4 py-3">
+          <Button type="button" disabled={isResolving} onClick={onClose}>Back</Button>
+          {!isOnCancelCleanupRecovery && (
+            <Button
+              type="submit"
+              tone={action === 'cancel' || action === 'accept_lifecycle_failure' ? 'danger' : 'primary'}
+              icon={isResolving ? 'i-material-symbols-progress-activity' : 'i-material-symbols-build-circle-outline-rounded'}
+              disabled={isResolving || !taskExecutionId || !selectedRecoveryAction || (needsConfirmation && !isConfirmed)}>
+              {isResolving ? 'Resolving...' : selectedRecoveryAction?.label ?? 'Resolve recovery'}
+            </Button>
+          )}
+        </div>
+      </form>
+    </div>
+  )
+}
+
 function TaskManagerDetail({
   detail,
   isRunning,
@@ -5481,8 +5714,10 @@ function TaskManagerDetail({
   isDeleting,
   isRenaming,
   isUpdating,
+  isResolvingRecovery,
   onRun,
   onCancel,
+  onResolveRecovery,
   onDelete,
   onRename,
   onEditConfiguration,
@@ -5493,8 +5728,10 @@ function TaskManagerDetail({
   isDeleting: boolean
   isRenaming: boolean
   isUpdating: boolean
+  isResolvingRecovery: boolean
   onRun: (taskId: string) => void
   onCancel: (task: TaskManagerTaskInfo) => void
+  onResolveRecovery: (detail: TaskManagerTaskDetail) => void
   onDelete: (task: TaskManagerTaskInfo) => void
   onRename: (task: TaskManagerTaskInfo) => void
   onEditConfiguration: (detail: TaskManagerTaskDetail) => void
@@ -5513,6 +5750,8 @@ function TaskManagerDetail({
   const isCancelable = isTaskManagerTaskCancelable(task)
   const hasActiveExecution = hasActiveTaskManagerExecution(task)
   const canEditConfiguration = Boolean(task.task_id) && taskManagerEditableLifecycleHooks.every(({ key }) => detail[key] !== undefined)
+  const recoveryActions = getTaskManagerRecoveryActionsForDetail(detail)
+  const recoveryFailure = task.status === 'RECOVERY_REQUIRED' ? getTaskManagerRecoveryFailureSummary(detail) : null
   return (
     <div className="space-y-4">
       <section className="rounded-lg border-(solid 1px gray-200) bg-white/75 p-3">
@@ -5536,16 +5775,26 @@ function TaskManagerDetail({
               type="button"
               icon={isUpdating ? 'i-material-symbols-progress-activity' : 'i-material-symbols-edit-note-rounded'}
               title={canEditConfiguration ? 'Edit Main and lifecycle Unit Tasks' : 'Configuration editing is unavailable for this Task'}
-              disabled={isUpdating || isDeleting || !taskDefinitionId || !canEditConfiguration}
+              disabled={isUpdating || isDeleting || isResolvingRecovery || !taskDefinitionId || !canEditConfiguration}
               onClick={() => onEditConfiguration(detail)}>
               Edit configuration
             </Button>
+            {recoveryActions.length > 0 && (
+              <Button
+                type="button"
+                tone="primary"
+                icon={isResolvingRecovery ? 'i-material-symbols-progress-activity' : 'i-material-symbols-build-circle-outline-rounded'}
+                disabled={isResolvingRecovery || isDeleting || !taskExecutionId}
+                onClick={() => onResolveRecovery(detail)}>
+                Resolve recovery
+              </Button>
+            )}
             {isCancelable && (
               <Button
                 type="button"
                 tone="danger"
                 icon={isCanceling ? 'i-material-symbols-progress-activity' : 'i-material-symbols-cancel-rounded'}
-                disabled={isCanceling || isDeleting || !taskDefinitionId || !taskExecutionId}
+                disabled={isCanceling || isDeleting || isResolvingRecovery || !taskDefinitionId || !taskExecutionId}
                 onClick={() => onCancel(task)}>
                 Cancel
               </Button>
@@ -5554,7 +5803,7 @@ function TaskManagerDetail({
               type="button"
               tone="primary"
               icon={isRunning ? 'i-material-symbols-progress-activity' : 'i-material-symbols-play-arrow-rounded'}
-              disabled={isRunning || isCanceling || isDeleting || hasActiveExecution || !taskDefinitionId}
+              disabled={isRunning || isCanceling || isDeleting || isResolvingRecovery || hasActiveExecution || !taskDefinitionId}
               onClick={() => onRun(taskDefinitionId)}>
               Run
             </Button>
@@ -5562,7 +5811,7 @@ function TaskManagerDetail({
               icon={isDeleting ? 'i-material-symbols-progress-activity' : 'i-material-symbols-delete-outline-rounded'}
               title={hasActiveExecution ? 'Finish or cancel the current execution before deleting' : 'Delete task'}
               tone="danger"
-              disabled={isRunning || isCanceling || isDeleting || hasActiveExecution || !taskDefinitionId}
+              disabled={isRunning || isCanceling || isDeleting || isResolvingRecovery || hasActiveExecution || !taskDefinitionId}
               onClick={() => onDelete(task)}
             />
           </div>
@@ -5585,6 +5834,26 @@ function TaskManagerDetail({
           <TaskManagerDetailField label="Execution updated" value={formatUnixMilliseconds(task.execution_updated_at_unix_ms)} />
         </div>
       </section>
+
+      {recoveryFailure && (
+        <section className="rounded-lg border-(solid 1px orange-200) bg-orange-50 p-3">
+          <div className="flex items-start gap-3">
+            <span className="i-material-symbols-warning-rounded mt-0.5 text-5 text-orange-600" />
+            <div className="min-w-0 flex-1">
+              <div className="font-800 text-orange-950">Operator recovery required</div>
+              <div className="mt-2 grid grid-cols-1 gap-2 2xl:grid-cols-2">
+                <TaskManagerDetailField label="Failure stage" value={recoveryFailure.stage} />
+                <TaskManagerDetailField label="Error information" value={recoveryFailure.error} title={recoveryFailure.error} />
+              </div>
+              {recoveryActions.length === 0 && (
+                <div className="mt-2 text-xs leading-5 text-orange-800">
+                  Task Manager did not report an operator-safe recovery control. Refresh the Task before trying again.
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="overflow-hidden rounded-lg border-(solid 1px gray-200) bg-white/75">
         <div className="flex items-center justify-between px-3 py-2">
@@ -5641,6 +5910,7 @@ function TaskManagerPanel() {
   const taskRunServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.run)
   const taskRenameServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.rename)
   const taskCancelServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.cancel)
+  const taskResolveRecoveryServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.resolveRecovery)
   const taskDeleteServicePath = prefixFleetSiteTopic(fleetSiteNamespace.namespace, taskManagerServiceTopics.delete)
   const taskManagerServiceLabel = taskListServicePath && taskGetServicePath
     ? `${taskListServicePath} / ${taskGetServicePath}`
@@ -5660,6 +5930,9 @@ function TaskManagerPanel() {
   const [renameTaskError, setRenameTaskError] = useState('')
   const [configurationDialogDetail, setConfigurationDialogDetail] = useState<TaskManagerTaskDetail | null>(null)
   const [configurationUpdateError, setConfigurationUpdateError] = useState('')
+  const [recoveryDialogDetail, setRecoveryDialogDetail] = useState<TaskManagerTaskDetail | null>(null)
+  const [resolvingRecoveryExecutionId, setResolvingRecoveryExecutionId] = useState('')
+  const [recoveryResolutionError, setRecoveryResolutionError] = useState('')
   const [taskManagerError, setTaskManagerError] = useState('')
   const detailRequestId = useRef(0)
 
@@ -5692,6 +5965,9 @@ function TaskManagerPanel() {
     setRenameTaskError('')
     setConfigurationDialogDetail(null)
     setConfigurationUpdateError('')
+    setRecoveryDialogDetail(null)
+    setResolvingRecoveryExecutionId('')
+    setRecoveryResolutionError('')
     setTaskManagerError('')
   }, [fleetSiteNamespace.namespace])
 
@@ -5988,6 +6264,64 @@ function TaskManagerPanel() {
     }
   }
 
+  function openResolveRecoveryDialog(detail: TaskManagerTaskDetail) {
+    const taskExecutionId = detail.task.active_task_execution_id || detail.task.latest_task_execution_id
+    if (detail.task.status !== 'RECOVERY_REQUIRED' || !taskExecutionId || getTaskManagerRecoveryActionsForDetail(detail).length === 0)
+      return
+
+    setRecoveryDialogDetail(detail)
+    setRecoveryResolutionError('')
+  }
+
+  function closeResolveRecoveryDialog() {
+    if (resolvingRecoveryExecutionId)
+      return
+
+    setRecoveryDialogDetail(null)
+    setRecoveryResolutionError('')
+  }
+
+  async function resolveTaskManagerRecovery(resolution: TaskManagerResolveRecoveryPayload) {
+    if (!recoveryDialogDetail || resolution.task_execution_id !== (recoveryDialogDetail.task.active_task_execution_id || recoveryDialogDetail.task.latest_task_execution_id))
+      return
+
+    const taskId = getTaskManagerDefinitionId(recoveryDialogDetail.task)
+    if (!taskId)
+      return
+
+    setResolvingRecoveryExecutionId(resolution.task_execution_id)
+    setRecoveryResolutionError('')
+    setTaskManagerError('')
+    try {
+      if (!requireTaskManagerServicePath(taskResolveRecoveryServicePath)) {
+        setRecoveryResolutionError(taskManagerSiteNamespaceError(taskResolveRecoveryServicePath))
+        return
+      }
+
+      const response = await apiServer.resolveTaskRecovery(resolution, { servicePath: taskResolveRecoveryServicePath })
+      const resolvedExecution = response.task_execution_id
+        ? `Execution ${shortIdentifier(response.task_execution_id)}`
+        : 'Recovery resolution'
+      toast.success(response.message || `${resolvedExecution} accepted`)
+      setRecoveryDialogDetail(null)
+      try {
+        await refreshTaskManagerStateAfterMutation(taskId)
+      }
+      catch (refreshError) {
+        console.warn('Failed to refresh Task after recovery resolution', refreshError)
+        setTaskManagerError('Recovery was resolved, but the Task view could not be refreshed. Refresh the Task list to see the latest state.')
+      }
+    }
+    catch (error) {
+      const message = errorMessage(error)
+      setRecoveryResolutionError(message)
+      setTaskManagerError(message)
+    }
+    finally {
+      setResolvingRecoveryExecutionId('')
+    }
+  }
+
   async function deleteTaskManagerTask(task: TaskManagerTaskInfo) {
     const taskId = getTaskManagerDefinitionId(task)
     if (!taskId)
@@ -6138,8 +6472,10 @@ function TaskManagerPanel() {
               isDeleting={deletingTaskId === (taskDetail.task.task_id || getTaskManagerDefinitionId(taskDetail.task))}
               isRenaming={renamingTaskId === getTaskManagerDefinitionId(taskDetail.task)}
               isUpdating={updatingTaskId === taskDetail.task.task_id}
+              isResolvingRecovery={resolvingRecoveryExecutionId === (taskDetail.task.active_task_execution_id || taskDetail.task.latest_task_execution_id)}
               onRun={runTaskManagerTask}
               onCancel={cancelTaskManagerTask}
+              onResolveRecovery={openResolveRecoveryDialog}
               onDelete={deleteTaskManagerTask}
               onRename={openRenameTaskDialog}
               onEditConfiguration={openTaskManagerConfigurationDialog}
@@ -6168,6 +6504,15 @@ function TaskManagerPanel() {
           error={configurationUpdateError}
           onClose={closeTaskManagerConfigurationDialog}
           onSubmit={updateTaskManagerConfiguration}
+        />
+      )}
+      {recoveryDialogDetail && (
+        <ResolveRecoveryDialog
+          detail={recoveryDialogDetail}
+          error={recoveryResolutionError}
+          isResolving={resolvingRecoveryExecutionId === (recoveryDialogDetail.task.active_task_execution_id || recoveryDialogDetail.task.latest_task_execution_id)}
+          onClose={closeResolveRecoveryDialog}
+          onSubmit={resolveTaskManagerRecovery}
         />
       )}
     </>
@@ -8228,7 +8573,7 @@ function ComposeControlPage({ host }: { host: string }) {
         <Surface className="p-4">
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>
-              <div className="text-4 font-800">Docker Compose</div>
+              <div className="text-4 font-800">Container Control</div>
               <div className="text-xs text-gray-500">{host ? `${host}:4999` : 'Controller not set'}</div>
             </div>
             <IconButton
@@ -8243,14 +8588,14 @@ function ComposeControlPage({ host }: { host: string }) {
 
           <div className="space-y-4">
             <div className="space-y-2">
-              <FieldLabel>Compose file</FieldLabel>
+              <FieldLabel>Definition</FieldLabel>
               <select
                 className="h-9 w-full rounded-lg border-(solid 1px gray-300) bg-white/80 px-3 text-sm outline-none focus:border-emerald-600"
                 value={selectedFile}
                 disabled={!host || isLoadingFiles}
                 onChange={event => setSelectedFile(event.target.value)}>
                 {composeFiles.map(file => <option key={file} value={file}>{file}</option>)}
-                {composeFiles.length === 0 && <option value="">Default compose file</option>}
+                {composeFiles.length === 0 && <option value="">Default definition</option>}
               </select>
             </div>
 
@@ -8340,7 +8685,7 @@ function ComposeControlPage({ host }: { host: string }) {
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <div className="font-800">Logs</div>
-              <div className="text-xs text-gray-500">docker compose logs</div>
+              <div className="text-xs text-gray-500">service logs</div>
             </div>
             <IconButton
               icon={isLoadingLogs ? 'i-material-symbols-progress-activity' : 'i-material-symbols-terminal-rounded'}
@@ -8388,7 +8733,7 @@ function ComposeControlPage({ host }: { host: string }) {
           <div className="flex flex-wrap items-start justify-between gap-3 border-(b-solid 1px gray-200) px-4 py-3">
             <div>
               <div className="font-800">Runtime status</div>
-              <div className="text-xs text-gray-500">{composeStatus?.file || selectedFile || '/data/rmf_data/docker-rmf-compose.yaml'}</div>
+              <div className="text-xs text-gray-500">{composeStatus?.file || selectedFile || 'fleet-server'}</div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Badge className={getComposeStatusClass(composeStatus?.status || 'unknown')}>
@@ -8495,7 +8840,7 @@ function ComposeControlPage({ host }: { host: string }) {
           <div className="flex flex-wrap items-center justify-between gap-3 border-(b-solid 1px gray-200) px-4 py-3">
             <div>
               <div className="font-800">Resolved config</div>
-              <div className="text-xs text-gray-500">docker compose config</div>
+              <div className="text-xs text-gray-500">container policy</div>
             </div>
             <Button
               type="button"
@@ -8584,7 +8929,7 @@ function SitesPage({
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <div className="text-4 font-800">Sites</div>
-              <div className="text-xs text-gray-500">Compose control /api/maps/sites</div>
+              <div className="text-xs text-gray-500">System control /api/v1/maps/files</div>
             </div>
             <IconButton
               icon="i-material-symbols-refresh-rounded"
@@ -8656,8 +9001,8 @@ function SitesPage({
                 onChange={event => setSiteNameDraft(event.target.value)}
               />
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
-                <span>Current: {fleetSiteConfig?.namespace || fleetSiteConfig?.site_id || '--'}</span>
-                <span>ROS: {formatRosNamespace(siteNameDraft)}</span>
+                <span>Current: {fleetSiteConfig?.site_name || fleetSiteConfig?.namespace || fleetSiteConfig?.site_id || '--'}</span>
+                <span>ROS: {formatRosNamespace(fleetSiteConfig?.zenoh_namespace || fleetSiteConfig?.namespace || siteNameDraft)}</span>
                 {fleetSiteConfig?.valid === false && (
                   <span className="font-700 text-red-700">{fleetSiteConfig.validation_error || 'Invalid site name'}</span>
                 )}
@@ -8855,7 +9200,7 @@ const FleetView: React.FC = () => {
     })).sort((a, b) => a.site.localeCompare(b.site))
   }, [siteFiles, allRobots])
   const isFleetConfigDirty = fleetConfig != null && fleetConfigDraft !== fleetConfig.content
-  const isSiteNameDirty = fleetSiteConfig != null && normalizeFleetSiteName(siteNameDraft) !== normalizeFleetSiteName(fleetSiteConfig.namespace || fleetSiteConfig.site_id || '')
+  const isSiteNameDirty = fleetSiteConfig != null && normalizeFleetSiteName(siteNameDraft) !== normalizeFleetSiteName(fleetSiteConfig.site_name || fleetSiteConfig.namespace || fleetSiteConfig.site_id || '')
   const faultedMotorCount = allRobots.reduce((sum, robot) => (
     sum + (robot.hasWheelState ? robot.wheels.motors.filter(motor => motor.isFaulted).length : 0)
   ), 0)
@@ -8968,7 +9313,7 @@ const FleetView: React.FC = () => {
     try {
       const response = await apiServer.fetchFleetConfigNamespace()
       setFleetSiteConfig(response.data)
-      setSiteNameDraft(response.data.namespace || response.data.site_id || '')
+      setSiteNameDraft(response.data.site_name || response.data.namespace || response.data.site_id || '')
       setFleetSiteConfigStatus('Loaded')
     }
     catch (error) {
@@ -8981,7 +9326,7 @@ const FleetView: React.FC = () => {
 
   function applyFleetSiteConfigWrite(response: { data: FleetConfigNamespaceData }) {
     setFleetSiteConfig(response.data)
-    setSiteNameDraft(response.data.namespace || response.data.site_id || '')
+    setSiteNameDraft(response.data.site_name || response.data.namespace || response.data.site_id || '')
   }
 
   async function dryRunFleetSiteConfig() {
@@ -9015,7 +9360,7 @@ const FleetView: React.FC = () => {
     try {
       const response = await apiServer.updateFleetConfigNamespace(namespace, fleetSiteConfig?.modified_time, false)
       applyFleetSiteConfigWrite(response)
-      notifyFleetSiteNamespaceUpdated(response.data.namespace || response.data.site_id || namespace)
+      notifyFleetSiteNamespaceUpdated(response.data.zenoh_namespace || response.data.namespace || response.data.site_id || namespace)
       setFleetSiteConfigStatus(response.data.backup_path ? 'Saved, backup created' : 'Saved')
       if (!isFleetConfigDirty)
         void loadFleetConfig()
@@ -9067,7 +9412,7 @@ const FleetView: React.FC = () => {
     setFleetConfigError(null)
     setFleetConfigStatus(null)
     try {
-      await apiServer.updateFleetConfig(fleetConfigDraft, fleetConfig?.modified_time, true)
+      await apiServer.updateFleetConfig(fleetConfigDraft, fleetConfig?.sha256, true)
       setFleetConfigStatus('Dry run passed')
     }
     catch (error) {
@@ -9083,9 +9428,9 @@ const FleetView: React.FC = () => {
     setFleetConfigError(null)
     setFleetConfigStatus(null)
     try {
-      const response = await apiServer.updateFleetConfig(fleetConfigDraft, fleetConfig?.modified_time, false)
+      const response = await apiServer.updateFleetConfig(fleetConfigDraft, fleetConfig?.sha256, false)
       applyFleetConfigWrite(response)
-      setFleetConfigStatus(response.backup_path ? `Saved, backup created` : 'Saved')
+      setFleetConfigStatus(response.backup_path ? 'Saved, backup created' : 'Saved')
     }
     catch (error) {
       setFleetConfigError(`${error}`)

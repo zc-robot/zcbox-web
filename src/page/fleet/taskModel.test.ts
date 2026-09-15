@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { TaskManagerTaskDetail, TaskManagerTaskInfo } from '../../types.js'
-import { buildMultiGoToPoseUnitTasks, buildTaskManagerConfigurationDraft, getActiveTaskManagerTasks, getOngoingTaskManagerExecutions, hasActiveTaskManagerExecution, isCancelableTaskManagerTask, validateTaskManagerConfigurationDraft } from './taskModel.js'
+import { buildMultiGoToPoseUnitTasks, buildTaskManagerConfigurationDraft, getActiveTaskManagerTasks, getOngoingTaskManagerExecutions, getTaskManagerRecoveryActions, getTaskManagerRecoveryActionsForDetail, getTaskManagerRecoveryFailureSummary, hasActiveTaskManagerExecution, isCancelableTaskManagerTask, validateTaskManagerConfigurationDraft } from './taskModel.js'
 
 function taskManagerTask(
   status: string,
@@ -80,17 +80,69 @@ test('returns ongoing executions without relabeling them as operator-active Task
   )
 })
 
-test('allows cancellation while a Task is submitted, active, or awaiting recovery', () => {
+test('uses resolve_recovery instead of the transition cancel service while recovery is required', () => {
   assert.deepEqual(
     ['CREATED', 'PENDING', 'RUNNING', 'RECOVERY_REQUIRED', 'SUCCEEDED', 'FAILED', 'CANCELED']
       .filter(status => isCancelableTaskManagerTask(taskManagerTask(status, status))),
-    ['PENDING', 'RUNNING', 'RECOVERY_REQUIRED'],
+    ['PENDING', 'RUNNING'],
   )
+  assert.equal(isCancelableTaskManagerTask(taskManagerTask('RECOVERY_REQUIRED', 'recovery', ['CANCEL'])), false)
 })
 
 test('uses the Task Manager allowed controls instead of reconstructing V2 lifecycle rules', () => {
   assert.equal(isCancelableTaskManagerTask(taskManagerTask('RUNNING', 'blocked', [])), false)
   assert.equal(isCancelableTaskManagerTask(taskManagerTask('PAUSED', 'cancelable', ['CANCEL', 'RESUME'])), true)
+})
+
+test('offers only operator-safe recovery actions reported by Task Manager', () => {
+  const recoveryTask = taskManagerTask('RECOVERY_REQUIRED', 'recovery', [
+    'RETRY_LIFECYCLE_HOOK',
+    'ACCEPT_LIFECYCLE_FAILURE',
+    'CREATE_RETRY_EXECUTION',
+    'MARK_SUCCEEDED',
+    'CANCEL',
+  ])
+
+  assert.deepEqual(
+    getTaskManagerRecoveryActions(recoveryTask).map(option => option.action),
+    ['retry_lifecycle_hook', 'create_retry_execution', 'cancel'],
+  )
+  assert.deepEqual(getTaskManagerRecoveryActions(taskManagerTask('RECOVERY_REQUIRED', 'legacy')), [])
+  assert.deepEqual(getTaskManagerRecoveryActions(taskManagerTask('RUNNING', 'running', ['CANCEL'])), [])
+})
+
+test('offers retry-or-skip cleanup when required on-cancel cleanup failed', () => {
+  const detail = editableTaskDetail()
+  detail.task.status = 'RECOVERY_REQUIRED'
+  detail.task.active_task_execution_id = 'execution-cancel'
+  detail.task.allowed_controls = ['CANCEL']
+  detail.lifecycle_task_executions = [{
+    parent_task_execution_id: 'execution-cancel',
+    task_execution_id: 'lifecycle-cancel-1',
+    phase: 'on_cancel',
+    policy: 'required',
+    status: 'FAILED',
+    result: 'FAILED',
+    recovery_reason: '',
+    updated_at_unix_ms: 100,
+    unit_tasks: [{
+      ...detail.unit_tasks[0],
+      seq: 0,
+      last_error: 'Cleanup actuator did not retract',
+    }],
+  }]
+
+  const actions = getTaskManagerRecoveryActionsForDetail(detail)
+  assert.deepEqual(actions.map(option => option.action), [
+    'retry_lifecycle_hook',
+    'accept_lifecycle_failure',
+  ])
+  assert.deepEqual(actions.map(option => option.label), [
+    'Retry on-cancel cleanup',
+    'Skip cleanup and finish cancellation',
+  ])
+  assert.equal(actions.some(option => option.action === 'cancel'), false)
+  assert.equal(actions.find(option => option.action === 'accept_lifecycle_failure')?.requiresConfirmation, true)
 })
 
 test('builds ordered go_to_pose Unit Tasks with the live action parameters', () => {
@@ -207,12 +259,91 @@ test('prefills the editor with stored main Action parameters', () => {
     waypoint: '',
     action_name: 'perform_plc_task',
     action_params_json: '{"timeout":200,"task_index":1}',
+    use_precise_nav: true,
+    distance_goal_tolerance: 0.08,
+    yaw_goal_tolerance: 0.16,
+    target_tf_frame: 'cleaning_target',
+    min_linear_velocity: 0.04,
   }]
 
   const draft = buildTaskManagerConfigurationDraft(detail)
 
   assert.equal(draft.unit_tasks[0].action_params_json, '{"timeout":200,"task_index":1}')
+  assert.equal(draft.unit_tasks[0].use_precise_nav, true)
+  assert.equal(draft.unit_tasks[0].target_tf_frame, 'cleaning_target')
   assert.equal(validateTaskManagerConfigurationDraft(draft), '')
+})
+
+test('summarizes the latest recovery failure for operator confirmation', () => {
+  const detail = editableTaskDetail()
+  detail.task.status = 'RECOVERY_REQUIRED'
+  detail.task.active_task_execution_id = 'execution-recovery'
+  detail.recovery_interruptions = [{
+    interruption_id: 'interruption-1',
+    task_execution_id: 'execution-recovery',
+    recovery_task_index: 7,
+    lifecycle_state: 'RECOVERY_REQUIRED',
+    interrupted_work_kind: 'MAIN_UNIT_TASK',
+    interrupted_lifecycle_phase: '',
+    interrupted_parent_status: 'RUNNING',
+    supersession_reason: '',
+    updated_at_unix_ms: 100,
+    attempts: [{
+      task_execution_id: 'recovery-execution-1',
+      attempt: 2,
+      status: 'FAILED',
+      result: 'FAILED',
+      supersession_reason: '',
+      updated_at_unix_ms: 200,
+      unit_tasks: [{
+        ...detail.unit_tasks[0],
+        seq: 10,
+        last_error: 'Brush jam could not be cleared',
+      }],
+    }],
+  }]
+
+  assert.deepEqual(getTaskManagerRecoveryFailureSummary(detail), {
+    stage: 'Recovery #7: MAIN_UNIT_TASK',
+    error: 'Brush jam could not be cleared',
+  })
+})
+
+test('prioritizes failed on-cancel cleanup over a newer lifecycle restart recovery error', () => {
+  const detail = editableTaskDetail()
+  detail.task.status = 'RECOVERY_REQUIRED'
+  detail.task.active_task_execution_id = 'execution-cancel'
+  detail.lifecycle_task_executions = [{
+    parent_task_execution_id: 'execution-cancel',
+    task_execution_id: 'lifecycle-cancel-1',
+    phase: 'on_cancel',
+    policy: 'required',
+    status: 'FAILED',
+    result: 'FAILED',
+    recovery_reason: '',
+    updated_at_unix_ms: 100,
+    unit_tasks: [{
+      ...detail.unit_tasks[0],
+      last_error: 'Cleanup actuator did not retract',
+    }],
+  }]
+  detail.recovery_interruptions = [{
+    interruption_id: 'interruption-1',
+    task_execution_id: 'execution-cancel',
+    recovery_task_index: 0,
+    lifecycle_state: 'RECOVERY_REQUIRED',
+    interrupted_work_kind: 'TRANSITION',
+    interrupted_lifecycle_phase: '',
+    interrupted_parent_status: 'CANCELING',
+    supersession_reason: 'lifecycle_restart_recovery_required',
+    updated_at_unix_ms: 200,
+    attempts: [],
+  }]
+
+  assert.deepEqual(getTaskManagerRecoveryFailureSummary(detail), {
+    stage: 'Lifecycle hook: on_cancel',
+    error: 'Cleanup actuator did not retract',
+  })
 })
 
 test('blocks updates until unavailable main Action parameters are explicitly supplied', () => {

@@ -1,9 +1,10 @@
 import ky from 'ky'
+import { parseDocument } from 'yaml'
 import { extractLatestRobotParameterYaml, normalizeRobotParametersByHeads, parseRobotParameterHeads, serializeRobotParameterUpdateBody } from './robotParameterPayload'
 import type { RobotParameterNumericType } from './robotParameterPayload'
 import { projectTaskManagerTaskDetail } from './taskManagerTaskDetail.js'
 import type { CalculateDockingPoseData, CalculateDockingPoseRequest } from './dockingPose'
-import type { CurrentMapData, MapDataDetail, MapListItem, NavProfile, PointAction, PoseMessage, QuaternionMessage, RobotParams, TaskManagerCancelTaskResult, TaskManagerCreateTaskPayload, TaskManagerCreateTaskResult, TaskManagerDeleteTaskResult, TaskManagerListActionsResult, TaskManagerRenameTaskResult, TaskManagerRunTaskResult, TaskManagerTaskDetail, TaskManagerTaskInfo, TaskManagerUpdateTaskPayload, TaskManagerUpdateTaskResult } from '@/types'
+import type { CurrentMapData, MapDataDetail, MapListItem, NavProfile, PointAction, PoseMessage, QuaternionMessage, RobotParams, TaskManagerCancelTaskResult, TaskManagerCreateTaskPayload, TaskManagerCreateTaskResult, TaskManagerDeleteTaskResult, TaskManagerListActionsResult, TaskManagerRenameTaskResult, TaskManagerResolveRecoveryPayload, TaskManagerResolveRecoveryResult, TaskManagerRunTaskResult, TaskManagerTaskDetail, TaskManagerTaskInfo, TaskManagerUpdateTaskPayload, TaskManagerUpdateTaskResult } from '@/types'
 import { useBoundStore } from '@/store'
 
 interface Resp<T> {
@@ -195,6 +196,9 @@ export interface FleetConfigResponse {
   size: number
   modified_time: number
   content: string
+  sha256?: string
+  valid?: boolean
+  validation_errors?: string[]
   error?: string
 }
 
@@ -206,6 +210,9 @@ export interface FleetConfigWriteResponse {
   backup_path: string | null
   dry_run?: boolean
   current_modified_time?: number
+  sha256?: string
+  valid?: boolean
+  validation_errors?: string[]
   error?: string
 }
 
@@ -217,6 +224,10 @@ export interface FleetConfigNamespaceData {
   namespace: string
   site_id: string
   ros_namespace: string
+  site_name?: string
+  zenoh_namespace?: string
+  mode?: string
+  identity_revision?: number
   exists?: boolean
   valid?: boolean
   validation_error?: string | null
@@ -299,20 +310,119 @@ export interface ComposeControlLogsRequest {
   timestamps?: boolean
 }
 
-interface ComposeMapSitesResponse {
-  ok: boolean
-  root: string
-  sites: ComposeMapSite[]
+interface SystemControlEnvelope<T> {
+  code?: number
+  data?: T
+  msg?: string
+  message?: string
   error?: string
+  ok?: boolean
 }
 
-interface ComposeMapFilesResponse {
-  ok: boolean
-  site: string
-  path: string
-  files: ComposeMapFile[]
-  error?: string
+interface SystemControlSite {
+  name?: string
+  site_id?: string
+  zenoh_namespace?: string
+  mode?: string
+  identity_revision?: number
 }
+
+interface SystemControlSiteData {
+  site?: SystemControlSite
+  identity_migrated?: boolean
+  profiles_invalidated?: boolean
+}
+
+interface SystemControlRawConfigData {
+  content?: string
+  sha256?: string
+  valid?: boolean
+  validation_errors?: string[]
+  snapshot_path?: string | null
+  backup_path?: string | null
+}
+
+interface SystemControlContainerService {
+  name?: string
+  allowed_operations?: string[]
+  runtime_impacting?: boolean
+  self_protected?: boolean
+  state?: string
+  health?: string
+  detail?: string
+  status?: string
+  image?: string
+}
+
+interface SystemControlContainerDefinition {
+  key?: string
+  allowed_project_operations?: string[]
+  volume_backup_required?: boolean
+  services?: SystemControlContainerService[]
+}
+
+interface SystemControlContainersData {
+  definitions?: SystemControlContainerDefinition[]
+}
+
+interface SystemControlOperation {
+  id?: string
+  kind?: string
+  status?: string
+  request?: unknown
+  error?: unknown
+  required_decision?: unknown
+  progress?: unknown
+  result?: unknown
+}
+
+interface SystemControlOperationData {
+  operation?: SystemControlOperation
+}
+
+interface SystemControlMapFile {
+  name?: string
+  filename?: string
+  path?: string
+  content_type?: string
+  size?: number
+  size_bytes?: number
+  modified_time?: number
+  modified_at?: string
+  updated_at?: string
+  source_filename?: string
+  sha256?: string
+}
+
+interface SystemControlMapFilesData {
+  files?: SystemControlMapFile[]
+}
+
+interface SystemControlLogServicesData {
+  definitions?: Array<{
+    key?: string
+    services?: string[]
+  }>
+}
+
+interface SystemControlLogHistoryData {
+  definition?: string
+  service?: string
+  tail?: number
+  returned?: number
+  lines?: string[]
+}
+
+interface SystemControlHealthData {
+  service?: string
+  status?: string
+  setup_required?: boolean
+  default_admin_key_active?: boolean
+}
+
+const siteConfigRawPath = '/api/v1/site/config/raw'
+const defaultContainerDefinition = 'fleet-server'
+const defaultRmfBuildingYamlFilename = 'map.building.yaml'
 
 interface ZenohTaskServiceOptions {
   servicePath?: string
@@ -338,6 +448,86 @@ function composeControlPath(path: string, params: Record<string, string | number
 
   const query = searchParams.toString()
   return query ? `${path}?${query}` : path
+}
+
+function systemControlError(json: unknown, fallback: string) {
+  if (json && typeof json === 'object') {
+    const value = json as SystemControlEnvelope<unknown>
+    return value.error || value.message || value.msg || fallback
+  }
+
+  return fallback
+}
+
+function unwrapSystemControl<T>(json: SystemControlEnvelope<T> | T, fallback: string): T {
+  if (json && typeof json === 'object') {
+    const value = json as SystemControlEnvelope<T>
+    if (value.ok === false)
+      throw new Error(systemControlError(value, fallback))
+    if (typeof value.code === 'number') {
+      if (value.code !== 0)
+        throw new Error(systemControlError(value, fallback))
+
+      if (value.data !== undefined)
+        return value.data
+    }
+  }
+
+  return json as T
+}
+
+function byteLength(value: string) {
+  return new TextEncoder().encode(value).length
+}
+
+function revisionTimestamp() {
+  return Date.now() / 1000
+}
+
+function parseServerTimestamp(value: string | undefined) {
+  if (!value)
+    return revisionTimestamp()
+
+  const timestamp = Date.parse(value)
+  return Number.isFinite(timestamp) ? timestamp / 1000 : revisionTimestamp()
+}
+
+function countBy(values: string[]) {
+  return values.reduce<Record<string, number>>((counts, value) => {
+    const key = value || 'unknown'
+    counts[key] = (counts[key] ?? 0) + 1
+    return counts
+  }, {})
+}
+
+function normalizeSystemControlMapFileType(file: SystemControlMapFile) {
+  const contentType = file.content_type?.trim()
+  if (contentType)
+    return contentType
+
+  const name = file.name || file.filename || file.path || ''
+  const extension = name.split('.').pop()?.toLowerCase()
+  return extension || 'file'
+}
+
+function normalizeSystemControlMapFile(file: SystemControlMapFile): ComposeMapFile {
+  const path = file.name || file.filename || file.path || ''
+  const modifiedTime = typeof file.modified_time === 'number'
+    ? file.modified_time
+    : parseServerTimestamp(file.modified_at || file.updated_at)
+
+  return {
+    path,
+    type: normalizeSystemControlMapFileType(file),
+    size: file.size_bytes ?? file.size ?? 0,
+    modified_time: modifiedTime,
+  }
+}
+
+function validateYamlContent(content: string) {
+  const document = parseDocument(content)
+  if (document.errors.length > 0)
+    throw new Error(document.errors.map(error => error.message).join('; '))
 }
 
 type RawMapListItem = MapListItem & {
@@ -529,7 +719,7 @@ class ApiServer {
       accept: 'application/json',
     }
     if (token)
-      headers.authorization = `Bearer ${token}`
+      headers['x-api-key'] = token
 
     return ky(url.toString(), {
       method,
@@ -537,6 +727,75 @@ class ApiServer {
       headers,
       json: options.json,
     }).json<T>()
+  }
+
+  private async fetchSystemControlContainers() {
+    const json = await this.requestComposeControl<SystemControlEnvelope<SystemControlContainersData>>('/api/v1/containers', {
+      timeout: 30000,
+    })
+    return unwrapSystemControl(json, 'Failed to fetch container definitions')
+  }
+
+  private findSystemControlContainerDefinition(
+    data: SystemControlContainersData,
+    file = '',
+    project = '',
+  ) {
+    const definitions = data.definitions ?? []
+    const requested = [file, project]
+      .map(value => value.trim())
+      .filter(Boolean)
+
+    return requested
+      .map(key => definitions.find(definition => definition.key === key))
+      .find(Boolean)
+      ?? definitions.find(definition => definition.key === defaultContainerDefinition)
+      ?? definitions[0]
+  }
+
+  private async fetchSystemControlLogServices() {
+    const json = await this.requestComposeControl<SystemControlEnvelope<SystemControlLogServicesData>>('/api/v1/logs/services', {
+      timeout: 30000,
+    })
+    return unwrapSystemControl(json, 'Failed to fetch log services')
+  }
+
+  private async fetchSystemControlMapFiles() {
+    const json = await this.requestComposeControl<SystemControlEnvelope<SystemControlMapFilesData>>('/api/v1/maps/files', {
+      timeout: 30000,
+    })
+    const data = unwrapSystemControl(json, 'Failed to fetch map files')
+    return data.files ?? []
+  }
+
+  private normalizeSystemControlSiteData(data: SystemControlSiteData): FleetConfigNamespaceResponse {
+    const site = data.site ?? {}
+    const name = site.name || ''
+    const siteId = site.site_id || name
+    const zenohNamespace = site.zenoh_namespace || siteId || name
+
+    return {
+      ok: true,
+      code: 0,
+      data: {
+        path: siteConfigRawPath,
+        size: 0,
+        modified_time: revisionTimestamp(),
+        key: 'site.name',
+        namespace: zenohNamespace,
+        site_id: siteId,
+        ros_namespace: zenohNamespace,
+        site_name: name,
+        zenoh_namespace: zenohNamespace,
+        mode: site.mode,
+        identity_revision: site.identity_revision,
+        exists: Boolean(name || siteId),
+        valid: Boolean(name || siteId),
+        validation_error: null,
+        backup_path: null,
+      },
+      msg: 'ok',
+    }
   }
 
   cameraGatewayUrl = (path: string, cacheBust = false) => {
@@ -564,20 +823,29 @@ class ApiServer {
   }
 
   fetchComposeMapSites = async () => {
-    const json = await this.requestComposeControl<ComposeMapSitesResponse>('/api/maps/sites')
-    if (!json.ok)
-      throw new Error(json.error || 'Failed to fetch map sites')
+    const files = await this.fetchSystemControlMapFiles()
+    const normalizedFiles = files.map(normalizeSystemControlMapFile).filter(file => file.path)
+    if (normalizedFiles.length === 0)
+      return []
 
-    return json.sites
+    let site = 'site'
+    try {
+      const response = await this.fetchFleetConfigNamespace()
+      site = response.data.site_name || response.data.site_id || response.data.namespace || site
+    }
+    catch {}
+
+    return [{
+      site,
+      file_count: normalizedFiles.length,
+      total_bytes: normalizedFiles.reduce((sum, file) => sum + file.size, 0),
+      modified_time: Math.max(...normalizedFiles.map(file => file.modified_time)),
+    }]
   }
 
-  fetchComposeMapFiles = async (site: string) => {
-    const encodedSite = encodeURIComponent(site)
-    const json = await this.requestComposeControl<ComposeMapFilesResponse>(`/api/maps/${encodedSite}/files`)
-    if (!json.ok)
-      throw new Error(json.error || `Failed to fetch map files for ${site}`)
-
-    return json.files
+  fetchComposeMapFiles = async (_site: string) => {
+    const files = await this.fetchSystemControlMapFiles()
+    return files.map(normalizeSystemControlMapFile).filter(file => file.path)
   }
 
   fetchComposeMapSitesWithFiles = async () => {
@@ -589,143 +857,276 @@ class ApiServer {
   }
 
   fetchComposeControlHealth = async () => {
-    const json = await this.requestComposeControl<ComposeControlHealthResponse>('/health')
-    if (!json.ok)
-      throw new Error(json.error || 'Failed to fetch compose control health')
+    const json = await this.requestComposeControl<SystemControlEnvelope<SystemControlHealthData>>('/health')
+    const data = unwrapSystemControl(json, 'Failed to fetch system control health')
 
-    return json
+    return {
+      ok: data.status === 'ok',
+      allowed_compose_files: [],
+      ...data,
+    }
   }
 
   fetchComposeAllowedFiles = async () => {
-    const json = await this.requestComposeControl<ComposeControlAllowedFilesResponse>('/api/compose/allowed-files')
-    if (!json.ok)
-      throw new Error(json.error || 'Failed to fetch compose files')
+    const data = await this.fetchSystemControlContainers()
 
-    return json.files
+    return (data.definitions ?? [])
+      .map(definition => definition.key)
+      .filter((key): key is string => Boolean(key))
   }
 
   fetchComposeStatus = async (file = '', project = '') => {
-    const json = await this.requestComposeControl<ComposeControlStatusResponse>(
-      composeControlPath('/api/compose/status', { file, project }),
-      { timeout: 30000 },
-    )
-    if (!json.ok)
-      throw new Error(json.error || json.stderr || 'Failed to fetch compose status')
+    const data = await this.fetchSystemControlContainers()
+    const definition = this.findSystemControlContainerDefinition(data, file, project)
+    const definitionKey = definition?.key || file || project || defaultContainerDefinition
+    const services = (definition?.services ?? []).map((service) => {
+      const serviceName = service.name || '--'
+      return {
+        id: `${definitionKey}:${serviceName}`,
+        name: serviceName,
+        project: definitionKey,
+        service: serviceName,
+        state: service.state || 'unknown',
+        health: service.health || 'unknown',
+        status: service.detail || service.status || service.state || '',
+        image: service.image || '',
+      } satisfies ComposeControlServiceStatus
+    })
+    const states = services.map(service => service.state || 'unknown')
+    const health = services.map(service => service.health || 'unknown')
+    const stateCounts = countBy(states)
+    const healthCounts = countBy(health)
+    const runningCount = services.filter(service => service.state === 'running').length
+    const total = services.length
+    const status = total === 0
+      ? 'empty'
+      : runningCount === total
+        ? 'running'
+        : runningCount > 0
+          ? 'partial'
+          : stateCounts.stopped === total
+            ? 'stopped'
+            : stateCounts.unavailable
+              ? 'unavailable'
+              : 'stopped'
 
-    return json
+    return {
+      ok: true,
+      command: 'GET /api/v1/containers',
+      returncode: 0,
+      stdout: JSON.stringify(definition ?? data, null, 2),
+      stderr: '',
+      file: definitionKey,
+      status,
+      running: runningCount > 0,
+      total,
+      running_count: runningCount,
+      state_counts: stateCounts,
+      health_counts: healthCounts,
+      services,
+    } satisfies ComposeControlStatusResponse
   }
 
   fetchComposeConfig = async (file = '', project = '') => {
-    const json = await this.requestComposeControl<ComposeControlCommandResponse>(
-      composeControlPath('/api/compose/config', { file, project }),
-      { timeout: 30000 },
-    )
-    if (!json.ok)
-      throw new Error(json.error || json.stderr || 'Failed to fetch compose config')
+    const data = await this.fetchSystemControlContainers()
+    const definition = this.findSystemControlContainerDefinition(data, file, project)
 
-    return json
+    return {
+      ok: true,
+      command: 'GET /api/v1/containers',
+      returncode: 0,
+      stdout: JSON.stringify(definition ?? data, null, 2),
+      stderr: '',
+    } satisfies ComposeControlCommandResponse
   }
 
   fetchComposeLogs = async ({ file = '', project = '', service = '', tail = 200, timestamps = false }: ComposeControlLogsRequest = {}) => {
-    const json = await this.requestComposeControl<ComposeControlCommandResponse>(
-      composeControlPath('/api/compose/logs', {
-        file,
-        project,
-        service,
-        tail: Math.max(1, Math.floor(tail)),
-        timestamps,
-      }),
-      { timeout: 70000 },
-    )
-    if (!json.ok)
-      throw new Error(json.error || json.stderr || 'Failed to fetch compose logs')
+    const logs = await this.fetchSystemControlLogServices()
+    const definitions = logs.definitions ?? []
+    const requestedDefinition = [file, project].map(value => value.trim()).filter(Boolean)
+    const definition = requestedDefinition
+      .map(key => definitions.find(candidate => candidate.key === key))
+      .find(Boolean)
+      ?? definitions.find(candidate => candidate.key === defaultContainerDefinition)
+      ?? definitions[0]
+    const definitionKey = definition?.key || file || project || defaultContainerDefinition
+    const availableServices = definition?.services ?? []
+    const selectedServices = service.trim()
+      ? [service.trim()]
+      : availableServices
 
-    return json
+    if (selectedServices.length === 0)
+      throw new Error(`No log services are available for ${definitionKey}`)
+
+    const safeTail = Math.min(1000, Math.max(1, Math.floor(tail)))
+    const histories = await Promise.all(selectedServices.map(async (serviceName) => {
+      const json = await this.requestComposeControl<SystemControlEnvelope<SystemControlLogHistoryData>>(
+        composeControlPath('/api/v1/logs/history', {
+          definition: definitionKey,
+          service: serviceName,
+          tail: safeTail,
+        }),
+        { timeout: 70000 },
+      )
+      return unwrapSystemControl(json, `Failed to fetch logs for ${serviceName}`)
+    }))
+
+    const stdout = histories
+      .map(history => (history.lines ?? []).join('\n'))
+      .filter(Boolean)
+      .join('\n')
+
+    return {
+      ok: true,
+      command: `GET /api/v1/logs/history definition=${definitionKey} services=${selectedServices.join(',')}`,
+      returncode: 0,
+      stdout,
+      stderr: timestamps ? 'Timestamps are controlled by the server log format.' : '',
+    } satisfies ComposeControlCommandResponse
   }
 
   runComposeCommand = async (action: ComposeControlAction, request: ComposeControlCommandRequest = {}) => {
-    const json = await this.requestComposeControl<ComposeControlCommandResponse>(`/api/compose/${action}`, {
+    const containers = await this.fetchSystemControlContainers()
+    const definition = this.findSystemControlContainerDefinition(containers, request.file, request.project)
+    const definitionKey = definition?.key || request.file || request.project || defaultContainerDefinition
+    const operation = action === 'up' ? 'start' : action
+    const services = operation === 'down'
+      ? undefined
+      : request.services && request.services.length > 0
+        ? request.services
+        : (definition?.services ?? [])
+            .filter(service => service.allowed_operations?.includes(operation))
+            .map(service => service.name)
+            .filter((name): name is string => Boolean(name))
+
+    const json = await this.requestComposeControl<SystemControlEnvelope<SystemControlOperationData>>('/api/v1/containers/operations', {
       method: 'POST',
       timeout: 120000,
-      json: request,
+      json: {
+        definition: definitionKey,
+        operation,
+        services,
+        remove_volumes: Boolean(request.volumes),
+        confirm_volume_deletion: Boolean(request.volumes),
+      },
     })
-    if (!json.ok)
-      throw new Error(json.error || json.stderr || `Failed to run docker compose ${action}`)
+    const data = unwrapSystemControl(json, `Failed to run container ${operation}`)
 
-    return json
+    return {
+      ok: true,
+      command: `POST /api/v1/containers/operations ${definitionKey}:${operation}`,
+      returncode: 0,
+      stdout: JSON.stringify(data.operation ?? data, null, 2),
+      stderr: '',
+    } satisfies ComposeControlCommandResponse
   }
 
   fetchFleetConfig = async () => {
-    const json = await this.requestComposeControl<FleetConfigResponse>('/api/fleet-config')
-    if (!json.ok)
-      throw new Error(json.error || 'Failed to fetch rmf.yaml')
+    const json = await this.requestComposeControl<SystemControlEnvelope<SystemControlRawConfigData>>(siteConfigRawPath)
+    const data = unwrapSystemControl(json, 'Failed to fetch site config')
+    const content = data.content ?? ''
 
-    return json
+    return {
+      ok: true,
+      path: siteConfigRawPath,
+      size: byteLength(content),
+      modified_time: revisionTimestamp(),
+      content,
+      sha256: data.sha256,
+      valid: data.valid,
+      validation_errors: data.validation_errors,
+    } satisfies FleetConfigResponse
   }
 
-  updateFleetConfig = async (content: string, expectedModifiedTime?: number, dryRun = false) => {
-    const json = await this.requestComposeControl<FleetConfigWriteResponse>('/api/fleet-config', {
+  updateFleetConfig = async (content: string, expectedRevision?: number | string, dryRun = false) => {
+    validateYamlContent(content)
+    if (dryRun) {
+      return {
+        ok: true,
+        path: siteConfigRawPath,
+        size: byteLength(content),
+        modified_time: revisionTimestamp(),
+        backup_path: null,
+        dry_run: true,
+        sha256: typeof expectedRevision === 'string' ? expectedRevision : undefined,
+        valid: true,
+        validation_errors: [],
+      } satisfies FleetConfigWriteResponse
+    }
+
+    const json = await this.requestComposeControl<SystemControlEnvelope<SystemControlRawConfigData>>(siteConfigRawPath, {
       method: 'PUT',
       json: {
         content,
-        expected_modified_time: expectedModifiedTime,
-        backup: true,
-        dry_run: dryRun,
+        expected_sha256: typeof expectedRevision === 'string' ? expectedRevision : undefined,
+        force: false,
+        reason: null,
+        confirm_identity_migration: true,
       },
     })
-    if (!json.ok)
-      throw new Error(json.error || 'Failed to save rmf.yaml')
+    const data = unwrapSystemControl(json, 'Failed to save site config')
 
-    return json
+    return {
+      ok: true,
+      path: siteConfigRawPath,
+      size: byteLength(data.content ?? content),
+      modified_time: revisionTimestamp(),
+      backup_path: data.backup_path ?? data.snapshot_path ?? null,
+      sha256: data.sha256,
+      valid: data.valid,
+      validation_errors: data.validation_errors,
+    } satisfies FleetConfigWriteResponse
   }
 
   fetchFleetConfigNamespace = async () => {
-    const json = await this.requestComposeControl<FleetConfigNamespaceResponse>('/api/fleet-config/namespace')
-    if (json.ok === false)
-      throw new Error(json.error || json.message || json.msg || 'Failed to fetch site name')
-    if (typeof json.code === 'number' && json.code !== 0)
-      throw new Error(json.message || json.msg || json.error || 'Failed to fetch site name')
-    if (!json.data)
-      throw new Error('Failed to fetch site name')
+    const json = await this.requestComposeControl<SystemControlEnvelope<SystemControlSiteData>>('/api/v1/site')
+    const data = unwrapSystemControl(json, 'Failed to fetch site')
 
-    return json
+    return this.normalizeSystemControlSiteData(data)
   }
 
-  updateFleetConfigNamespace = async (namespace: string, expectedModifiedTime?: number, dryRun = false) => {
-    const json = await this.requestComposeControl<FleetConfigNamespaceResponse>('/api/fleet-config/namespace', {
+  updateFleetConfigNamespace = async (namespace: string, _expectedModifiedTime?: number, dryRun = false) => {
+    const name = namespace.trim()
+    if (!name)
+      throw new Error('Site name is required')
+
+    const current = await this.fetchFleetConfigNamespace()
+    if (dryRun) {
+      return {
+        ...current,
+        data: {
+          ...current.data,
+          site_name: name,
+          valid: true,
+          validation_error: null,
+        },
+      } satisfies FleetConfigNamespaceResponse
+    }
+
+    const json = await this.requestComposeControl<SystemControlEnvelope<SystemControlSiteData>>('/api/v1/site', {
       method: 'PUT',
       json: {
-        namespace,
-        expected_modified_time: expectedModifiedTime,
-        backup: true,
-        dry_run: dryRun,
+        name,
+        mode: current.data.mode || 'local',
+        confirm_identity_migration: true,
       },
     })
-    if (json.ok === false)
-      throw new Error(json.error || json.message || json.msg || 'Failed to save site name')
-    if (typeof json.code === 'number' && json.code !== 0)
-      throw new Error(json.message || json.msg || json.error || 'Failed to save site name')
-    if (!json.data)
-      throw new Error('Failed to save site name')
+    const data = unwrapSystemControl(json, 'Failed to save site name')
 
-    return json
+    return this.normalizeSystemControlSiteData(data)
   }
 
   updateFleetReferenceCoordinates = async (maps: string[], backup = false) => {
-    const json = await this.requestComposeControl<FleetReferenceCoordinatesResponse>('/api/fleet-config/reference-coordinates', {
-      method: 'PUT',
-      json: {
+    return {
+      ok: true,
+      code: 0,
+      message: 'System Control Server v1 map APIs do not mutate live fleet configuration. Reference coordinates must be changed through site config and apply.',
+      data: {
         maps,
         backup,
+        skipped: true,
       },
-    })
-
-    if (json.ok === false)
-      throw new Error(json.error || json.message || 'Failed to update reference coordinates')
-    if (typeof json.code === 'number' && json.code !== 0)
-      throw new Error(json.message || json.error || 'Failed to update reference coordinates')
-
-    return json
+    } satisfies FleetReferenceCoordinatesResponse
   }
 
   fetchMapListNew = async () => {
@@ -1060,6 +1461,28 @@ class ApiServer {
     }
   }
 
+  resolveTaskRecovery = async (resolution: TaskManagerResolveRecoveryPayload, options: ZenohTaskServiceOptions = {}): Promise<TaskManagerResolveRecoveryResult> => {
+    if (!window.zcDesktop?.resolveZenohTaskRecovery)
+      throw new Error('Task recovery resolution is unavailable. Restart the Fleet Operations Console and try again.')
+
+    const response = await window.zcDesktop.resolveZenohTaskRecovery({
+      host: this.controllerHost,
+      servicePath: options.servicePath,
+      resolution,
+      timeoutMs: options.timeoutMs,
+    })
+    if (!response.success)
+      throw new Error(response.message || 'Task recovery resolution did not complete')
+    if (!response.ok)
+      throw new Error(response.message || 'Task Manager rejected the recovery resolution')
+
+    return {
+      ok: response.ok,
+      task_execution_id: response.task_execution_id,
+      message: response.message,
+    }
+  }
+
   renameTask = async (taskId: string, newName: string, options: ZenohTaskServiceOptions = {}): Promise<TaskManagerRenameTaskResult> => {
     if (!window.zcDesktop?.renameZenohTask)
       throw new Error('Task renaming is unavailable. Restart the Fleet Operations Console and try again.')
@@ -1269,7 +1692,7 @@ class ApiServer {
     }
   }
 
-  private buildRmfBuildingYamlUploadUrl(targetHost: string) {
+  private buildSystemControlUrl(targetHost: string, path: string, params: Record<string, string> = {}) {
     const trimmedHost = targetHost.trim()
     if (!trimmedHost)
       throw new Error('上传目标 IP不能为空')
@@ -1277,31 +1700,79 @@ class ApiServer {
     const url = new URL(/^https?:\/\//i.test(trimmedHost) ? trimmedHost : `http://${trimmedHost}`)
     if (!url.port)
       url.port = '4999'
-    url.pathname = '/api/map/building_yaml'
+    url.pathname = path
     url.search = ''
+    Object.entries(params).forEach(([key, value]) => {
+      url.searchParams.set(key, value)
+    })
     url.hash = ''
     return url.toString()
   }
 
+  private async uploadSystemControlMapFile(targetHost: string, filename: string, body: Blob | string, contentType: string) {
+    const token = this.composeControlToken
+    const headers: Record<string, string> = {
+      'accept': 'application/json',
+      'content-type': contentType,
+    }
+    if (token)
+      headers['x-api-key'] = token
+
+    const json = await ky.post(this.buildSystemControlUrl(targetHost, '/api/v1/maps/files', { filename }), {
+      body,
+      headers,
+      timeout: 30 * 60 * 1000,
+    }).json<SystemControlEnvelope<{ file?: SystemControlMapFile }>>()
+
+    return unwrapSystemControl(json, `Failed to upload ${filename}`)
+  }
+
   uploadRmfBuildingYaml = async (targetHost: string, content: string, mapImages: RmfBuildingMapImageUpload[] = []) => {
-    const formData = new FormData()
-    formData.append(
-      'file',
+    const savedImages: string[] = []
+    for (const image of mapImages) {
+      await this.uploadSystemControlMapFile(
+        targetHost,
+        image.filename,
+        image.blob,
+        image.blob.type || 'application/octet-stream',
+      )
+      savedImages.push(image.filename)
+    }
+
+    await this.uploadSystemControlMapFile(
+      targetHost,
+      defaultRmfBuildingYamlFilename,
       new Blob([content], { type: 'application/x-yaml;charset=utf-8' }),
-      'map.building.yaml',
+      'application/x-yaml;charset=utf-8',
     )
-    for (const image of mapImages)
-      formData.append('maps', image.blob, image.filename)
 
     const token = this.composeControlToken
-    const json = await ky.post(this.buildRmfBuildingYamlUploadUrl(targetHost), {
-      body: formData,
-      headers: token
-        ? { authorization: `Bearer ${token}` }
-        : undefined,
+    const headers: Record<string, string> = {
+      accept: 'application/json',
+    }
+    if (token)
+      headers['x-api-key'] = token
+
+    const json = await ky.post(this.buildSystemControlUrl(targetHost, '/api/v1/maps/generate'), {
+      json: {
+        source_filename: defaultRmfBuildingYamlFilename,
+      },
+      headers,
       timeout: 30 * 60 * 1000,
-    }).json<RmfBuildingYamlUploadResponse>()
-    return json
+    }).json<SystemControlEnvelope<SystemControlOperationData>>()
+    const data = unwrapSystemControl(json, 'Failed to generate RMF map')
+
+    return {
+      ok: true,
+      returncode: 0,
+      stdout: JSON.stringify({
+        uploaded: [defaultRmfBuildingYamlFilename, ...savedImages],
+        operation: data.operation,
+      }, null, 2),
+      stderr: '',
+      saved_images: savedImages,
+      referenced_images: mapImages.map(image => image.filename),
+    } satisfies RmfBuildingYamlUploadResponse
   }
 
   fetchParams = async () => {

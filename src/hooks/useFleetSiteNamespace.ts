@@ -33,7 +33,7 @@ export function prefixFleetSiteTopic(namespace: string, topic: string) {
 }
 
 function namespaceFromConfig(data: FleetConfigNamespaceData | null | undefined) {
-  return normalizeFleetSiteNamespace(data?.namespace || data?.site_id || '')
+  return normalizeFleetSiteNamespace(data?.zenoh_namespace || data?.namespace || data?.site_id || '')
 }
 
 function stateFromNamespace(namespace: string): FleetSiteNamespaceState {

@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trace Robot-mode Depth Video</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div class="eyebrow">Lesson 0001 · Robot View · 8 minutes</div>
+      <h1>Follow one depth frame to the screen</h1>
+      <p class="lede">Your tangible win: after this lesson, you can point to the exact boundary responsible when Robot View lists no camera, cannot start one, shows a frozen frame, or paints misleading colors.</p>
+      <div class="meta">
+        <span>Current tree: 0b24fde</span>
+        <span>Skill: trace a frame</span>
+        <span>Prerequisite: basic React</span>
+      </div>
+    </header>
+
+    <div class="callout">
+      <strong>The short answer.</strong> The app does not play the returned RTSP URL. With “彩色深度” enabled, it activates the camera source, fetches the source’s snapshot endpoint repeatedly, decodes each response as an image, recolors its 8-bit canvas pixels, and schedules the next fetch 125 ms after the current frame finishes.
+    </div>
+
+    <h2 id="route">The frame route</h2>
+    <ol class="flow" aria-label="Depth frame data flow">
+      <li><b>Connection Host</b><small>Robot-mode startup stores the Robot Controller IP.</small></li>
+      <li><b>Gateway :8083</b><small>Lists sources and exposes source-specific control and image paths.</small></li>
+      <li><b>Electron main</b><small>Fetches JSON or binary data outside the renderer.</small></li>
+      <li><b>HTML Image</b><small>Decodes one snapshot response into pixels.</small></li>
+      <li><b>Canvas</b><small>Normalizes luminance and paints the false-color frame.</small></li>
+    </ol>
+
+    <p>Robot-mode startup writes <code>ws://&lt;connection-host&gt;:1234</code>. The API adapter takes that WebSocket URL’s hostname and builds <code>http://&lt;connection-host&gt;:8083</code> for the camera gateway. Opening the camera modal immediately requests <code>GET /api/v1/sources</code>; the response supplies every source-specific <code>snapshot</code>, <code>preview</code>, <code>start</code>, and <code>stop</code> path.</p>
+
+    <h2 id="activation">Activation is not playback</h2>
+    <div class="two-col">
+      <section class="card">
+        <h3>Start controls the gateway</h3>
+        <p>The Start button sends <code>POST source.paths.start</code>. A successful response marks the source active and may return an RTSP URL. The UI stores that URL only to display it in a read-only field.</p>
+      </section>
+      <section class="card">
+        <h3>Rendering chooses another path</h3>
+        <p>The selected renderer depends on source type and the “彩色深度” toggle. The returned RTSP URL is never assigned to a <code>&lt;video&gt;</code> element or decoder.</p>
+      </section>
+    </div>
+
+    <table>
+      <thead>
+        <tr><th>State</th><th>Renderer</th><th>Resource actually consumed</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Depth, color on, stopped</td><td>Canvas, one draw</td><td>Snapshot path through binary fetch</td></tr>
+        <tr><td>Depth, color on, started</td><td>Canvas, polling loop</td><td>Snapshot path after each 125 ms delay</td></tr>
+        <tr><td>Depth, color off, started</td><td><code>&lt;img&gt;</code></td><td>Gateway preview path</td></tr>
+        <tr><td>Any source, stopped</td><td><code>&lt;img&gt;</code> unless colorized</td><td>One cache-busted snapshot URL</td></tr>
+        <tr><td>RTSP returned</td><td>None in this app</td><td>Displayed for an external RTSP client</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="color">What “彩色深度” really means</h2>
+    <ol class="steps">
+      <li>The desktop main process downloads the snapshot bytes and returns a MIME type plus base64 data to the renderer.</li>
+      <li>An <code>HTMLImageElement</code> decodes those bytes; a canvas draws the image and reads an RGBA <code>Uint8ClampedArray</code>.</li>
+      <li>The code treats transparent pixels and luminance values at or below 4 as invalid, painting them black.</li>
+      <li>It builds a 256-bin luminance histogram, takes the current frame’s 2nd and 98th percentiles, and normalizes valid values between them.</li>
+      <li>Each normalized value is interpolated across a purple → blue → cyan → green → yellow → orange → red palette.</li>
+    </ol>
+
+    <div class="callout warning">
+      <strong>Do not read the colors as meters.</strong> Canvas exposes 8-bit display channels, and this code rescales them independently for every frame. A red pixel means “high within this frame’s visible luminance range,” not a stable physical distance. Raw or metric depth semantics would need a different data contract.
+    </div>
+
+    <h2 id="debug">Debug from left to right</h2>
+    <table>
+      <thead>
+        <tr><th>Symptom</th><th>First boundary to inspect</th><th>Why</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>No sources</td><td>Connection Host → <code>:8083/api/v1/sources</code></td><td>The UI cannot choose a source before discovery succeeds.</td></tr>
+        <tr><td>Source says unavailable</td><td>Camera gateway and its upstream adapter</td><td>The <code>available</code> flag comes from gateway metadata.</td></tr>
+        <tr><td>Start fails</td><td><code>POST source.paths.start</code></td><td>Activation is a separate control request.</td></tr>
+        <tr><td>LIVE badge, frozen colored frame</td><td>Snapshot binary fetch loop</td><td>Colored depth does not consume preview or RTSP.</td></tr>
+        <tr><td>Uncolored preview works</td><td>Canvas decode/colorization path</td><td>The gateway’s preview resource is healthy; the paths have diverged.</td></tr>
+        <tr><td>Colors jump between frames</td><td>Per-frame percentile normalization</td><td>The 2%/98% range intentionally changes with scene content.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="trace">Trace it in the source</h2>
+    <ol class="source-list">
+      <li><a href="https://github.com/zc-robot/zcbox-web/blob/0b24fde3a131114d5e05d66cdfefdd13947c7267/src/page/App.tsx#L42-L133">Robot-mode host setup</a></li>
+      <li><a href="https://github.com/zc-robot/zcbox-web/blob/0b24fde3a131114d5e05d66cdfefdd13947c7267/src/service/apiServer.ts#L346-L563">Gateway address and request adapter</a></li>
+      <li><a href="https://github.com/zc-robot/zcbox-web/blob/0b24fde3a131114d5e05d66cdfefdd13947c7267/desktop/main.cjs#L65-L264">Electron JSON and binary fetch bridge</a></li>
+      <li><a href="https://github.com/zc-robot/zcbox-web/blob/0b24fde3a131114d5e05d66cdfefdd13947c7267/src/components/CameraStreamControls.tsx#L81-L266">Depth detection, polling, and colormap</a></li>
+      <li><a href="https://github.com/zc-robot/zcbox-web/blob/0b24fde3a131114d5e05d66cdfefdd13947c7267/src/components/CameraStreamControls.tsx#L329-L533">Source lifecycle and renderer selection</a></li>
+    </ol>
+
+    <p><strong>Primary reading:</strong> start with <a href="https://github.com/zc-robot/zcbox-web/blob/0b24fde3a131114d5e05d66cdfefdd13947c7267/src/components/CameraStreamControls.tsx#L218-L266"><code>ColorizedDepthPreview</code></a>. It is the smallest piece that reveals the real playback mechanism.</p>
+
+    <h2 id="retrieval">Check your model</h2>
+    <p>Answer from memory. Immediate feedback helps; returning tomorrow without rereading helps more.</p>
+    <section class="quiz">
+      <div class="quiz-item" data-quiz data-explanation="ColorizedDepthPreview calls fetchCameraSnapshotDataUrl; it never reads the RTSP URL or preview URL.">
+        <p>Which resource does colorized live depth repeatedly fetch?</p>
+        <div class="quiz-options">
+          <button type="button" data-answer="correct">The source snapshot endpoint</button>
+          <button type="button" data-answer="wrong">The returned RTSP address</button>
+          <button type="button" data-answer="wrong">The source preview endpoint</button>
+        </div>
+        <p class="quiz-feedback" data-feedback aria-live="polite"></p>
+      </div>
+      <div class="quiz-item" data-quiz data-explanation="The 2nd and 98th luminance percentiles are recalculated from each decoded frame.">
+        <p>What determines the visible depth-color range?</p>
+        <div class="quiz-options">
+          <button type="button" data-answer="correct">Current frame luminance percentiles</button>
+          <button type="button" data-answer="wrong">Fixed camera distance thresholds</button>
+          <button type="button" data-answer="wrong">Returned RTSP codec metadata</button>
+        </div>
+        <p class="quiz-feedback" data-feedback aria-live="polite"></p>
+      </div>
+      <div class="quiz-item" data-quiz data-explanation="The timeout is created in finally, so network and decode time are added to the 125 ms delay.">
+        <p>When does the loop schedule its next fetch?</p>
+        <div class="quiz-options">
+          <button type="button" data-answer="correct">After current frame finishes</button>
+          <button type="button" data-answer="wrong">Before current request begins</button>
+          <button type="button" data-answer="wrong">When RTSP packet arrives</button>
+        </div>
+        <p class="quiz-feedback" data-feedback aria-live="polite"></p>
+      </div>
+    </section>
+
+    <footer>
+      <a href="../reference/robot-depth-video-pipeline.html">Open the printable pipeline reference →</a>
+      <p>Ask your Codex teacher any follow-up—especially if you want to trace one live request, inspect the gateway contract, or redesign this into calibrated depth rendering.</p>
+    </footer>
+  </main>
+  <script src="../assets/retrieval-quiz.js"></script>
+</body>
+</html>

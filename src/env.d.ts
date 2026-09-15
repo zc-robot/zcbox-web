@@ -1,5 +1,5 @@
 import type { ShelfState } from './service/apiServer'
-import type { BondStatusMessage, BuildingMapMessage, FleetDataMessage, FleetDiagnosticStateMessage, LaserScanMessage, MotorStatesMessage, PointCloudMessage, PoseMessage, RmfDoorRequestMessage, RmfDoorStateMessage, RmfLiftRequestMessage, RmfLiftStateMessage, RmfScheduleMarkerCacheMessage, StorageAreaDisplayNameResult, StorageReinitRequestPayload, StorageReinitResult, StorageStateMessage, TaskManagerCancelTaskResult, TaskManagerCreateTaskPayload, TaskManagerCreateTaskResult, TaskManagerDeleteTaskResult, TaskManagerListActionsResult, TaskManagerRenameTaskResult, TaskManagerRunTaskResult, TaskManagerTaskDetail, TaskManagerTaskInfo, TaskManagerUpdateTaskPayload, TaskManagerUpdateTaskResult, TwistCommand, UInt8MultiArrayMessage } from './types'
+import type { BondStatusMessage, BuildingMapMessage, FleetDataMessage, FleetDiagnosticStateMessage, LaserScanMessage, MotorStatesMessage, PointCloudMessage, PoseMessage, RmfDoorRequestMessage, RmfDoorStateMessage, RmfLiftRequestMessage, RmfLiftStateMessage, RmfScheduleMarkerCacheMessage, StorageAreaDisplayNameResult, StorageReinitRequestPayload, StorageReinitResult, StorageStateMessage, TaskManagerCancelTaskResult, TaskManagerCreateTaskPayload, TaskManagerCreateTaskResult, TaskManagerDeleteTaskResult, TaskManagerListActionsResult, TaskManagerRenameTaskResult, TaskManagerResolveRecoveryPayload, TaskManagerResolveRecoveryResult, TaskManagerRunTaskResult, TaskManagerTaskDetail, TaskManagerTaskInfo, TaskManagerUpdateTaskPayload, TaskManagerUpdateTaskResult, TwistCommand, UInt8MultiArrayMessage } from './types'
 import type { CostmapLayer, CostmapPayloadMessage } from './util/costmapModel'
 
 declare global {
@@ -621,6 +621,21 @@ declare global {
     success: boolean
   }
 
+  interface ZenohTaskResolveRecoveryOptions {
+    host: string
+    servicePath?: string
+    resolution: TaskManagerResolveRecoveryPayload
+    timeoutMs?: number
+  }
+
+  interface ZenohTaskResolveRecoveryResult extends TaskManagerResolveRecoveryResult {
+    type: 'service-response'
+    service: 'resolve_recovery'
+    key: string
+    requestId: string
+    success: boolean
+  }
+
   interface ZenohTaskRenameOptions {
     host: string
     servicePath?: string
@@ -817,6 +832,14 @@ declare global {
     success: boolean
   }
 
+  interface ZenohCommandResolveRecoveryServiceResponseMessage extends TaskManagerResolveRecoveryResult {
+    type: 'service-response'
+    service: 'resolve_recovery'
+    key: string
+    requestId: string
+    success: boolean
+  }
+
   interface ZenohCommandRenameTaskServiceResponseMessage extends TaskManagerRenameTaskResult {
     type: 'service-response'
     service: 'rename_task'
@@ -868,6 +891,7 @@ declare global {
     | ZenohCommandUpdateTaskServiceResponseMessage
     | ZenohCommandRunTaskServiceResponseMessage
     | ZenohCommandCancelTaskServiceResponseMessage
+    | ZenohCommandResolveRecoveryServiceResponseMessage
     | ZenohCommandRenameTaskServiceResponseMessage
     | ZenohCommandDeleteTaskServiceResponseMessage
     | ZenohCommandStorageAreaDisplayNameServiceResponseMessage
@@ -1038,6 +1062,7 @@ declare global {
       updateZenohTask: (options: ZenohTaskUpdateOptions) => Promise<ZenohTaskUpdateResult>
       runZenohTask: (options: ZenohTaskRunOptions) => Promise<ZenohTaskRunResult>
       cancelZenohTask: (options: ZenohTaskCancelOptions) => Promise<ZenohTaskCancelResult>
+      resolveZenohTaskRecovery: (options: ZenohTaskResolveRecoveryOptions) => Promise<ZenohTaskResolveRecoveryResult>
       renameZenohTask: (options: ZenohTaskRenameOptions) => Promise<ZenohTaskRenameResult>
       deleteZenohTask: (options: ZenohTaskDeleteOptions) => Promise<ZenohTaskDeleteResult>
       setZenohStorageAreaDisplayName: (options: ZenohStorageAreaDisplayNameOptions) => Promise<ZenohStorageAreaDisplayNameResult>
