@@ -627,7 +627,8 @@ function exchangeModbusFrameDirect({ host, port, timeoutMs, frame }) {
 function exchangeModbusFrameViaUtility({ host, port, timeoutMs, frame }) {
   return new Promise((resolve, reject) => {
     const child = utilityProcess.fork(getModbusTransportPath(), [], {
-      disclaim: true,
+      // Keep this bundled helper attributed to Zcbox for macOS local-network consent.
+      disclaim: false,
       stdio: 'pipe',
     })
     let done = false
