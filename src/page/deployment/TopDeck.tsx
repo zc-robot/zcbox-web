@@ -5,6 +5,7 @@ import BatchRenameWaypointsModal from './BatchRenameWaypointsModal'
 import ExportRmfModal from './ExportRmfModal'
 import NavigationTransitionEventsModal from './NavigationTransitionEventsModal'
 import RedistributeWaypointsModal from './RedistributeWaypointsModal'
+import GenerateLanesModal from './GenerateLanesModal'
 import RotateLineWaypointsModal from './RotateLineWaypointsModal'
 import ShelfStateModal from './ShelfStateModal'
 import type { ExportRmfAlignment, ExportRmfSelection } from './ExportRmfModal'
@@ -12,9 +13,11 @@ import CameraStreamControls from '@/components/CameraStreamControls'
 import CostmapControls from '@/components/CostmapControls'
 import LidarScanControls from '@/components/LidarScanControls'
 import PointCloudControls from '@/components/PointCloudControls'
-import { useGridStore, useOperationStore, useParamsStore, useProfileStore } from '@/store'
+import { useBoundStore, useGridStore, useOperationStore, useParamsStore, useProfileStore } from '@/store'
 import apiServer from '@/service/apiServer'
 import { createDockingPoseRequest, createDockingWaypoint } from '@/service/dockingPose'
+import { createGeneratedLanePaths } from '@/service/laneGeneration'
+import type { GenerateLanesData } from '@/service/laneGeneration'
 import type { GridInfoMessage, NavPoint, NavProfile, PointMessage, RobotStatus } from '@/types'
 import { useKeyPress } from '@/hooks'
 import { parseFiniteNumber, parseRobotStatus, uid } from '@/util'
@@ -100,6 +103,7 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const [showBatchRenameModal, setShowBatchRenameModal] = useState(false)
   const [showRedistributeModal, setShowRedistributeModal] = useState(false)
   const [showRotateLineModal, setShowRotateLineModal] = useState(false)
+  const [laneGeneration, setLaneGeneration] = useState<{ profileUid: string; points: NavPoint[] } | null>(null)
   const [showShelfStateModal, setShowShelfStateModal] = useState(false)
   const [showNavigationTransitionEvents, setShowNavigationTransitionEvents] = useState(false)
   const [navigationRestartState, setNavigationRestartState] = useState<NavigationRestartState>('restarting')
@@ -159,6 +163,40 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const selectedWaypoints = selectedPointIds
     .map(id => pointMap.get(id))
     .filter((point): point is NavPoint => point != null)
+  const openLaneGeneration = () => {
+    const profile = currentProfile()
+    if (!profile || profile.map_id !== mapId) {
+      toast.error('请先选择当前地图的配置')
+      return
+    }
+    const points = selectedWaypoints.length ? selectedWaypoints : profile.data.waypoints
+    if (points.length < 2 || points.length > 200) {
+      toast.error('请选择 2–200 个路径点；未选中时使用当前配置的全部路径点')
+      return
+    }
+    setLaneGeneration({ profileUid: profile.uid, points: points.map(point => ({ ...point })) })
+  }
+  const applyGeneratedLanes = (result: GenerateLanesData) => {
+    if (!laneGeneration)
+      return
+    const state = useBoundStore.getState()
+    const profile = state.currentProfile()
+    if (!profile || profile.uid !== laneGeneration.profileUid || profile.map_id !== result.map_id
+      || laneGeneration.points.some(point => !profile.data.waypoints.some(current => current.uid === point.uid && current.x === point.x && current.y === point.y))) {
+      toast.error('配置或路径点已变化，请重新生成车道')
+      setLaneGeneration(null)
+      return
+    }
+    try {
+      const paths = createGeneratedLanePaths(laneGeneration.points, result.lanes, profile.data.paths ?? [], () => uid('Path'))
+      state.updateCurrentProfile({ data: { ...profile.data, paths: [...(profile.data.paths ?? []), ...paths] } })
+      setLaneGeneration(null)
+      toast.success(`已添加 ${paths.length} 条车道，请检查后保存配置`)
+    }
+    catch (error) {
+      toast.error(error instanceof Error ? error.message : '添加车道失败')
+    }
+  }
   const handleNavigationTransitionReady = useCallback(() => {
     navigationTransitionReadyRef.current?.(true)
   }, [])
@@ -1071,6 +1109,13 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           <div className="i-material-symbols-edit-note-rounded panel-icon" />
           <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">批量重命名</span>
         </div>
+        <button
+          type="button"
+          className="panel-item group w-auto gap-1 border-none bg-teal-600 px-3 hover:bg-teal-700"
+          onClick={openLaneGeneration}>
+          <div className="i-material-symbols-auto-fix-normal-rounded panel-icon" />
+          <span className="whitespace-nowrap text-sm">自动生成车道</span>
+        </button>
         <div className="relative">
           <div
             className={`${selectedWaypoints.length > 0 ? 'panel-item bg-green-600 hover:bg-green-700' : 'panel-item opacity-45'} group`}
@@ -1320,6 +1365,14 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
           points={selectedWaypoints}
           onClose={() => setShowBatchRenameModal(false)}
           onConfirm={handleBatchRenameWaypoints} />
+      )}
+      {laneGeneration && (
+        <GenerateLanesModal
+          mapId={mapId}
+          points={laneGeneration.points}
+          existingPaths={currentProfile()?.data.paths ?? []}
+          onClose={() => setLaneGeneration(null)}
+          onApply={applyGeneratedLanes} />
       )}
       {showRedistributeModal && (
         <RedistributeWaypointsModal

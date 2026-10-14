@@ -26,6 +26,20 @@ pnpm desktop:build:win
 
 Packaged artifacts are written to `release/`. macOS and Windows installers are also available from the `Desktop builds` GitHub Actions workflow.
 
+### Automatic lanes in Robot View
+
+In a Level's deployment editor, select 2–200 waypoints and click **自动生成车道**.
+With no selection, the action uses all waypoints in the current profile. Adjust
+the safety margin and optional maximum connection distance, then generate a
+preview. The robot server reads its saved footprint automatically. Review the connections and blocked points,
+click **添加车道**, and use **保存** to persist the profile. Existing connections
+are preserved and duplicates are skipped.
+
+The robot's `minimal_flask_server` must provide `POST /deploy/generateLanes`.
+Generation checks straight-line clearance on the saved navigation map. It creates
+bidirectional lanes between existing waypoints; detours and intermediate waypoints
+remain manual authoring steps.
+
 Desktop builds load the app from local files, so automatic host detection falls back to `127.0.0.1`. Use `VITE_DESKTOP_HOST`, `VITE_API_DOMAIN`, or `VITE_WS_DOMAIN` in `.env.production.local` to bake in a robot host, or change the host settings in the app.
 
 ### Zenoh telemetry

@@ -4,6 +4,7 @@ import { extractLatestRobotParameterYaml, normalizeRobotParametersByHeads, parse
 import type { RobotParameterNumericType } from './robotParameterPayload'
 import { projectTaskManagerTaskDetail } from './taskManagerTaskDetail.js'
 import type { CalculateDockingPoseData, CalculateDockingPoseRequest } from './dockingPose'
+import type { GenerateLanesData, GenerateLanesRequest } from './laneGeneration'
 import type { CurrentMapData, MapDataDetail, MapListItem, NavProfile, PointAction, PoseMessage, QuaternionMessage, RobotParams, TaskManagerCancelTaskResult, TaskManagerCreateTaskPayload, TaskManagerCreateTaskResult, TaskManagerDeleteTaskResult, TaskManagerListActionsResult, TaskManagerRenameTaskResult, TaskManagerResolveRecoveryPayload, TaskManagerResolveRecoveryResult, TaskManagerRunTaskResult, TaskManagerTaskDetail, TaskManagerTaskInfo, TaskManagerUpdateTaskPayload, TaskManagerUpdateTaskResult } from '@/types'
 import { useBoundStore } from '@/store'
 
@@ -1256,6 +1257,19 @@ class ApiServer {
     if (json.code !== 0 || !json.data)
       throw new Error(json.message || 'Failed to calculate the docking-start pose')
 
+    return json.data
+  }
+
+  generateLanes = async (request: GenerateLanesRequest) => {
+    const response = await this.client.post('deploy/generateLanes', {
+      json: request,
+      throwHttpErrors: false,
+    })
+    const json = await response.json<Resp<GenerateLanesData>>().catch(() => null)
+    if (!response.ok || json?.code !== 0 || !json.data)
+      throw new Error(json?.message || '车道生成失败，请检查机器人连接和服务版本')
+    if (json.data.map_id !== request.map_id || json.data.frame_id !== 'map' || !Array.isArray(json.data.lanes))
+      throw new Error('车道生成结果与当前地图不匹配')
     return json.data
   }
 
