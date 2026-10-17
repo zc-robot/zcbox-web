@@ -128,6 +128,7 @@ function normalizeComposeControlPath(value) {
     || pathname === '/api/v1/maps/inspect'
     || pathname === '/api/v1/maps/download'
     || pathname === '/api/v1/maps/generate'
+    || pathname === '/api/v1/rmf/restart'
     || pathname === '/api/v1/logs/services'
     || pathname === '/api/v1/logs/history'
     || pathname === '/api/v1/logs/stream'
@@ -216,7 +217,8 @@ async function requestComposeControl(options) {
 
   const requestPath = normalizeComposeControlPath(options?.path)
   const token = typeof options?.token === 'string' ? options.token.trim() : ''
-  const url = new URL(requestPath, `http://${host}:${port}`)
+  const protocol = /^https:\/\//i.test(options?.host) ? 'https' : 'http'
+  const url = new URL(requestPath, `${protocol}://${host}:${port}`)
   const headers = {
     accept: 'application/json',
   }
@@ -225,13 +227,20 @@ async function requestComposeControl(options) {
   const hasJsonBody = method !== 'GET' && options?.json !== undefined
   if (hasJsonBody)
     headers['content-type'] = 'application/json'
+  const hasRawBody = options?.body !== undefined
+  if (hasRawBody) {
+    if (method !== 'POST' || url.pathname !== '/api/v1/maps/files' || hasJsonBody || !(options.body instanceof Uint8Array))
+      throw new Error('Raw compose control bodies are only allowed for map file uploads')
+    headers['content-type'] = options.contentType || 'application/octet-stream'
+  }
 
   let response
   try {
     response = await net.fetch(url.toString(), {
       method,
       headers,
-      body: hasJsonBody ? JSON.stringify(options.json) : undefined,
+      body: hasRawBody ? options.body : hasJsonBody ? JSON.stringify(options.json) : undefined,
+      signal: options?.timeout ? AbortSignal.timeout(options.timeout) : undefined,
     })
   }
   catch (error) {

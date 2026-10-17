@@ -13,6 +13,7 @@ import CameraStreamControls from '@/components/CameraStreamControls'
 import CostmapControls from '@/components/CostmapControls'
 import LidarScanControls from '@/components/LidarScanControls'
 import PointCloudControls from '@/components/PointCloudControls'
+import { RobotToolButton, RobotToolGroup } from '@/components/RobotToolbar'
 import { useBoundStore, useGridStore, useOperationStore, useParamsStore, useProfileStore } from '@/store'
 import apiServer from '@/service/apiServer'
 import { createDockingPoseRequest, createDockingWaypoint } from '@/service/dockingPose'
@@ -112,6 +113,10 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   const [isCalculatingDockingPose, setIsCalculatingDockingPose] = useState(false)
   const [rmfUploadHost, setRmfUploadHost] = useState(() => apiServer.defaultRmfWebVizHost)
   const [isUploadingRmf, setIsUploadingRmf] = useState(false)
+  const [isRestartingRmf, setIsRestartingRmf] = useState(false)
+  const rmfRestartPending = useRef(false)
+  const [toolCategory, setToolCategory] = useState<'edit' | 'points' | 'robot' | 'view' | null>(null)
+  const toolbarRef = useRef<HTMLDivElement>(null)
   const [executePreciseXY, setExecutePreciseXY] = useState('0.05')
   const [executePreciseRad, setExecutePreciseRad] = useState('0.05')
   const [executeNavType, setExecuteNavType] = useState<ExecuteWaypointNavType>('auto')
@@ -720,8 +725,31 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
   }
 
   const handleGenerateRmfClicked = () => {
-    setRmfUploadHost(apiServer.defaultRmfWebVizHost)
     setShowExportModal(true)
+  }
+
+  const handleRestartRmf = async () => {
+    if (rmfRestartPending.current || isUploadingRmf)
+      return
+    const targetHost = rmfUploadHost.trim()
+    // eslint-disable-next-line no-alert
+    if (!window.confirm(`确定重启 ${targetHost} 上的 RMF？\nRMF 将重新加载已上传的导航图，车队任务和连接可能短暂中断。`))
+      return
+
+    rmfRestartPending.current = true
+    setIsRestartingRmf(true)
+    const loadingToast = toast.loading(`正在重启 ${targetHost} 上的 RMF...`)
+    try {
+      await apiServer.restartRmf(targetHost)
+      toast.success('RMF 已重启，连接正在恢复', { id: loadingToast })
+    }
+    catch (error) {
+      toast.error(`RMF 重启失败：${error instanceof Error ? error.message : String(error)}`, { id: loadingToast })
+    }
+    finally {
+      rmfRestartPending.current = false
+      setIsRestartingRmf(false)
+    }
   }
 
   const handleForceRestartNavigation = async () => {
@@ -838,7 +866,6 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
 
     const loadingToast = toast.loading('正在准备导航图文件...')
     let uploadToast: string | undefined
-    let referenceToast: string | undefined
     let localUpdateToast: string | undefined
     setIsUploadingRmf(true)
     try {
@@ -965,29 +992,17 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
       const response = await apiServer.uploadRmfBuildingYaml(targetHost, content, mapImages)
       if (!response.ok || response.returncode !== 0)
         throw new Error(response.stderr || response.stdout || `returncode=${response.returncode}`)
+      setRmfUploadHost(targetHost.trim())
       toast.dismiss(uploadToast)
       uploadToast = undefined
 
-      referenceToast = toast.loading('正在检查参考坐标更新...')
-      const referenceResponse = await apiServer.updateFleetReferenceCoordinates(
-        selectedLevels.map(({ selection }) => selection.map.name),
-        false,
-      )
-      const referenceData = referenceResponse.data && typeof referenceResponse.data === 'object'
-        ? referenceResponse.data as { skipped?: boolean }
-        : null
-
       setShowExportModal(false)
-      toast.dismiss(referenceToast)
-      referenceToast = undefined
-      toast.success(referenceData?.skipped ? '导航图已上传；参考坐标请在站点配置中更新并 Apply' : '导航图已上传，参考坐标已更新')
+      toast.success('导航图已上传并生成，点击“重启 RMF”加载')
     }
     catch (error) {
       toast.dismiss(loadingToast)
       if (uploadToast)
         toast.dismiss(uploadToast)
-      if (referenceToast)
-        toast.dismiss(referenceToast)
       if (localUpdateToast)
         toast.dismiss(localUpdateToast)
       toast.error(`上传导航图失败 ${error}`)
@@ -1009,6 +1024,8 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
       return
 
     event.preventDefault()
+    setToolCategory(null)
+    setShowExecuteOptions(false)
     activateSelectMode()
   }, ['Escape'])
 
@@ -1043,304 +1060,218 @@ const TopDeck: React.FC<TopDeckProps> = ({ mapId }) => {
     }
   }, [cancelRelocalization, updateOp])
 
+  useEffect(() => {
+    if (!toolCategory)
+      return
+    const dismiss = (event: PointerEvent) => {
+      if (!toolbarRef.current?.contains(event.target as Node)) {
+        setToolCategory(null)
+        setShowExecuteOptions(false)
+      }
+    }
+    document.addEventListener('pointerdown', dismiss)
+    return () => document.removeEventListener('pointerdown', dismiss)
+  }, [toolCategory])
+
   const selectedLineWaypoints = getSelectedLineWaypoints()
   const selectedLineWaypointCount = selectedLineWaypoints.length
 
   return (
-    <div className="panel-container">
-      <div className="flex">
-        <div
-          className={`${currentOp === 'move' ? 'panel-item-enabled' : 'panel-item'} group`}
-          onClick={activateMoveMode}>
-          <div className="i-material-symbols-back-hand-outline-rounded panel-icon" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">移动 (M)</span>
+    <div className="robot-toolbar" ref={toolbarRef}>
+      <div className="robot-toolbar-header">
+        <div className="robot-toolbar-heading">
+          <strong title="当前地图">{mapsNew.find(map => map.id === mapId)?.name || '当前地图'}</strong>
+          <span className={`robot-toolbar-connection${robotState === ReadyState.OPEN ? ' is-connected' : ''}`} title={robotState === ReadyState.OPEN ? `机器人已连接：${robotStatus || '等待状态'}` : '机器人未连接'} aria-label={robotState === ReadyState.OPEN ? '机器人已连接' : '机器人未连接'} />
         </div>
-        <div
-          className={`${currentOp === 'select' ? 'panel-item-enabled' : 'panel-item'} group`}
-          onClick={activateSelectMode}>
-          <div className="i-material-symbols-near-me-outline-rounded panel-icon rotate-y-180" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">选择 (Esc)</span>
+        <div className="robot-toolbar-menus" role="group" aria-label="工具分类">
+          {([
+            ['edit', '编辑'],
+            ['points', '路径点'],
+            ['robot', '机器人'],
+            ['view', '视图'],
+          ] as const).map(([category, label]) => (
+            <button
+              key={category}
+              type="button"
+              className="robot-toolbar-menu-button"
+              aria-expanded={toolCategory === category}
+              aria-controls="robot-tool-menu"
+              onClick={() => {
+                setToolCategory(current => current === category ? null : category)
+                setShowExecuteOptions(false)
+              }}>
+              {label}
+            </button>
+          ))}
         </div>
-        <div
-          className="panel-item group bg-blue-600 hover:bg-blue-700"
-          onClick={captureRobotWaypoint}>
-          <div className="i-material-symbols-add-location-outline panel-icon" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">添加路径点</span>
-        </div>
-        <div
-          className={`panel-item group bg-emerald-600 hover:bg-emerald-700 ${isCalculatingDockingPose || !robotInfo || !hasLivePose ? 'opacity-45' : ''}`}
-          onClick={createDockingStartWaypoint}>
-          <div className={`${isCalculatingDockingPose ? 'i-material-symbols-progress-activity-rounded animate-spin' : 'i-material-symbols-ev-station-outline-rounded'} panel-icon`} />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">从机器人当前位姿创建对接起点</span>
-        </div>
-        <div
-          className={`${currentOp === 'waypoint' ? 'panel-item-enabled' : 'panel-item'} group`}
-          onClick={activateManualWaypointPlacement}>
-          <div className="i-material-symbols-my-location-outline-rounded panel-icon" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">手动放置路径点 (V)</span>
-        </div>
-        <div
-          className={`${currentOp === 'waypointLine' ? 'panel-item-enabled' : 'panel-item'} group`}
-          onClick={activateLineWaypointPlacement}>
-          <div className="i-material-symbols-linear-scale-rounded panel-icon" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">等距路径点</span>
-        </div>
-        <div
-          className={`${selectedLineWaypointCount >= 2 ? 'panel-item' : 'panel-item opacity-45'} group`}
-          onClick={selectCurrentWaypointLine}>
-          <div className="i-material-symbols-select-all-rounded panel-icon" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">选择整线</span>
-        </div>
-        <div
-          className={`${selectedLineWaypointCount >= 2 ? 'panel-item' : 'panel-item opacity-45'} group`}
-          onClick={openRotateLineModal}>
-          <div className="i-material-symbols-rotate-right-rounded panel-icon" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">旋转整线</span>
-        </div>
-        <div
-          className={`${selectedPointIds.length >= 2 ? 'panel-item' : 'panel-item opacity-45'} group`}
-          onClick={openRedistributeModal}>
-          <div className="i-material-symbols-align-horizontal-center-rounded panel-icon" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">等距重排 (/)</span>
-        </div>
-        <div
-          className={`${selectedPointIds.length >= 2 ? 'panel-item' : 'panel-item opacity-45'} group`}
-          onClick={openBatchRenameModal}>
-          <div className="i-material-symbols-edit-note-rounded panel-icon" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">批量重命名</span>
-        </div>
-        <button
-          type="button"
-          className="panel-item group w-auto gap-1 border-none bg-teal-600 px-3 hover:bg-teal-700"
-          onClick={openLaneGeneration}>
-          <div className="i-material-symbols-auto-fix-normal-rounded panel-icon" />
-          <span className="whitespace-nowrap text-sm">自动生成车道</span>
-        </button>
-        <div className="relative">
-          <div
-            className={`${selectedWaypoints.length > 0 ? 'panel-item bg-green-600 hover:bg-green-700' : 'panel-item opacity-45'} group`}
-            onClick={toggleExecuteWaypointOptions}>
-            <div className="i-material-symbols-play-arrow-rounded panel-icon text-white" />
-            <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">前往选中点</span>
-          </div>
-          {showExecuteOptions && (
-            <div
-              className="absolute z-50 top-11 left-0 w-56 rounded-xl border-(solid 1px gray-300) bg-white p-3 text-sm text-gray-800 shadow-lg"
-              onClick={event => event.stopPropagation()}>
-              <div className="mb-1 font-bold">前往选中点</div>
-              <div className="mb-3 text-xs text-gray-500">确认后下发 {selectedWaypoints.length} 个路径点</div>
-              <label className="mb-2 flex items-center justify-between gap-3">
-                <span className="text-gray-600">导航方式</span>
-                <select
-                  className="w-26 rounded border-(solid 1px gray-300) bg-gray-50 px-2 py-1"
-                  value={executeNavType}
-                  onChange={event => setExecuteNavType(event.target.value as ExecuteWaypointNavType)}>
-                  <option value="auto">auto</option>
-                  <option value="manually">manually</option>
-                </select>
-              </label>
-              <label className="mb-2 flex items-center justify-between gap-3">
-                <span className="text-gray-600">终点行为</span>
-                <select
-                  className="w-26 rounded border-(solid 1px gray-300) bg-gray-50 px-2 py-1"
-                  value={executeActionId}
-                  onChange={event => setExecuteActionId(event.target.value)}>
-                  <option value="">无</option>
-                  {pointActions.map(action => (
-                    <option key={action.id} value={action.id}>{action.name}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="mb-2 flex items-center justify-between gap-3">
-                <span className="text-gray-600">坐标精度</span>
-                <input
-                  className="w-26 rounded border-(solid 1px gray-300) bg-gray-50 px-2 py-1 text-right"
-                  inputMode="decimal"
-                  value={executePreciseXY}
-                  onChange={event => setExecutePreciseXY(event.target.value)} />
-              </label>
-              <label className="flex items-center justify-between gap-3">
-                <span className="text-gray-600">朝向精度</span>
-                <input
-                  className="w-26 rounded border-(solid 1px gray-300) bg-gray-50 px-2 py-1 text-right"
-                  inputMode="decimal"
-                  value={executePreciseRad}
-                  onChange={event => setExecutePreciseRad(event.target.value)} />
-              </label>
-              <div className="mt-3 flex justify-end gap-2">
-                <button
-                  type="button"
-                  className="rounded-md border-(solid 1px gray-300) px-3 py-1 text-gray-600 hover:bg-gray-100"
-                  onClick={() => setShowExecuteOptions(false)}>
-                  取消
-                </button>
-                <button
-                  type="button"
-                  className="rounded-md bg-green-600 px-3 py-1 text-white hover:bg-green-700"
-                  onClick={handleGoToSelectedWaypoints}>
-                  确认前往
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-        <div
-          className={`${currentOp === 'pathway' ? 'panel-item-enabled' : 'panel-item'} group`}
-          onClick={activatePathMode}>
-          <div className="i-material-symbols-edit-road-outline-rounded panel-icon" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">添加路径 (L)</span>
-        </div>
-        <div
-          className={`${currentOp === 'door' ? 'panel-item-enabled' : 'panel-item'} group`}
-          onClick={activateDoorMode}>
-          <div className="i-material-symbols-door-front-outline-rounded panel-icon" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">添加门</span>
-        </div>
-        <div
-          className={`${currentOp === 'lift' ? 'panel-item-enabled' : 'panel-item'} group`}
-          onClick={activateLiftMode}>
-          <div className="i-material-symbols-elevator-outline-rounded panel-icon" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">添加电梯</span>
-        </div>
-        <div className="relative">
-          <div
-            className={`${currentOp === 'relocalize' ? 'panel-item-enabled' : 'panel-item'} group`}
-            onClick={toggleRelocalization}>
-            <div className="i-material-symbols-location-on-outline panel-icon text-white" />
-            <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
-              {currentOp === 'relocalize' ? '关闭重定位' : '重定位'}
-            </span>
-          </div>
-          {currentOp === 'relocalize' && (
-            <div className="absolute z-50 top-11 left-0 w-56 rounded-xl border-(solid 1px gray-300) bg-white p-3 text-sm text-gray-800 shadow-lg">
-              <div className="mb-2 font-bold">重定位设置</div>
-              <label className="flex items-center justify-between gap-3">
-                <span className="text-gray-600">use_absolute</span>
-                <select
-                  className="w-26 rounded border-(solid 1px gray-300) bg-gray-50 px-2 py-1"
-                  value={relocalizationUseAbsolute ? 'true' : 'false'}
-                  onChange={event => setRelocalizationUseAbsolute(event.target.value === 'true')}>
-                  <option value="false">false</option>
-                  <option value="true">true</option>
-                </select>
-              </label>
-            </div>
-          )}
-        </div>
-        {currentOp === 'relocalize' && (
-          <div
-            className="panel-item group bg-green-600 hover:bg-green-700"
-            onClick={handleRelocalizationConfirm}>
-            <div className="i-material-symbols-check-small panel-icon text-white" />
-            <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
-              发送重定位
-            </span>
-          </div>
-        )}
-      </div>
-      <div className="flex">
-        <div
-          className="panel-item group"
-          onClick={zoomInClick}>
-          <div className="i-material-symbols-zoom-in-rounded panel-icon" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">放大</span>
-        </div>
-        <div
-          className="panel-item group"
-          onClick={zoomOutClick}>
-          <div className="i-material-symbols-zoom-out-rounded panel-icon" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">缩小</span>
-        </div>
-        <div
-          className="panel-item group"
-          onClick={centerMapOnCanvas}>
-          <div className="i-material-symbols-center-focus-strong-rounded panel-icon" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">地图居中</span>
-        </div>
-        <div
-          className="panel-item group"
-          onClick={centerRobotOnCanvas}>
-          <div className="i-material-symbols-my-location-rounded panel-icon" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">机器人居中</span>
-        </div>
-        <div
-          className="panel-item group"
-          onClick={() => setShowShelfStateModal(true)}>
-          <div className="i-material-symbols-inventory-2-outline-rounded panel-icon" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">外设状态</span>
-        </div>
-        <div
-          className={`${isScanVisible ? 'panel-item-enabled' : 'panel-item'} group`}
-          onClick={toggleScanVisibility}>
-          <div className={`${isScanVisible ? 'i-material-symbols-sensors-rounded' : 'i-material-symbols-sensors-off-rounded'} panel-icon`} />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
-            {isScanVisible ? '隐藏扫描' : '显示扫描'}
-          </span>
-        </div>
-        {isScanVisible && (
-          <>
-            <LidarScanControls />
-            <div
-              className="panel-item group"
-              onClick={decreaseScanPointSize}>
-              <div className="i-material-symbols-remove-rounded panel-icon" />
-              <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
-                减小扫描点
-              </span>
-            </div>
-            <div
-              className="panel-item group"
-              onClick={increaseScanPointSize}>
-              <div className="i-material-symbols-add-rounded panel-icon" />
-              <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
-                增大扫描点
-              </span>
-            </div>
-          </>
-        )}
-        <CostmapControls />
-        <PointCloudControls />
-        <CameraStreamControls />
-        <div className="panel-item justify-center group">
-          <div className={`${robotState === ReadyState.OPEN
-            ? 'border-green'
-            : 'border-red'} border-(3px solid) rd-3px self-center`} />
-          <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
-            {`机器人: ${robotStatus ?? '未连接'}`}
-          </span>
-        </div>
-        <div
-          className="panel-item group"
-          onClick={handleFetchClicked}>
-          <div className="i-material-symbols-download-rounded panel-icon" />
-          <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
-            获取地图数据
-          </span>
-        </div>
-        <div
-          className="panel-item group bg-amber-600 hover:bg-amber-700"
-          onClick={handleForceRestartNavigation}>
-          <div className="i-material-symbols-refresh-rounded panel-icon" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">
-            强制重启导航
-          </span>
-        </div>
-        <div
-          className="panel-item group"
-          onClick={handleSubmitClicked}>
-          <div
-            className="i-material-symbols-upload-rounded panel-icon" />
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">保存</span>
-        </div>
-        <div
-          className="panel-item group w-auto min-w-2.5rem gap-1 px-3 bg-emerald-700 hover:bg-emerald-800 items-center"
-          onClick={handleGenerateRmfClicked}>
-          <div
-            className="i-material-symbols-description-outline-rounded panel-icon" />
-          <span className="mr-1 text-sm font-medium whitespace-nowrap">上传导航图</span>
-          <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible whitespace-nowrap">上传导航图</span>
+        <div className="robot-toolbar-actions" role="group" aria-label="保存与部署">
+          <RobotToolButton label="保存" icon="i-material-symbols-save-rounded" onClick={handleSubmitClicked} disabled={!currentProfile()} tone="primary" title="保存当前地图配置 (Ctrl+S)" />
+          <RobotToolButton label={isUploadingRmf ? '上传中…' : '上传导航图'} icon="i-material-symbols-upload-rounded" onClick={handleGenerateRmfClicked} busy={isUploadingRmf} disabled={isRestartingRmf} tone="upload" />
+          <RobotToolButton label={isRestartingRmf ? 'RMF 重启中…' : '重启 RMF'} icon="i-material-symbols-restart-alt-rounded" onClick={handleRestartRmf} busy={isRestartingRmf} disabled={isUploadingRmf} tone="warning" title={`重启 ${rmfUploadHost} 上的 RMF，加载已上传的导航图`} />
         </div>
       </div>
+      {toolCategory && (
+        <div
+          id="robot-tool-menu"
+          className="robot-toolbar-tools"
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              setToolCategory(null)
+              setShowExecuteOptions(false)
+            }
+          }}
+          onClick={(event) => {
+            if ((toolCategory === 'edit' || toolCategory === 'points') && (event.target as Element).closest('button'))
+              setToolCategory(null)
+          }}>
+          <button type="button" className="robot-tool-menu-close" aria-label="关闭工具菜单" onClick={() => setToolCategory(null)}>×</button>
+          {toolCategory === 'edit' && (
+            <>
+              <RobotToolGroup label="配置">
+                <RobotToolButton label="读取配置" icon="i-material-symbols-download-rounded" onClick={handleFetchClicked} title="从机器人读取当前地图与配置" />
+              </RobotToolGroup>
+              <RobotToolGroup label="浏览">
+                <RobotToolButton label="拖动" icon="i-material-symbols-back-hand-outline-rounded" active={currentOp === 'move'} onClick={activateMoveMode} title="拖动视图 (M)" />
+                <RobotToolButton label="选择" icon="i-material-symbols-near-me-outline-rounded" active={currentOp === 'select'} onClick={activateSelectMode} title="选择路径点 (Esc)" />
+              </RobotToolGroup>
+              <RobotToolGroup label="路径点">
+                <RobotToolButton label="记录机器人位置" icon="i-material-symbols-add-location-outline" onClick={captureRobotWaypoint} disabled={!robotInfo || !hasLivePose} />
+                <RobotToolButton label="手动放置" icon="i-material-symbols-my-location-outline-rounded" active={currentOp === 'waypoint'} onClick={activateManualWaypointPlacement} title="手动放置路径点 (V)" />
+                <RobotToolButton label="等距布点" icon="i-material-symbols-linear-scale" active={currentOp === 'waypointLine'} onClick={activateLineWaypointPlacement} />
+                <RobotToolButton label="对接起点" icon="i-material-symbols-ev-station-outline-rounded" onClick={createDockingStartWaypoint} busy={isCalculatingDockingPose} disabled={!robotInfo || !hasLivePose} title="从机器人当前位姿创建对接起点" />
+              </RobotToolGroup>
+              <RobotToolGroup label="通行设施">
+                <RobotToolButton label="画车道" icon="i-material-symbols-edit-road-outline-rounded" active={currentOp === 'pathway'} onClick={activatePathMode} title="添加车道 (L)" />
+                <RobotToolButton label="自动生成车道" icon="i-material-symbols-auto-fix-normal-rounded" onClick={openLaneGeneration} />
+                <RobotToolButton label="门" icon="i-material-symbols-door-front-outline-rounded" active={currentOp === 'door'} onClick={activateDoorMode} />
+                <RobotToolButton label="电梯" icon="i-material-symbols-elevator-outline-rounded" active={currentOp === 'lift'} onClick={activateLiftMode} />
+              </RobotToolGroup>
+            </>
+          )}
+          {toolCategory === 'points' && (
+            <RobotToolGroup label={`已选 ${selectedPointIds.length} 个路径点`}>
+              <RobotToolButton label="选择整线" icon="i-material-symbols-select-all-rounded" onClick={selectCurrentWaypointLine} disabled={selectedLineWaypointCount < 2} />
+              <RobotToolButton label="旋转整线" icon="i-material-symbols-rotate-right-rounded" onClick={openRotateLineModal} disabled={selectedLineWaypointCount < 2} />
+              <RobotToolButton label="等距重排" icon="i-material-symbols-align-horizontal-center-rounded" onClick={openRedistributeModal} disabled={selectedPointIds.length < 2} title="等距重排 (/)" />
+              <RobotToolButton label="批量重命名" icon="i-material-symbols-edit-note-rounded" onClick={openBatchRenameModal} disabled={selectedPointIds.length < 2} />
+            </RobotToolGroup>
+          )}
+          {toolCategory === 'robot' && (
+            <>
+              <RobotToolGroup label="控制">
+                <div className="relative">
+                  <RobotToolButton label="前往选中点" icon="i-material-symbols-play-arrow-rounded" onClick={toggleExecuteWaypointOptions} disabled={!selectedWaypoints.length} />
+                  {showExecuteOptions && (
+                    <div
+                      className="absolute z-50 top-11 left-0 w-56 rounded-xl border-(solid 1px gray-300) bg-white p-3 text-sm text-gray-800 shadow-lg"
+                      onClick={event => event.stopPropagation()}>
+                      <div className="mb-1 font-bold">前往选中点</div>
+                      <div className="mb-3 text-xs text-gray-500">确认后下发 {selectedWaypoints.length} 个路径点</div>
+                      <label className="mb-2 flex items-center justify-between gap-3">
+                        <span className="text-gray-600">导航方式</span>
+                        <select
+                          className="w-26 rounded border-(solid 1px gray-300) bg-gray-50 px-2 py-1"
+                          value={executeNavType}
+                          onChange={event => setExecuteNavType(event.target.value as ExecuteWaypointNavType)}>
+                          <option value="auto">auto</option>
+                          <option value="manually">manually</option>
+                        </select>
+                      </label>
+                      <label className="mb-2 flex items-center justify-between gap-3">
+                        <span className="text-gray-600">终点行为</span>
+                        <select
+                          className="w-26 rounded border-(solid 1px gray-300) bg-gray-50 px-2 py-1"
+                          value={executeActionId}
+                          onChange={event => setExecuteActionId(event.target.value)}>
+                          <option value="">无</option>
+                          {pointActions.map(action => (
+                            <option key={action.id} value={action.id}>{action.name}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="mb-2 flex items-center justify-between gap-3">
+                        <span className="text-gray-600">坐标精度</span>
+                        <input
+                          className="w-26 rounded border-(solid 1px gray-300) bg-gray-50 px-2 py-1 text-right"
+                          inputMode="decimal"
+                          value={executePreciseXY}
+                          onChange={event => setExecutePreciseXY(event.target.value)} />
+                      </label>
+                      <label className="flex items-center justify-between gap-3">
+                        <span className="text-gray-600">朝向精度</span>
+                        <input
+                          className="w-26 rounded border-(solid 1px gray-300) bg-gray-50 px-2 py-1 text-right"
+                          inputMode="decimal"
+                          value={executePreciseRad}
+                          onChange={event => setExecutePreciseRad(event.target.value)} />
+                      </label>
+                      <div className="mt-3 flex justify-end gap-2">
+                        <button
+                          type="button"
+                          className="rounded-md border-(solid 1px gray-300) px-3 py-1 text-gray-600 hover:bg-gray-100"
+                          onClick={() => setShowExecuteOptions(false)}>
+                          取消
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-md bg-green-600 px-3 py-1 text-white hover:bg-green-700"
+                          onClick={handleGoToSelectedWaypoints}>
+                          确认前往
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="relative">
+                  <RobotToolButton label={currentOp === 'relocalize' ? '取消重定位' : '重定位'} icon="i-material-symbols-location-on-outline" active={currentOp === 'relocalize'} onClick={toggleRelocalization} />
+                  {currentOp === 'relocalize' && (
+                    <div className="absolute z-50 top-11 left-0 w-56 rounded-xl border-(solid 1px gray-300) bg-white p-3 text-sm text-gray-800 shadow-lg">
+                      <div className="mb-2 font-bold">重定位设置</div>
+                      <label className="flex items-center justify-between gap-3">
+                        <span className="text-gray-600">use_absolute</span>
+                        <select
+                          className="w-26 rounded border-(solid 1px gray-300) bg-gray-50 px-2 py-1"
+                          value={relocalizationUseAbsolute ? 'true' : 'false'}
+                          onChange={event => setRelocalizationUseAbsolute(event.target.value === 'true')}>
+                          <option value="false">false</option>
+                          <option value="true">true</option>
+                        </select>
+                      </label>
+                    </div>
+                  )}
+                </div>
+                {currentOp === 'relocalize' && <RobotToolButton label="发送重定位" icon="i-material-symbols-check-circle-outline-rounded" onClick={handleRelocalizationConfirm} tone="primary" />}
+                <RobotToolButton label="外设状态" icon="i-material-symbols-inventory-2-outline-rounded" onClick={() => setShowShelfStateModal(true)} />
+              </RobotToolGroup>
+              <RobotToolGroup label="维护">
+                <RobotToolButton label="重启机器人导航" icon="i-material-symbols-refresh-rounded" onClick={handleForceRestartNavigation} disabled={isRestartingRmf || isUploadingRmf || (showNavigationTransitionEvents && navigationRestartState === 'restarting')} tone="warning" title="强制重启当前机器人的导航程序" />
+              </RobotToolGroup>
+            </>
+          )}
+          {toolCategory === 'view' && (
+            <>
+              <RobotToolGroup label="地图">
+                <RobotToolButton label="放大" icon="i-material-symbols-zoom-in-rounded" onClick={zoomInClick} />
+                <RobotToolButton label="缩小" icon="i-material-symbols-zoom-out-rounded" onClick={zoomOutClick} />
+                <RobotToolButton label="地图居中" icon="i-material-symbols-center-focus-strong-rounded" onClick={centerMapOnCanvas} />
+                <RobotToolButton label="机器人居中" icon="i-material-symbols-my-location-rounded" onClick={centerRobotOnCanvas} />
+              </RobotToolGroup>
+              <RobotToolGroup label="激光扫描">
+                <RobotToolButton label={isScanVisible ? '隐藏扫描' : '显示扫描'} icon="i-material-symbols-sensors-rounded" active={isScanVisible} onClick={toggleScanVisibility} />
+                {isScanVisible && (
+                  <>
+                    <LidarScanControls />
+                    <RobotToolButton label="减小点" icon="i-material-symbols-remove-rounded" onClick={decreaseScanPointSize} />
+                    <RobotToolButton label="增大点" icon="i-material-symbols-add-rounded" onClick={increaseScanPointSize} />
+                  </>
+                )}
+              </RobotToolGroup>
+              <RobotToolGroup label="代价地图"><CostmapControls /></RobotToolGroup>
+              <RobotToolGroup label="点云与相机"><PointCloudControls /><CameraStreamControls /></RobotToolGroup>
+            </>
+          )}
+        </div>
+      )}
       {showExportModal && (
         <ExportRmfModal
           currentMapId={mapId}

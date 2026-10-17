@@ -48,7 +48,7 @@ const Deployment: React.FC = () => {
   }, [addProfiles, parseMapId, resetGrid, resetProfile])
 
   return (
-    <div className="flex flex-(col 1) h-full">
+    <div className="flex flex-(col 1) h-full min-w-0">
       <TopDeck mapId={parseMapId()} />
       <div className="flex flex-auto">
         <ProfileDeck mapId={parseMapId()} />

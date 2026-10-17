@@ -1,0 +1,233 @@
+.robot-toolbar {
+  position: relative;
+  z-index: 20;
+  flex: none;
+  min-width: 0;
+  color: #334155;
+  background: #fff;
+  border-bottom: 1px solid #dbe2ea;
+}
+
+.robot-toolbar-header,
+.robot-toolbar-actions,
+.robot-tool-group-actions,
+.robot-toolbar-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.robot-toolbar-header {
+  box-sizing: border-box;
+  flex-wrap: nowrap;
+  height: 44px;
+  gap: 8px;
+  padding: 6px 10px;
+}
+
+.robot-toolbar-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.robot-toolbar-heading strong {
+  color: #0f172a;
+  max-width: 140px;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.robot-toolbar-actions {
+  flex: none;
+  flex-wrap: nowrap;
+  margin-left: auto;
+}
+
+.robot-toolbar-connection {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+
+.robot-toolbar-connection.is-connected {
+  background: #10b981;
+}
+
+.robot-toolbar-menus {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+
+.robot-toolbar-menu-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  color: #64748b;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.robot-toolbar-menu-button::after {
+  content: '▾';
+  font-size: 10px;
+}
+
+.robot-toolbar-menu-button[aria-expanded="true"] {
+  color: #1d4ed8;
+  background: #eff6ff;
+  font-weight: 600;
+}
+
+.robot-toolbar-tools {
+  position: absolute;
+  z-index: 50;
+  top: 100%;
+  right: 8px;
+  left: 8px;
+  gap: 10px 20px;
+  padding: 12px 42px 12px 12px;
+  border: 1px solid #dbe2ea;
+  border-radius: 0 0 8px 8px;
+  background: #fff;
+  box-shadow: 0 8px 20px #0f172a1a;
+}
+
+.robot-tool-menu-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 4px;
+  color: #64748b;
+  background: #f1f5f9;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.robot-tool-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.robot-tool-group-label {
+  color: #64748b;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.robot-tool-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 1px solid #dbe2ea;
+  border-radius: 6px;
+  color: #334155;
+  background: #fff;
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.robot-tool-button > span:first-child {
+  flex: none;
+  width: 17px;
+  height: 17px;
+}
+
+.robot-tool-button:hover:not(:disabled) {
+  border-color: #94a3b8;
+  background: #f1f5f9;
+}
+
+.robot-tool-button.is-active,
+.robot-tool-button.is-primary {
+  color: #fff;
+  border-color: #2563eb;
+  background: #2563eb;
+}
+
+.robot-tool-button.is-upload {
+  color: #fff;
+  border-color: #047857;
+  background: #047857;
+}
+
+.robot-tool-button.is-warning {
+  color: #92400e;
+  border-color: #fcd34d;
+  background: #fffbeb;
+}
+
+.robot-tool-button.is-primary:hover:not(:disabled),
+.robot-tool-button.is-active:hover:not(:disabled) {
+  color: #1d4ed8;
+}
+
+.robot-tool-button.is-upload:hover:not(:disabled) {
+  color: #047857;
+}
+
+.robot-tool-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.robot-tool-button:focus-visible,
+.robot-toolbar-menu-button:focus-visible,
+.robot-tool-menu-close:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.robot-toolbar .panel-item,
+.robot-toolbar .panel-item-enabled {
+  box-sizing: border-box;
+  flex: none;
+  width: 36px;
+  height: 32px;
+  border: 1px solid #dbe2ea;
+  border-radius: 6px;
+  color: #475569;
+  background: #fff;
+  cursor: pointer;
+}
+
+.robot-toolbar .panel-item-enabled {
+  color: #fff;
+  border-color: #2563eb;
+  background: #2563eb;
+}
+
+.robot-toolbar .panel-icon {
+  color: inherit;
+}
+
+.robot-toolbar .panel-item:hover {
+  background: #e2e8f0;
+}

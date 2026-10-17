@@ -930,6 +930,9 @@ declare global {
     method?: 'GET' | 'PUT' | 'POST'
     token?: string
     json?: unknown
+    body?: Uint8Array
+    contentType?: string
+    timeout?: number
   }
 
   interface ComposeControlRequestResult<T = unknown> {

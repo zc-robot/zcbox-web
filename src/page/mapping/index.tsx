@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import useWebSocket, { ReadyState } from 'react-use-websocket'
 import type { unstable_BlockerFunction as BlockerFunction } from 'react-router-dom'
 import { unstable_useBlocker as useBlocker } from 'react-router-dom'
@@ -7,6 +7,7 @@ import CameraStreamControls from '@/components/CameraStreamControls'
 import ControllerDeck from '@/components/ControllerDeck'
 import LidarScanControls from '@/components/LidarScanControls'
 import PointCloudControls from '@/components/PointCloudControls'
+import { RobotToolButton, RobotToolGroup } from '@/components/RobotToolbar'
 import { useGridStore } from '@/store'
 import apiServer from '@/service/apiServer'
 import Monitor from '@/components/map/Monitor'
@@ -15,6 +16,18 @@ import { parseFiniteNumber, parseRobotStatus } from '@/util'
 const Mapping: React.FC = () => {
   const [showModal, setShowModal] = useState<boolean>(false)
   const [isMapping, setIsMapping] = useState<boolean>(false)
+  const [showViewTools, setShowViewTools] = useState(false)
+  const toolbarRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!showViewTools)
+      return
+    const dismiss = (event: PointerEvent) => {
+      if (!toolbarRef.current?.contains(event.target as Node))
+        setShowViewTools(false)
+    }
+    document.addEventListener('pointerdown', dismiss)
+    return () => document.removeEventListener('pointerdown', dismiss)
+  }, [showViewTools])
   const shouldBlocker = useCallback<BlockerFunction>(({ currentLocation, nextLocation }) => {
     return isMapping && currentLocation.pathname !== nextLocation.pathname
   }, [isMapping])
@@ -109,81 +122,40 @@ const Mapping: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-(col 1) h-full">
-      <div className="bg-dark-300 flex justify-between">
-        <div className="flex">
-          <div
-            className="panel-item group"
-            onClick={zoomInClick}>
-            <div className="i-material-symbols-zoom-in-rounded panel-icon" />
-            <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">放大</span>
+    <div className="flex flex-(col 1) h-full min-w-0">
+      <div className="robot-toolbar" ref={toolbarRef}>
+        <div className="robot-toolbar-header">
+          <div className="robot-toolbar-heading">
+            <strong>建图</strong>
+            <span className={`robot-toolbar-connection${robotState === ReadyState.OPEN ? ' is-connected' : ''}`} title={robotState === ReadyState.OPEN ? `机器人已连接：${robotStatus || '等待状态'}` : '机器人未连接'} />
+            <span className={`robot-toolbar-connection${isMapZenohConnected ? ' is-connected' : ''}`} title={isMapZenohConnected ? '地图已连接' : '等待地图'} />
           </div>
-          <div
-            className="panel-item group"
-            onClick={zoomOutClick}>
-            <div className="i-material-symbols-zoom-out-rounded panel-icon" />
-            <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">缩小</span>
-          </div>
-          <div
-            className="panel-item group"
-            onClick={handleSaveClicked}>
-            <div className="i-material-symbols-save-rounded panel-icon" />
-            <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">保存</span>
-          </div>
-          <div
-            className={`${isScanVisible ? 'panel-item-enabled' : 'panel-item'} group`}
-            onClick={toggleScanVisibility}>
-            <div className={`${isScanVisible ? 'i-material-symbols-sensors-rounded' : 'i-material-symbols-sensors-off-rounded'} panel-icon`} />
-            <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
-              {isScanVisible ? '隐藏扫描' : '显示扫描'}
-            </span>
-          </div>
-          {isScanVisible && (
-            <>
-              <LidarScanControls />
-              <div
-                className="panel-item group"
-                onClick={decreaseScanPointSize}>
-                <div className="i-material-symbols-remove-rounded panel-icon" />
-                <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
-                  减小扫描点
-                </span>
-              </div>
-              <div
-                className="panel-item group"
-                onClick={increaseScanPointSize}>
-                <div className="i-material-symbols-add-rounded panel-icon" />
-                <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
-                  增大扫描点
-                </span>
-              </div>
-            </>
-          )}
-          <PointCloudControls />
-          <CameraStreamControls />
-        </div>
-        <div className="flex">
-          <div
-            className="panel-item group"
-            onClick={handleToggleClicked}>
-            <div className={`${isMapping ? 'i-material-symbols-stop-circle-rounded' : 'i-material-symbols-play-circle-rounded'} panel-icon`} />
-            <span className="group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">{isMapping ? '停止' : '开启'}</span>
-          </div>
-          <div className="panel-item justify-center group">
-            <div className={`${robotState === ReadyState.OPEN
-              ? 'border-green'
-              : 'border-red'} border-(3px solid) rd-3px self-center`} />
-              <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">
-                {`机器人: ${robotStatus ?? '未连接'}`}
-              </span>
-          </div>
-          <div className="panel-item justify-center group">
-            <div className={`${isMapZenohConnected
-              ? 'border-green'
-              : 'border-red'} border-(3px solid) rd-3px self-center`}/>
-              <span className="z-10 group-hover:visible bg-gray-800 px-1 text-(sm gray-100) rounded-md absolute translate-y-3rem mt-1 invisible">地图</span>
+          <button type="button" className="robot-toolbar-menu-button" aria-expanded={showViewTools} aria-controls="mapping-view-tools" onClick={() => setShowViewTools(current => !current)}>视图与图层</button>
+          <div className="robot-toolbar-actions" role="group" aria-label="建图操作">
+            <RobotToolButton label="保存地图" icon="i-material-symbols-save-rounded" onClick={handleSaveClicked} tone="primary" />
+            <RobotToolButton label={isMapping ? '停止建图' : '继续建图'} icon={isMapping ? 'i-material-symbols-stop-circle-rounded' : 'i-material-symbols-play-circle-rounded'} onClick={handleToggleClicked} tone={isMapping ? 'warning' : undefined} />
           </div>
         </div>
+        {showViewTools && (
+          <div id="mapping-view-tools" className="robot-toolbar-tools" onKeyDown={event => event.key === 'Escape' && setShowViewTools(false)}>
+            <button type="button" className="robot-tool-menu-close" aria-label="关闭工具菜单" onClick={() => setShowViewTools(false)}>×</button>
+            <RobotToolGroup label="地图视图">
+              <RobotToolButton label="放大" icon="i-material-symbols-zoom-in-rounded" onClick={zoomInClick} />
+              <RobotToolButton label="缩小" icon="i-material-symbols-zoom-out-rounded" onClick={zoomOutClick} />
+            </RobotToolGroup>
+            <RobotToolGroup label="激光扫描">
+              <RobotToolButton label={isScanVisible ? '隐藏扫描' : '显示扫描'} icon="i-material-symbols-sensors-rounded" active={isScanVisible} onClick={toggleScanVisibility} />
+              {isScanVisible && (
+                <>
+                  <LidarScanControls />
+                  <RobotToolButton label="减小点" icon="i-material-symbols-remove-rounded" onClick={decreaseScanPointSize} />
+                  <RobotToolButton label="增大点" icon="i-material-symbols-add-rounded" onClick={increaseScanPointSize} />
+                </>
+              )}
+            </RobotToolGroup>
+            <RobotToolGroup label="点云与相机"><PointCloudControls /><CameraStreamControls /></RobotToolGroup>
+          </div>
+        )}
       </div>
       <div className="flex flex-auto">
         <Monitor />

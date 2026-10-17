@@ -699,34 +699,42 @@ class ApiServer {
     return URL.createObjectURL(response)
   }
 
-  private async requestComposeControl<T>(path: string, options: { method?: 'GET' | 'PUT' | 'POST'; json?: unknown; timeout?: number } = {}) {
+  private async requestComposeControl<T>(path: string, options: { method?: 'GET' | 'PUT' | 'POST'; json?: unknown; timeout?: number; targetHost?: string; body?: Blob | string; contentType?: string } = {}) {
     const requestPath = path.startsWith('/') ? path : `/${path}`
     const token = this.composeControlToken
     const method = options.method ?? 'GET'
+    const url = options.targetHost
+      ? new URL(requestPath, this.buildSystemControlUrl(options.targetHost, '/'))
+      : new URL(requestPath, this.composeControlBaseUrl)
     if (window.zcDesktop?.requestComposeControl) {
       const response = await window.zcDesktop.requestComposeControl<T>({
-        host: this.composeControlHost,
-        port: this.composeControlPort,
-        path: requestPath,
+        host: url.origin,
+        port: Number(url.port) || (url.protocol === 'https:' ? 443 : 80),
+        path: `${url.pathname}${url.search}`,
         method,
         token,
         json: options.json,
+        body: options.body === undefined ? undefined : new Uint8Array(await new Blob([options.body]).arrayBuffer()),
+        contentType: options.contentType,
+        timeout: options.timeout,
       })
       return response.body
     }
 
-    const url = new URL(requestPath, this.composeControlBaseUrl)
     const headers: Record<string, string> = {
       accept: 'application/json',
     }
     if (token)
       headers['x-api-key'] = token
+    if (options.contentType)
+      headers['content-type'] = options.contentType
 
     return ky(url.toString(), {
       method,
       timeout: options.timeout ?? 10000,
       headers,
       json: options.json,
+      body: options.body,
     }).json<T>()
   }
 
@@ -1724,19 +1732,13 @@ class ApiServer {
   }
 
   private async uploadSystemControlMapFile(targetHost: string, filename: string, body: Blob | string, contentType: string) {
-    const token = this.composeControlToken
-    const headers: Record<string, string> = {
-      'accept': 'application/json',
-      'content-type': contentType,
-    }
-    if (token)
-      headers['x-api-key'] = token
-
-    const json = await ky.post(this.buildSystemControlUrl(targetHost, '/api/v1/maps/files', { filename }), {
+    const json = await this.requestComposeControl<SystemControlEnvelope<{ file?: SystemControlMapFile }>>(composeControlPath('/api/v1/maps/files', { filename }), {
+      method: 'POST',
+      targetHost,
       body,
-      headers,
+      contentType,
       timeout: 30 * 60 * 1000,
-    }).json<SystemControlEnvelope<{ file?: SystemControlMapFile }>>()
+    })
 
     return unwrapSystemControl(json, `Failed to upload ${filename}`)
   }
@@ -1760,20 +1762,14 @@ class ApiServer {
       'application/x-yaml;charset=utf-8',
     )
 
-    const token = this.composeControlToken
-    const headers: Record<string, string> = {
-      accept: 'application/json',
-    }
-    if (token)
-      headers['x-api-key'] = token
-
-    const json = await ky.post(this.buildSystemControlUrl(targetHost, '/api/v1/maps/generate'), {
+    const json = await this.requestComposeControl<SystemControlEnvelope<SystemControlOperationData>>('/api/v1/maps/generate', {
+      method: 'POST',
+      targetHost,
       json: {
         source_filename: defaultRmfBuildingYamlFilename,
       },
-      headers,
       timeout: 30 * 60 * 1000,
-    }).json<SystemControlEnvelope<SystemControlOperationData>>()
+    })
     const data = unwrapSystemControl(json, 'Failed to generate RMF map')
 
     return {
@@ -1787,6 +1783,24 @@ class ApiServer {
       saved_images: savedImages,
       referenced_images: mapImages.map(image => image.filename),
     } satisfies RmfBuildingYamlUploadResponse
+  }
+
+  restartRmf = async (targetHost: string) => {
+    const json = await this.requestComposeControl<SystemControlEnvelope<{
+      container: string
+      restarted: boolean
+      running: boolean
+      pose_subscriptions_ready: boolean
+      proxy?: { running: boolean }
+    }>>('/api/v1/rmf/restart', {
+      method: 'POST',
+      targetHost,
+      timeout: 5 * 60 * 1000,
+    })
+    const data = unwrapSystemControl(json, 'RMF 重启失败')
+    if (!data.restarted || !data.running || !data.pose_subscriptions_ready || !data.proxy?.running)
+      throw new Error('RMF 启动状态尚未确认，请检查服务状态')
+    return data
   }
 
   fetchParams = async () => {
